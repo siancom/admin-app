@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "iris-clinic-app"
+  },
+  "targets": {
+    "iris-clinic-app": {
+      "hosting": {
+        "admin": [
+          "iris-clinic-admin"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

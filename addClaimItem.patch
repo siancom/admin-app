@@ -1,0 +1,50 @@
+--- src/components/POSSystem.jsx
++++ src/components/POSSystem.jsx
+@@ -1489,6 +1489,45 @@
+     }
+   };
+ 
++  const handleClaimItem = async (course, itemString) => {
++    try {
++      const batch = writeBatch(db);
++      
++      // Update course's claimedItems
++      const courseRef = doc(db, 'courses', course.id);
++      const currentClaimed = course.claimedItems || [];
++      batch.update(courseRef, {
++        claimedItems: [...currentClaimed, itemString]
++      });
++
++      // Try to deduct stock if it's a product
++      const product = products.find(p => String(getFuzzyKey(p, ["ชื่อสินค้า", "col_4"])) === itemString || itemString.includes(String(getFuzzyKey(p, ["ชื่อสินค้า", "col_4"]))));
++      if (product) {
++        const productRef = doc(db, 'products', product.id);
++        let newStockByBranch = { ...(product.stock_by_branch || {}) };
++        const myStock = parseQty(newStockByBranch[globalBranch || 'เฉวง'] || 0);
++        newStockByBranch[globalBranch || 'เฉวง'] = Math.max(0, myStock - 1);
++        batch.update(productRef, { stock_by_branch: newStockByBranch });
++      }
++
++      // Add History
++      const historyRef = doc(getCol('histories'));
++      batch.set(historyRef, {
++        "วันที่": new Date().toLocaleDateString('th-TH'),
++        "เวลา": new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
++        "ชื่อลูกค้า": String(getFuzzyKey(course, ["ผู้ซื้อคอส", "col_9"]) || '-'),
++        "เบอร์โทร": String(getFuzzyKey(course, ["เบอร์โทร", "col_1"]) || ''),
++        "ประเภท": "เบิกสินค้าจากคอร์ส",
++        "สถานะ": "เรียบร้อย",
++        "รายการ": itemString,
++        "สาขา": String(globalBranch || "สำนักงานใหญ่"),
++        "อ้างอิง": String(getFuzzyKey(course, ["เลขที่ใบคอส", "col_3"]) || '')
++      });
++
++      await batch.commit();
++      showToast('เบิกสินค้าสำเร็จ!', 'success');
++    } catch (e) {
++      console.error(e);
++      showToast('เกิดข้อผิดพลาดในการเบิกสินค้า', 'error');
++    }
++  };
++
+   const handleSaveA4AsImage = () => {

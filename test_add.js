@@ -1,0 +1,29 @@
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, addDoc } from 'firebase/firestore';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBS3zKEA6zosmy8tLRTyJ38BPLlUQS30gU",
+  authDomain: "iris-clinic-app.firebaseapp.com",
+  projectId: "iris-clinic-app",
+  storageBucket: "iris-clinic-app.firebasestorage.app",
+  messagingSenderId: "372749467528",
+  appId: "1:372749467528:web:1e90ecab74274ec965843d",
+  measurementId: "G-BQW1W46XSH"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app, "iris-care");
+
+async function check() {
+  try {
+    const docRef = await addDoc(collection(db, 'customer_documents'), {
+      customerId: 'test',
+      title: 'test'
+    });
+    console.log('Success:', docRef.id);
+  } catch(e) {
+    console.error('Error:', e);
+  }
+  process.exit(0);
+}
+check();

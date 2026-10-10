@@ -1,0 +1,12 @@
+/* POS Fullscreen Mode Overrides */
+body.pos-fullscreen-active aside,
+body.pos-fullscreen-active header {
+  display: none !important;
+}
+body.pos-fullscreen-active main {
+  margin-left: 0 !important;
+  padding-bottom: 0 !important;
+}
+body.pos-fullscreen-active #mobile-bottom-nav {
+  display: flex !important;
+}
