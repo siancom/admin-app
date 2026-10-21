@@ -107,7 +107,7 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
     : [];
   const eodDoneToday = todayEodRecords.length > 0;
   const lastEodRecord = [...todayEodRecords].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0];
-  const lastEodBy = lastEodRecord ? (employees.find(e => e.id === lastEodRecord.submittedBy)?.name || '') : '';
+  const lastEodBy = lastEodRecord ? (employees.find(e => e.id === lastEodRecord.submittedBy)?.name || lastEodRecord.submittedByName || '') : '';
   const lastEodTime = lastEodRecord?.createdAt ? new Date(lastEodRecord.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '';
 
   const openQuickEod = () => {

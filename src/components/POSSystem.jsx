@@ -499,6 +499,52 @@ export default function POSSystem({
   }, [latestFloat]);
   const [isSubmittingEod, setIsSubmittingEod] = useState(false);
 
+  // 🌟 ส่งยอดย้อนหลัง: จำวันที่ก่อนเปิด EOD เพื่อคืนค่าตอนปิด
+  const eodPrevDateRef = useRef(null);
+  useEffect(() => {
+    if (showEodModal) {
+      if (eodPrevDateRef.current === null) eodPrevDateRef.current = posFilterDate;
+    } else if (eodPrevDateRef.current !== null) {
+      setPosFilterDate(eodPrevDateRef.current);
+      eodPrevDateRef.current = null;
+    }
+  }, [showEodModal]);
+
+  const isEodBackdated = posFilterDate !== getLocalYYYYMMDD();
+
+  const toThDateStr = (yyyymmdd) => {
+    const dObj = new Date();
+    const [y, m, d] = yyyymmdd.split('-');
+    dObj.setFullYear(y, m - 1, d);
+    return dObj.toLocaleDateString('th-TH');
+  };
+
+  // รายงานที่ส่งไปแล้วของวันที่เลือก (กันส่งซ้ำ)
+  const existingEodForDate = useMemo(() => {
+    if (!posFilterDate) return [];
+    const target = toThDateStr(posFilterDate);
+    return dailySales.filter(d => d.branch === (globalBranch || "สำนักงานใหญ่") && d.date === target);
+  }, [dailySales, globalBranch, posFilterDate]);
+
+  const handleEodDateChange = (newDate) => {
+    if (!newDate || newDate > getLocalYYYYMMDD()) return;
+    setPosFilterDate(newDate);
+    // เงินทอนตั้งต้น = ยอดยกไปจากรายงานล่าสุดก่อนวันที่เลือก
+    const prev = [...dailySales]
+      .filter(d => d.branch === (globalBranch || "สำนักงานใหญ่") && typeof d.createdAt === 'string' && d.createdAt.slice(0, 10) < newDate)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    const isToday = newDate === getLocalYYYYMMDD();
+    setEodData(p => ({
+      ...p,
+      floatCash: isToday ? latestFloat : (prev && prev.nextDayFloat !== undefined ? prev.nextDayFloat.toString() : '1000'),
+      actualCash: '',
+      manualTransfer: '',
+      manualTransferNote: '',
+      clockOut: isToday ? p.clockOut : false,
+    }));
+    setEodTab('cash');
+  };
+
   // 🌟 ส่งยอดด่วน: เปิด EOD modal อัตโนมัติ + เลือกผู้ส่งยอดให้เลย
   useEffect(() => {
     if (!autoOpenEod) return;
@@ -927,6 +973,24 @@ export default function POSSystem({
 
     return { cash, transfer, cod, credit, transferDetails, pendingDetails, allSalesDetails, productSalesAmt, courseSalesAmt, manualSalesAmt, online };
   }, [orders, histories, globalBranch, posFilterDate]);
+
+  // 🌟 เจ้าของร้านส่งยอดได้แม้ไม่มีรายการขาย (เช่น ร้านปิด / ส่งย้อนหลัง)
+  const isEodNoSales = !((todaySalesBreakdown?.cash || 0) + (todaySalesBreakdown?.transfer || 0) + (todaySalesBreakdown?.credit || 0) + (todaySalesBreakdown?.cod || 0));
+  const isOwnerZeroEod = globalRole === 'owner' && isEodNoSales;
+
+  // 🌟 เจ้าของร้านกรอกยอดโอนเพิ่มเองได้ (รวมกับยอดโอนจากระบบ)
+  const manualTransferNum = globalRole === 'owner' ? (parseNumber(eodData.manualTransfer) || 0) : 0;
+  const eodBreakdown = useMemo(() => {
+    if (!manualTransferNum) return todaySalesBreakdown;
+    return {
+      ...todaySalesBreakdown,
+      transfer: (todaySalesBreakdown.transfer || 0) + manualTransferNum,
+      transferDetails: [
+        ...(todaySalesBreakdown.transferDetails || []),
+        { time: '-', customer: 'เจ้าของร้านกรอกเอง', amount: manualTransferNum, items: eodData.manualTransferNote || 'ยอดโอนที่กรอกเพิ่ม', isManual: true },
+      ],
+    };
+  }, [todaySalesBreakdown, manualTransferNum, eodData.manualTransferNote]);
 
   const currentMonthSales = useMemo(() => {
     const posFilterDateObj = new Date();
@@ -2309,11 +2373,15 @@ export default function POSSystem({
       showToast('กรุณาเลือกผู้ส่งยอด', 'error');
       return;
     }
+    if (eodData.actualCash === '' && !isOwnerZeroEod) {
+      showToast('กรุณาระบุยอดส่งเงินสด', 'error');
+      return;
+    }
 
     setIsSubmittingEod(true);
     try {
-      const expectedCash = todaySalesBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
-      const nonCashSales = (todaySalesBreakdown.transfer || 0) + (todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0);
+      const expectedCash = eodBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
+      const nonCashSales = (eodBreakdown.transfer || 0) + (eodBreakdown.credit || 0) + (eodBreakdown.cod || 0);
       
       const expectedTotalSystemBalance = expectedCash + nonCashSales;
       const floatCashNum = parseNumber(eodData.floatCash) || 0;
@@ -2331,7 +2399,7 @@ export default function POSSystem({
       const nextDayFloat = totalSystemBalance - totalTheoreticalDeposit;
       const remitAmount = eodData.actualCash ? actualRemittedCash : expectedRemitAmount;
 
-      const onlineSales = todaySalesBreakdown.online || 0;
+      const onlineSales = eodBreakdown.online || 0;
       const eodRef = doc(getCol('daily_sales'));
       const batch = writeBatch(db);
       
@@ -2345,17 +2413,17 @@ export default function POSSystem({
       batch.set(eodRef, {
         date: todayForFilter,
         branch: globalBranch || "สำนักงานใหญ่",
-        totalSales: todaySales,
-        cashSales: todaySalesBreakdown.cash,
-        transferSales: todaySalesBreakdown.transfer,
-        codSales: todaySalesBreakdown.cod - todaySalesBreakdown.online,
-        creditSales: todaySalesBreakdown.credit,
-        onlineSales: todaySalesBreakdown.online,
-        courseSales: todaySalesBreakdown.courseSalesAmt,
-        productSales: todaySalesBreakdown.productSalesAmt,
-        manualSales: todaySalesBreakdown.manualSalesAmt,
-        transferDetails: todaySalesBreakdown.transferDetails,
-        pendingDetails: todaySalesBreakdown.pendingDetails,
+        totalSales: todaySales + manualTransferNum,
+        cashSales: eodBreakdown.cash,
+        transferSales: eodBreakdown.transfer,
+        codSales: eodBreakdown.cod - eodBreakdown.online,
+        creditSales: eodBreakdown.credit,
+        onlineSales: eodBreakdown.online,
+        courseSales: eodBreakdown.courseSalesAmt,
+        productSales: eodBreakdown.productSalesAmt,
+        manualSales: eodBreakdown.manualSalesAmt,
+        transferDetails: eodBreakdown.transferDetails,
+        pendingDetails: eodBreakdown.pendingDetails,
         floatCash: floatCashNum,
         actualCash: actualTotalCash,
         expectedCash: expectedCash,
@@ -2365,12 +2433,16 @@ export default function POSSystem({
         nextDayFloat: nextDayFloat,
         imageBase64: eodData.imageBase64 || '',
         submittedBy: eodData.submittedBy,
+        submittedByName: eodData.submittedBy === 'owner' ? 'เจ้าของร้าน' : (employees.find(e => e.id === eodData.submittedBy)?.name || ''),
+        noSales: isEodNoSales && !manualTransferNum,
+        manualTransfer: manualTransferNum,
+        manualTransferNote: manualTransferNum ? (eodData.manualTransferNote || '') : '',
         status: 'รอตรวจสอบ',
         createdAt: posFilterDate ? `${posFilterDate}T${new Date().toISOString().split('T')[1]}` : new Date().toISOString()
       });
 
       // Handle Clock Out
-      if (eodData.clockOut) {
+      if (eodData.clockOut && !isEodBackdated && eodData.submittedBy !== 'owner') {
          const today = getLocalYYYYMMDD();
          const attRecord = employeeAttendance.find(a => a.employeeId === eodData.submittedBy && a.date === today && !a.clockOut);
          if (attRecord) {
@@ -2384,7 +2456,7 @@ export default function POSSystem({
       showToast('ส่งยอดประจำวันเรียบร้อยแล้ว!', 'success');
       quickEodSubmittedRef.current = true;
       setShowEodModal(false);
-      setEodData({ actualCash: '', floatCash: '1000', imageBase64: '', submittedBy: '', clockOut: true });
+      setEodData({ actualCash: '', floatCash: '1000', imageBase64: '', submittedBy: '', clockOut: true, manualTransfer: '', manualTransferNote: '' });
     } catch (error) {
       console.error(error);
       showToast(`เกิดข้อผิดพลาด: ${error.message}`, 'error');
@@ -5721,10 +5793,36 @@ export default function POSSystem({
         <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold text-slate-800">
-              สรุปส่งยอดประจำวัน <span className="text-sm font-normal text-slate-500 ml-2">({new Date(posFilterDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })})</span>
+              สรุปส่งยอดประจำวัน
             </h2>
             <button onClick={() => setShowEodModal(false)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
           </div>
+
+          {/* 🌟 เลือกวันที่ส่งยอด (ส่งย้อนหลังได้) */}
+          <div className={`flex items-center gap-2 mb-3 p-2 rounded-xl border ${isEodBackdated ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+            <span className={`text-xs font-bold shrink-0 ${isEodBackdated ? 'text-amber-700' : 'text-slate-500'}`}>วันที่ส่งยอด</span>
+            <input
+              id="eod-date-picker"
+              type="date"
+              value={posFilterDate}
+              max={getLocalYYYYMMDD()}
+              onChange={(e) => handleEodDateChange(e.target.value)}
+              className="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            {isEodBackdated ? (
+              <button onClick={() => handleEodDateChange(getLocalYYYYMMDD())} className="text-xs font-bold text-indigo-600 hover:underline shrink-0">วันนี้</button>
+            ) : null}
+          </div>
+          {isEodBackdated && (
+            <div className="mb-2 text-[11px] font-bold text-amber-700">
+              ⏪ ส่งยอดย้อนหลังของวันที่ {new Date(posFilterDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </div>
+          )}
+          {existingEodForDate.length > 0 && (
+            <div className="mb-3 p-2 rounded-lg bg-rose-50 border border-rose-200 text-[11px] font-bold text-rose-700">
+              ⚠️ {isEodBackdated ? 'วันที่นี้' : 'วันนี้'}สาขานี้ส่งยอดไปแล้ว {existingEodForDate.length} ครั้ง ถ้าส่งอีกจะเป็นรายงานซ้ำ
+            </div>
+          )}
           
           {/* Tab Selector */}
           <div className="flex bg-slate-100 p-1 rounded-xl mb-4 overflow-x-auto hide-scrollbar">
@@ -5732,13 +5830,13 @@ export default function POSSystem({
               เงินสด {eodData.actualCash ? `(฿${parseNumber(eodData.actualCash).toLocaleString()})` : ''}
             </button>
             <button onClick={() => setEodTab('transfer')} className={`flex-1 py-2 px-3 text-xs md:text-sm font-bold rounded-lg transition-colors whitespace-nowrap ${eodTab === 'transfer' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}>
-              โอน {todaySalesBreakdown.transfer > 0 ? `(฿${todaySalesBreakdown.transfer.toLocaleString()})` : ''}
+              โอน {eodBreakdown.transfer > 0 ? `(฿${eodBreakdown.transfer.toLocaleString()})` : ''}
             </button>
-            {todaySalesBreakdown.credit > 0 && <button onClick={() => setEodTab('credit')} className={`flex-1 py-2 px-3 text-xs md:text-sm font-bold rounded-lg transition-colors whitespace-nowrap ${eodTab === 'credit' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}>
-              เครดิต (฿{todaySalesBreakdown.credit.toLocaleString()})
+            {eodBreakdown.credit > 0 && <button onClick={() => setEodTab('credit')} className={`flex-1 py-2 px-3 text-xs md:text-sm font-bold rounded-lg transition-colors whitespace-nowrap ${eodTab === 'credit' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}>
+              เครดิต (฿{eodBreakdown.credit.toLocaleString()})
             </button>}
-            {todaySalesBreakdown.cod > 0 && <button onClick={() => setEodTab('cod')} className={`flex-1 py-2 px-3 text-xs md:text-sm font-bold rounded-lg transition-colors whitespace-nowrap ${eodTab === 'cod' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}>
-              ค้าง/Shopee (฿{todaySalesBreakdown.cod.toLocaleString()})
+            {eodBreakdown.cod > 0 && <button onClick={() => setEodTab('cod')} className={`flex-1 py-2 px-3 text-xs md:text-sm font-bold rounded-lg transition-colors whitespace-nowrap ${eodTab === 'cod' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}>
+              ค้าง/Shopee (฿{eodBreakdown.cod.toLocaleString()})
             </button>}
             <button onClick={() => setEodTab('confirm')} className={`flex-1 py-2 px-3 text-xs md:text-sm font-bold rounded-lg transition-colors whitespace-nowrap ${eodTab === 'confirm' ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}>ยืนยัน</button>
           </div>
@@ -5768,8 +5866,8 @@ export default function POSSystem({
                   />
                 </div>
                 {(() => {
-                  const expectedCash = todaySalesBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
-                  const nonCashSales = (todaySalesBreakdown.transfer || 0) + (todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0);
+                  const expectedCash = eodBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
+                  const nonCashSales = (eodBreakdown.transfer || 0) + (eodBreakdown.credit || 0) + (eodBreakdown.cod || 0);
                   
                   // Expected calculations based on perfect system balance
                   const expectedTotalSystemBalance = expectedCash + nonCashSales;
@@ -5837,11 +5935,11 @@ export default function POSSystem({
                 <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
                   <div className="flex justify-between text-base mb-2">
                     <span className="text-blue-700 font-bold">ยอดโอนเงินทั้งหมด</span>
-                    <span className="font-black text-blue-700 text-lg">฿{todaySalesBreakdown.transfer.toLocaleString()}</span>
+                    <span className="font-black text-blue-700 text-lg">฿{eodBreakdown.transfer.toLocaleString()}</span>
                   </div>
-                  {todaySalesBreakdown.transferDetails?.length > 0 ? (
+                  {eodBreakdown.transferDetails?.length > 0 ? (
                     <div className="max-h-48 overflow-y-auto space-y-1.5 mt-4 pt-4 border-t border-blue-200 custom-scrollbar pr-2">
-                      {todaySalesBreakdown.transferDetails.map((t, idx) => (
+                      {eodBreakdown.transferDetails.map((t, idx) => (
                         <div key={idx} className="flex flex-col text-[11px] bg-emerald-500 border border-emerald-600 p-2 rounded-md shadow-sm">
                           <div className="flex justify-between font-bold text-white mb-1">
                             <span className="truncate mr-2">{t.time} - {t.customer}</span>
@@ -5855,49 +5953,71 @@ export default function POSSystem({
                     <div className="text-center text-blue-400 text-sm mt-4">ไม่มีรายการโอนเงิน</div>
                   )}
                 </div>
-                <button onClick={() => setEodTab(todaySalesBreakdown.credit > 0 ? 'credit' : todaySalesBreakdown.cod > 0 ? 'cod' : 'confirm')} className="w-full py-3 bg-indigo-50 text-indigo-700 rounded-xl font-bold hover:bg-indigo-100 transition-colors">ถัดไป</button>
+                {globalRole === 'owner' && (
+                  <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 space-y-2">
+                    <label className="block text-sm font-bold text-amber-800">👑 เพิ่มยอดโอน (เฉพาะเจ้าของ)</label>
+                    <input
+                      id="eod-manual-transfer"
+                      type="number"
+                      inputMode="decimal"
+                      value={eodData.manualTransfer || ''}
+                      onChange={(e) => setEodData({ ...eodData, manualTransfer: e.target.value })}
+                      placeholder="ระบุยอดโอนที่ไม่ได้คีย์ผ่าน POS"
+                      className="w-full bg-white border border-amber-200 rounded-xl px-4 py-2.5 text-lg font-bold focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                    <input
+                      id="eod-manual-transfer-note"
+                      type="text"
+                      value={eodData.manualTransferNote || ''}
+                      onChange={(e) => setEodData({ ...eodData, manualTransferNote: e.target.value })}
+                      placeholder="หมายเหตุ (ไม่บังคับ) เช่น โอนค่าคอร์ส คุณ A"
+                      className="w-full bg-white border border-amber-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                )}
+                <button onClick={() => setEodTab(eodBreakdown.credit > 0 ? 'credit' : eodBreakdown.cod > 0 ? 'cod' : 'confirm')} className="w-full py-3 bg-indigo-50 text-indigo-700 rounded-xl font-bold hover:bg-indigo-100 transition-colors">ถัดไป</button>
               </div>
             )}
 
-            {eodTab === 'credit' && todaySalesBreakdown.credit > 0 && (
+            {eodTab === 'credit' && eodBreakdown.credit > 0 && (
               <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
                 <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
                   <div className="flex justify-between text-base">
                     <span className="text-orange-700 font-bold">ยอดใช้เครดิตทั้งหมด</span>
-                    <span className="font-black text-orange-700 text-lg">฿{todaySalesBreakdown.credit.toLocaleString()}</span>
+                    <span className="font-black text-orange-700 text-lg">฿{eodBreakdown.credit.toLocaleString()}</span>
                   </div>
                 </div>
-                <button onClick={() => setEodTab(todaySalesBreakdown.cod > 0 ? 'cod' : 'confirm')} className="w-full py-3 bg-indigo-50 text-indigo-700 rounded-xl font-bold hover:bg-indigo-100 transition-colors">ถัดไป</button>
+                <button onClick={() => setEodTab(eodBreakdown.cod > 0 ? 'cod' : 'confirm')} className="w-full py-3 bg-indigo-50 text-indigo-700 rounded-xl font-bold hover:bg-indigo-100 transition-colors">ถัดไป</button>
               </div>
             )}
 
-            {eodTab === 'cod' && todaySalesBreakdown.cod > 0 && (
+            {eodTab === 'cod' && eodBreakdown.cod > 0 && (
               <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
                 <div className="bg-rose-50 p-4 rounded-xl border border-rose-100 flex flex-col">
                   <div className="flex justify-between text-base mb-2">
                     <span className="text-rose-700 font-bold">ยอดค้างชำระรวม</span>
-                    <span className="font-black text-rose-700 text-lg">฿{todaySalesBreakdown.cod.toLocaleString()}</span>
+                    <span className="font-black text-rose-700 text-lg">฿{eodBreakdown.cod.toLocaleString()}</span>
                   </div>
                   <div className="border-t border-rose-200/60 pt-2 mt-1 space-y-1 text-sm font-semibold text-rose-600/80">
-                    {(todaySalesBreakdown.cod - todaySalesBreakdown.online) > 0 && (
+                    {(eodBreakdown.cod - eodBreakdown.online) > 0 && (
                        <div className="flex justify-between">
                          <span>• COD:</span>
-                         <span>฿{(todaySalesBreakdown.cod - todaySalesBreakdown.online).toLocaleString()}</span>
+                         <span>฿{(eodBreakdown.cod - eodBreakdown.online).toLocaleString()}</span>
                        </div>
                     )}
-                    {todaySalesBreakdown.online > 0 && (
+                    {eodBreakdown.online > 0 && (
                        <div className="flex justify-between">
                          <span>• ช้อปปี้/ออนไลน์:</span>
-                         <span>฿{todaySalesBreakdown.online.toLocaleString()}</span>
+                         <span>฿{eodBreakdown.online.toLocaleString()}</span>
                        </div>
                     )}
                   </div>
                   
-                  {todaySalesBreakdown.pendingDetails && todaySalesBreakdown.pendingDetails.length > 0 && (
+                  {eodBreakdown.pendingDetails && eodBreakdown.pendingDetails.length > 0 && (
                     <div className="mt-3 pt-3 border-t border-rose-200">
                       <div className="text-[10px] font-bold text-rose-500 mb-2">รายการยอดค้าง:</div>
                       <div className="max-h-32 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
-                        {todaySalesBreakdown.pendingDetails.map((p, idx) => (
+                        {eodBreakdown.pendingDetails.map((p, idx) => (
                           <div key={idx} className="flex flex-col text-[11px] bg-orange-500 border border-orange-600 p-2 rounded-md shadow-sm">
                             <div className="flex justify-between font-bold text-white mb-1">
                               <span className="truncate mr-2">{p.time} - {p.customer} ({p.channel})</span>
@@ -5915,8 +6035,8 @@ export default function POSSystem({
             )}
 
             {eodTab === 'confirm' && (() => {
-              const expectedCash = todaySalesBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
-              const nonCashSales = (todaySalesBreakdown.transfer || 0) + (todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0);
+              const expectedCash = eodBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
+              const nonCashSales = (eodBreakdown.transfer || 0) + (eodBreakdown.credit || 0) + (eodBreakdown.cod || 0);
               const expectedTotalSystemBalance = expectedCash + nonCashSales;
               const floatCashNum = parseNumber(eodData.floatCash) || 0;
               const baseFloat = Math.floor(floatCashNum / 100) * 100;
@@ -5943,12 +6063,12 @@ export default function POSSystem({
                     </div>
                     <div className="flex justify-between items-center text-sm">
                       <span className="text-indigo-100">เงินโอน:</span>
-                      <span className="font-bold">฿{(todaySalesBreakdown.transfer || 0).toLocaleString()}</span>
+                      <span className="font-bold">฿{(eodBreakdown.transfer || 0).toLocaleString()}</span>
                     </div>
-                    {(todaySalesBreakdown.credit > 0 || todaySalesBreakdown.cod > 0) && (
+                    {(eodBreakdown.credit > 0 || eodBreakdown.cod > 0) && (
                       <div className="flex justify-between items-center text-sm">
                         <span className="text-indigo-100">ยอดค้าง (เครดิต/COD):</span>
-                        <span className="font-bold text-orange-200">฿{((todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0)).toLocaleString()}</span>
+                        <span className="font-bold text-orange-200">฿{((eodBreakdown.credit || 0) + (eodBreakdown.cod || 0)).toLocaleString()}</span>
                       </div>
                     )}
                     <div className="pt-2 mt-2 border-t border-indigo-400/50 flex justify-between items-center">
@@ -5987,6 +6107,12 @@ export default function POSSystem({
                   )}
                 </div>
 
+                {isOwnerZeroEod && (
+                  <div className="p-3 bg-sky-50 border border-sky-200 rounded-lg text-sky-700 text-xs font-bold text-center">
+                    👑 ไม่มีรายการขายในวันที่เลือก เจ้าของร้านส่งยอด 0 บาทได้เลย ไม่ต้องกรอกยอดเงินสด
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">ผู้ส่งยอด (พนักงาน)</label>
                   <select
@@ -5995,12 +6121,13 @@ export default function POSSystem({
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   >
                     <option value="">-- เลือกพนักงาน --</option>
+                    {globalRole === 'owner' && <option value="owner">👑 เจ้าของร้าน</option>}
                     {employees.map(emp => (
                       <option key={emp.id} value={emp.id}>{emp.name}</option>
                     ))}
                   </select>
                   
-                  {eodData.submittedBy && (
+                  {eodData.submittedBy && eodData.submittedBy !== 'owner' && !isEodBackdated && (
                      <label className="flex items-center gap-2 mt-3 cursor-pointer">
                         <input 
                           type="checkbox" 
@@ -6013,7 +6140,7 @@ export default function POSSystem({
                   )}
                 </div>
 
-                {(eodData.actualCash === '' || eodData.floatCash === '') && (
+                {((eodData.actualCash === '' && !isOwnerZeroEod) || eodData.floatCash === '') && (
                   <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs font-bold text-center">
                     * กรุณาระบุยอดเงินสดในแถบ "เงินสด" ให้ครบถ้วนก่อนยืนยัน
                   </div>
@@ -6028,8 +6155,8 @@ export default function POSSystem({
                   </button>
                   <button 
                     onClick={handleEodSubmit}
-                    disabled={isSubmittingEod || eodData.actualCash === '' || eodData.floatCash === ''}
-                    className={`flex-1 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${(isSubmittingEod || eodData.actualCash === '' || eodData.floatCash === '') ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200'}`}
+                    disabled={isSubmittingEod || (eodData.actualCash === '' && !isOwnerZeroEod) || eodData.floatCash === ''}
+                    className={`flex-1 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${(isSubmittingEod || (eodData.actualCash === '' && !isOwnerZeroEod) || eodData.floatCash === '') ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200'}`}
                   >
                     {isSubmittingEod ? (
                       <><span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span> ส่งยอด...</>
@@ -6107,23 +6234,23 @@ export default function POSSystem({
                      <tbody>
                        <tr>
                          <td className="border border-slate-300 p-3 w-2/3">ยอดขายสินค้า</td>
-                         <td className="border border-slate-300 p-3 text-right font-bold">฿{todaySalesBreakdown.productSalesAmt.toLocaleString()}</td>
+                         <td className="border border-slate-300 p-3 text-right font-bold">฿{eodBreakdown.productSalesAmt.toLocaleString()}</td>
                        </tr>
                        <tr>
                          <td className="border border-slate-300 p-3">ยอดขายคอร์ส/บริการ</td>
-                         <td className="border border-slate-300 p-3 text-right font-bold">฿{todaySalesBreakdown.courseSalesAmt.toLocaleString()}</td>
+                         <td className="border border-slate-300 p-3 text-right font-bold">฿{eodBreakdown.courseSalesAmt.toLocaleString()}</td>
                        </tr>
                        <tr>
                          <td className="border border-slate-300 p-3">ยอดใช้เครดิต/ตัดคอร์ส</td>
-                         <td className="border border-slate-300 p-3 text-right font-bold">฿{todaySalesBreakdown.credit.toLocaleString()}</td>
+                         <td className="border border-slate-300 p-3 text-right font-bold">฿{eodBreakdown.credit.toLocaleString()}</td>
                        </tr>
                        <tr>
                          <td className="border border-slate-300 p-3">ยอดค้างชำระ / COD</td>
-                         <td className="border border-slate-300 p-3 text-right font-bold text-rose-600">฿{todaySalesBreakdown.cod.toLocaleString()}</td>
+                         <td className="border border-slate-300 p-3 text-right font-bold text-rose-600">฿{eodBreakdown.cod.toLocaleString()}</td>
                        </tr>
                        <tr className="bg-slate-50 font-bold text-lg">
                          <td className="border border-slate-300 p-3 text-right">รวมยอดขายสุทธิทั้งหมด</td>
-                         <td className="border border-slate-300 p-3 text-right text-indigo-700">฿{(todaySalesBreakdown.cash + todaySalesBreakdown.transfer + todaySalesBreakdown.credit + todaySalesBreakdown.cod).toLocaleString()}</td>
+                         <td className="border border-slate-300 p-3 text-right text-indigo-700">฿{(eodBreakdown.cash + eodBreakdown.transfer + eodBreakdown.credit + eodBreakdown.cod).toLocaleString()}</td>
                        </tr>
                      </tbody>
                    </table>
@@ -6139,14 +6266,14 @@ export default function POSSystem({
                        </tr>
                        <tr>
                          <td className="border border-slate-300 p-3">ยอดรับเงินสด (ในระบบ)</td>
-                         <td className="border border-slate-300 p-3 text-right font-bold text-emerald-600">+ ฿{todaySalesBreakdown.cash.toLocaleString()}</td>
+                         <td className="border border-slate-300 p-3 text-right font-bold text-emerald-600">+ ฿{eodBreakdown.cash.toLocaleString()}</td>
                        </tr>
                        <tr className="bg-slate-50 font-bold text-lg">
                          <td className="border border-slate-300 p-3 text-right">ยอดรวมเงินสดที่ควรมี</td>
                          <td className="border border-slate-300 p-3 w-2/3">ยอดรวมเงินสดในลิ้นชัก (รวมเงินทอน)</td>
                          <td className="border border-slate-300 p-3 text-right font-bold text-emerald-600">฿{(() => {
-                            const expected = todaySalesBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
-                            const nonCashTemp = (todaySalesBreakdown.transfer || 0) + (todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0);
+                            const expected = eodBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
+                            const nonCashTemp = (eodBreakdown.transfer || 0) + (eodBreakdown.credit || 0) + (eodBreakdown.cod || 0);
                             const baseFloatTemp = Math.floor((parseNumber(eodData.floatCash) || 0) / 100) * 100;
                             const expTotalTemp = expected + nonCashTemp;
                             const expDepTemp = Math.floor(expTotalTemp / 100) * 100 - baseFloatTemp;
@@ -6158,35 +6285,35 @@ export default function POSSystem({
                        </tr>
                        <tr>
                          <td className="border border-slate-300 p-3">ยอดขายช่องทางอื่น (โอน/เครดิต/COD)</td>
-                         <td className="border border-slate-300 p-3 text-right font-bold text-blue-600">฿{((todaySalesBreakdown.transfer || 0) + (todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0)).toLocaleString()}</td>
+                         <td className="border border-slate-300 p-3 text-right font-bold text-blue-600">฿{((eodBreakdown.transfer || 0) + (eodBreakdown.credit || 0) + (eodBreakdown.cod || 0)).toLocaleString()}</td>
                        </tr>
                        <tr className="bg-slate-50 font-bold text-lg">
                          <td className="border border-slate-300 p-3 text-right">ยอดรวมสุทธิทั้งระบบ</td>
                          <td className="border border-slate-300 p-3 text-right text-indigo-700">฿{(() => {
-                            const expected = todaySalesBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
-                            const nonCashTemp = (todaySalesBreakdown.transfer || 0) + (todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0);
+                            const expected = eodBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
+                            const nonCashTemp = (eodBreakdown.transfer || 0) + (eodBreakdown.credit || 0) + (eodBreakdown.cod || 0);
                             const baseFloatTemp = Math.floor((parseNumber(eodData.floatCash) || 0) / 100) * 100;
                             const expTotalTemp = expected + nonCashTemp;
                             const expDepTemp = Math.floor(expTotalTemp / 100) * 100 - baseFloatTemp;
                             const expFloatTemp = expTotalTemp - expDepTemp;
                             const actualRemitted = parseNumber(eodData.actualCash);
                             const actual = eodData.actualCash ? actualRemitted + expFloatTemp : expected;
-                            const nonCash = (todaySalesBreakdown.transfer || 0) + (todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0);
+                            const nonCash = (eodBreakdown.transfer || 0) + (eodBreakdown.credit || 0) + (eodBreakdown.cod || 0);
                             return (actual + nonCash).toLocaleString();
                          })()}</td>
                        </tr>
                        <tr>
                          <td className="border border-slate-300 p-3">ยอดรวมที่ต้องฝากธนาคารทั้งหมด (ปัดเศษหลักร้อย)</td>
                          <td className="border border-slate-300 p-3 text-right font-bold text-slate-700">฿{(() => {
-                            const expected = todaySalesBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
-                            const nonCashTemp = (todaySalesBreakdown.transfer || 0) + (todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0);
+                            const expected = eodBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
+                            const nonCashTemp = (eodBreakdown.transfer || 0) + (eodBreakdown.credit || 0) + (eodBreakdown.cod || 0);
                             const baseFloatTemp = Math.floor((parseNumber(eodData.floatCash) || 0) / 100) * 100;
                             const expTotalTemp = expected + nonCashTemp;
                             const expDepTemp = Math.floor(expTotalTemp / 100) * 100 - baseFloatTemp;
                             const expFloatTemp = expTotalTemp - expDepTemp;
                             const actualRemitted = parseNumber(eodData.actualCash);
                             const actual = eodData.actualCash ? actualRemitted + expFloatTemp : expected;
-                            const nonCash = (todaySalesBreakdown.transfer || 0) + (todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0);
+                            const nonCash = (eodBreakdown.transfer || 0) + (eodBreakdown.credit || 0) + (eodBreakdown.cod || 0);
                             const totalSystemBalance = actual + nonCash;
                             const baseFloat = Math.floor((parseNumber(eodData.floatCash) || 0) / 100) * 100;
                             return (Math.floor(totalSystemBalance / 100) * 100 - baseFloat).toLocaleString();
@@ -6195,15 +6322,15 @@ export default function POSSystem({
                        <tr>
                          <td className="border border-slate-300 p-3 text-rose-600">ยอดส่งเงินสดจริง (หักยอดโอน/เครดิต/COD)</td>
                          <td className="border border-slate-300 p-3 text-right font-bold text-rose-600">- ฿{(() => {
-                            const expected = todaySalesBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
-                            const nonCashTemp = (todaySalesBreakdown.transfer || 0) + (todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0);
+                            const expected = eodBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
+                            const nonCashTemp = (eodBreakdown.transfer || 0) + (eodBreakdown.credit || 0) + (eodBreakdown.cod || 0);
                             const baseFloatTemp = Math.floor((parseNumber(eodData.floatCash) || 0) / 100) * 100;
                             const expTotalTemp = expected + nonCashTemp;
                             const expDepTemp = Math.floor(expTotalTemp / 100) * 100 - baseFloatTemp;
                             const expFloatTemp = expTotalTemp - expDepTemp;
                             const actualRemitted = parseNumber(eodData.actualCash);
                             const actual = eodData.actualCash ? actualRemitted + expFloatTemp : expected;
-                            const nonCash = (todaySalesBreakdown.transfer || 0) + (todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0);
+                            const nonCash = (eodBreakdown.transfer || 0) + (eodBreakdown.credit || 0) + (eodBreakdown.cod || 0);
                             const totalSystemBalance = actual + nonCash;
                             const baseFloat = Math.floor((parseNumber(eodData.floatCash) || 0) / 100) * 100;
                             const totalTheoreticalDeposit = Math.floor(totalSystemBalance / 100) * 100 - baseFloat;
@@ -6214,15 +6341,15 @@ export default function POSSystem({
                        <tr className="bg-slate-50 font-bold text-lg">
                          <td className="border border-slate-300 p-3 text-right">ยอดเหลือ / เงินทอนยกไปพรุ่งนี้</td>
                          <td className="border border-slate-300 p-3 text-right text-indigo-700">฿{(() => {
-                            const expected = todaySalesBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
-                            const nonCashTemp = (todaySalesBreakdown.transfer || 0) + (todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0);
+                            const expected = eodBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
+                            const nonCashTemp = (eodBreakdown.transfer || 0) + (eodBreakdown.credit || 0) + (eodBreakdown.cod || 0);
                             const baseFloatTemp = Math.floor((parseNumber(eodData.floatCash) || 0) / 100) * 100;
                             const expTotalTemp = expected + nonCashTemp;
                             const expDepTemp = Math.floor(expTotalTemp / 100) * 100 - baseFloatTemp;
                             const expFloatTemp = expTotalTemp - expDepTemp;
                             const actualRemitted = parseNumber(eodData.actualCash);
                             const actual = eodData.actualCash ? actualRemitted + expFloatTemp : expected;
-                            const nonCash = (todaySalesBreakdown.transfer || 0) + (todaySalesBreakdown.credit || 0) + (todaySalesBreakdown.cod || 0);
+                            const nonCash = (eodBreakdown.transfer || 0) + (eodBreakdown.credit || 0) + (eodBreakdown.cod || 0);
                             const totalSystemBalance = actual + nonCash;
                             const baseFloat = Math.floor((parseNumber(eodData.floatCash) || 0) / 100) * 100;
                             const totalTheoreticalDeposit = Math.floor(totalSystemBalance / 100) * 100 - baseFloat;
@@ -6233,7 +6360,7 @@ export default function POSSystem({
                    </table>
                 </div>
 
-                {todaySalesBreakdown.transferDetails?.length > 0 && (
+                {eodBreakdown.transferDetails?.length > 0 && (
                 <div className="mt-8 break-inside-avoid">
                    <h3 className="font-bold text-lg mb-3 bg-slate-100 p-2 border-l-4 border-slate-800">รายการโอนเงิน</h3>
                    <table className="w-full text-sm border-collapse border border-slate-300">
@@ -6246,7 +6373,7 @@ export default function POSSystem({
                        </tr>
                      </thead>
                      <tbody>
-                       {todaySalesBreakdown.transferDetails.map((t, idx) => (
+                       {eodBreakdown.transferDetails.map((t, idx) => (
                          <tr key={idx}>
                            <td className="border border-slate-300 p-2 text-center">{idx + 1}</td>
                            <td className="border border-slate-300 p-2 text-center">{t.time}</td>
@@ -6259,7 +6386,7 @@ export default function POSSystem({
                 </div>
                 )}
 
-                {todaySalesBreakdown.allSalesDetails?.length > 0 && (
+                {eodBreakdown.allSalesDetails?.length > 0 && (
                 <div className="mt-8 break-inside-avoid">
                    <h3 className="font-bold text-lg mb-3 bg-slate-100 p-2 border-l-4 border-slate-800">รายการขาย / ใช้บริการทั้งหมด</h3>
                    <table className="w-full text-xs border-collapse border border-slate-300">
@@ -6274,7 +6401,7 @@ export default function POSSystem({
                        </tr>
                      </thead>
                      <tbody>
-                       {todaySalesBreakdown.allSalesDetails.map((t, idx) => (
+                       {eodBreakdown.allSalesDetails.map((t, idx) => (
                          <tr key={idx}>
                            <td className="border border-slate-300 p-2 text-center">{idx + 1}</td>
                            <td className="border border-slate-300 p-2 text-center leading-tight">
@@ -6998,7 +7125,7 @@ export default function POSSystem({
         appSettings={appSettings}
         currentMonthSales={currentMonthSales}
         todaySales={todaySales}
-        todaySalesBreakdown={todaySalesBreakdown}
+        todaySalesBreakdown={eodBreakdown}
         setShowEodModal={setShowEodModal}
         setShowEodPreviewA4={setShowEodPreviewA4}
         posFilterDate={posFilterDate}
