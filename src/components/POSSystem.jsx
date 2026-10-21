@@ -68,8 +68,13 @@ export default function POSSystem({
   onChangeBranch,
   onGoBack,
   onAddCustomer,
-  onOpenVipForm = () => {}
+  onOpenVipForm = () => {},
+  autoOpenEod = null, // 🌟 ส่งยอดด่วนจากหน้าล็อกอิน: { employeeId }
+  onQuickEodFinished = () => {}
 }) {
+  // 🌟 โหมดส่งยอดด่วน — เปิดหน้า EOD ทันที (ไม่เด้ง SOD) และแจ้ง parent เมื่อปิดหน้าต่าง
+  const quickEodActiveRef = useRef(!!autoOpenEod);
+  const quickEodSubmittedRef = useRef(false);
   const [activeTab, setActiveTab] = useState('products'); // 'products' | 'courses' | 'my_courses'
   const [singleCourseTab, setSingleCourseTab] = useState('machine');
   const [multiCourseTab, setMultiCourseTab] = useState('all');
@@ -288,7 +293,7 @@ export default function POSSystem({
             }
           }
           setSodData(prev => ({ ...prev, floatCash: defaultFloat }));
-          setShowSodModal(true);
+          if (!quickEodActiveRef.current) setShowSodModal(true);
         } else {
           // If already opened, set floatCash to the existing value to auto-fill EOD
           const data = sodDocs.docs[0].data();
@@ -493,6 +498,27 @@ export default function POSSystem({
     setEodData(prev => ({ ...prev, floatCash: latestFloat }));
   }, [latestFloat]);
   const [isSubmittingEod, setIsSubmittingEod] = useState(false);
+
+  // 🌟 ส่งยอดด่วน: เปิด EOD modal อัตโนมัติ + เลือกผู้ส่งยอดให้เลย
+  useEffect(() => {
+    if (!autoOpenEod) return;
+    quickEodActiveRef.current = true;
+    quickEodSubmittedRef.current = false;
+    setEodData(prev => ({ ...prev, submittedBy: autoOpenEod.employeeId || prev.submittedBy, clockOut: true }));
+    setShowEodModal(true);
+  }, [autoOpenEod]);
+
+  // 🌟 ส่งยอดด่วน: เมื่อปิดหน้าต่าง EOD (ส่งสำเร็จหรือยกเลิก) → แจ้ง parent
+  const quickEodShownRef = useRef(false);
+  useEffect(() => {
+    if (!autoOpenEod || !quickEodActiveRef.current) return;
+    if (showEodModal) { quickEodShownRef.current = true; return; }
+    if (quickEodShownRef.current) {
+      quickEodShownRef.current = false;
+      quickEodActiveRef.current = false;
+      onQuickEodFinished(quickEodSubmittedRef.current);
+    }
+  }, [showEodModal]);
 
   // Filtered Inventory
   const filteredProducts = useMemo(() => {
@@ -2356,6 +2382,7 @@ export default function POSSystem({
       await batch.commit();
       
       showToast('ส่งยอดประจำวันเรียบร้อยแล้ว!', 'success');
+      quickEodSubmittedRef.current = true;
       setShowEodModal(false);
       setEodData({ actualCash: '', floatCash: '1000', imageBase64: '', submittedBy: '', clockOut: true });
     } catch (error) {

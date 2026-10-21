@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, MapPin, Navigation, Users, Crown, Delete, ArrowRight, Loader2, Clock } from 'lucide-react';
+import { Sparkles, MapPin, Navigation, Users, Crown, Delete, ArrowRight, Loader2, Clock, Banknote, CheckCircle, Zap } from 'lucide-react';
 
 // 🌟 หน้าล็อกอินแอดมิน IrisCare — เลือกสาขา (GPS ไฮไลต์อัตโนมัติ) + เข้าแบบพนักงาน/เจ้าของร้าน (รหัสผ่าน)
-export default function AdminLoginPage({ branches = [], employees = [], attendance = [], appSettings = {}, initialBranch = null, onStaffEnter, onOwnerEnter, onOpenAttendance }) {
+export default function AdminLoginPage({ branches = [], employees = [], attendance = [], appSettings = {}, initialBranch = null, onStaffEnter, onOwnerEnter, onOpenAttendance, dailySales = [], onQuickEod, flashMessage = null }) {
   const [now, setNow] = useState(new Date());
   const [selectedBranch, setSelectedBranch] = useState(initialBranch || null);
   const [nearestBranch, setNearestBranch] = useState(null);
@@ -99,6 +99,42 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
     setPasscode(p => p + k);
   };
 
+  // 🌟 ส่งยอดด่วน (EOD) — เช็คว่าสาขานี้ส่งยอดวันนี้แล้วหรือยัง
+  const normBranch = (b) => String(b || '').replace('สาขา', '').trim();
+  const todayTh = now.toLocaleDateString('th-TH');
+  const todayEodRecords = selectedBranch
+    ? dailySales.filter(d => d.date === todayTh && normBranch(d.branch) === normBranch(selectedBranch))
+    : [];
+  const eodDoneToday = todayEodRecords.length > 0;
+  const lastEodRecord = [...todayEodRecords].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0];
+  const lastEodBy = lastEodRecord ? (employees.find(e => e.id === lastEodRecord.submittedBy)?.name || '') : '';
+  const lastEodTime = lastEodRecord?.createdAt ? new Date(lastEodRecord.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '';
+
+  const openQuickEod = () => {
+    if (!selectedBranch) return;
+    if (eodDoneToday && !window.confirm(`สาขา ${selectedBranch} ส่งยอดวันนี้ไปแล้ว${lastEodTime ? ` (เวลา ${lastEodTime} น.)` : ''}\nต้องการส่งยอดซ้ำอีกครั้งใช่หรือไม่?`)) return;
+    setMode('eod_passcode');
+    setPasscode('');
+  };
+
+  const handleEodPinSubmit = () => {
+    if (passcode.length < 4) return;
+    setIsSubmitting(true);
+    setTimeout(() => {
+      const emp = employees.find(e => normBranch(e.branch) === normBranch(selectedBranch) && String(e.pin || '1234') === passcode);
+      if (emp && onQuickEod) {
+        onQuickEod(selectedBranch, emp);
+        setMode('main');
+        setPasscode('');
+      } else {
+        setPassError(true);
+        setPasscode('');
+        setTimeout(() => setPassError(false), 600);
+      }
+      setIsSubmitting(false);
+    }, 250);
+  };
+
   const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const dateStr = now.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -124,6 +160,14 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
             <span className="text-teal-100/80 text-[11px] font-bold">{dateStr}</span>
           </div>
         </div>
+
+        {/* แจ้งผลหลังส่งยอดด่วน */}
+        {flashMessage && (
+          <div className={`mb-4 rounded-2xl px-4 py-3 flex items-center gap-2 text-[12px] font-black shadow-lg animate-in fade-in slide-in-from-top-2 duration-300 ${flashMessage.type === 'success' ? 'bg-emerald-400/95 text-emerald-950' : 'bg-white/90 text-gray-700'}`}>
+            <CheckCircle size={16} className="shrink-0" />
+            {flashMessage.text}
+          </div>
+        )}
 
         {/* การ์ดหลัก */}
         <div className="bg-white rounded-[32px] shadow-2xl p-6 sm:p-7 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -247,7 +291,72 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
                     <p className="text-[9px] text-gray-500 font-bold leading-snug mt-0.5">สิทธิ์เต็มระบบ<br/>รหัสผ่านหลัก 6 หลัก</p>
                   </button>
                 </div>
+
+                {/* 🌟 ส่งยอดด่วน (EOD) — ไม่ต้องเข้าระบบเต็ม */}
+                <button
+                  onClick={openQuickEod}
+                  disabled={!selectedBranch}
+                  className={`group relative overflow-hidden p-4 rounded-2xl text-left border-2 transition-all active:scale-[0.98] flex items-center gap-3 ${!selectedBranch ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed' : eodDoneToday ? 'border-emerald-100 bg-emerald-50/60 hover:border-emerald-300' : 'border-rose-100 bg-gradient-to-r from-rose-50 to-orange-50 hover:border-rose-400 hover:shadow-lg hover:shadow-rose-500/20'}`}
+                >
+                  <div className={`w-11 h-11 shrink-0 rounded-xl flex items-center justify-center shadow-lg ${eodDoneToday ? 'bg-gradient-to-br from-emerald-400 to-teal-500 shadow-emerald-500/30' : 'bg-gradient-to-br from-rose-500 to-orange-500 shadow-rose-500/30'}`}>
+                    {eodDoneToday ? <CheckCircle size={22} className="text-white" /> : <Banknote size={22} className="text-white" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-black text-gray-800 flex items-center gap-1">
+                      ส่งยอดด่วน (EOD)
+                      {!eodDoneToday && selectedBranch && <Zap size={12} className="text-orange-500 fill-orange-400" />}
+                    </p>
+                    <p className={`text-[10px] font-bold leading-snug mt-0.5 truncate ${eodDoneToday ? 'text-emerald-600' : 'text-gray-500'}`}>
+                      {!selectedBranch
+                        ? 'กรุณาเลือกสาขาก่อน'
+                        : eodDoneToday
+                          ? `ส่งยอดวันนี้แล้ว${lastEodTime ? ` • ${lastEodTime} น.` : ''}${lastEodBy ? ` • ${lastEodBy}` : ''}`
+                          : 'ปิดยอดประจำวัน + ลงเวลาออก ด้วย PIN พนักงาน'}
+                    </p>
+                  </div>
+                  <ArrowRight size={18} className={`shrink-0 transition-transform group-hover:translate-x-1 ${eodDoneToday ? 'text-emerald-400' : 'text-rose-400'}`} />
+                </button>
               </div>
+            </div>
+          )}
+
+          {/* STEP: ส่งยอดด่วน — PIN พนักงาน */}
+          {mode === 'eod_passcode' && (
+            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-sm font-black text-gray-800 flex items-center">
+                  <Banknote size={16} className="text-rose-500 mr-2" /> ส่งยอดด่วน — ใส่ PIN ผู้ส่งยอด
+                </h2>
+                <button onClick={() => { setMode('main'); setPasscode(''); }} className="text-[10px] font-black text-gray-400 hover:text-gray-600">
+                  ← ย้อนกลับ
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-400 font-bold mb-4 ml-6">สาขา {selectedBranch} • ระบบจะเปิดหน้าสรุปยอดให้ทันที</p>
+
+              <div className={`flex items-center justify-center gap-3 mb-5 ${passError ? 'animate-in shake' : ''}`}>
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className={`w-11 h-13 rounded-xl border-2 flex items-center justify-center transition-all ${passError ? 'border-red-400 bg-red-50' : passcode.length > i ? 'border-rose-500 bg-rose-50' : 'border-gray-200 bg-gray-50'}`}>
+                    {passcode.length > i && <span className={`w-3.5 h-3.5 rounded-full ${passError ? 'bg-red-400' : 'bg-rose-500'}`}></span>}
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-3 gap-2.5 max-w-[260px] mx-auto">
+                {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(k => (
+                  <button key={k} onClick={() => { if (passcode.length < 4) pressKey(k); }} className="h-14 rounded-2xl bg-gray-50 hover:bg-rose-50 border border-gray-100 text-xl font-black text-gray-700 active:scale-95 transition-all">{k}</button>
+                ))}
+                <button onClick={() => pressKey('del')} className="h-14 rounded-2xl bg-gray-50 hover:bg-red-50 border border-gray-100 flex items-center justify-center text-gray-400 active:scale-95 transition-all"><Delete size={20} /></button>
+                <button onClick={() => { if (passcode.length < 4) pressKey('0'); }} className="h-14 rounded-2xl bg-gray-50 hover:bg-rose-50 border border-gray-100 text-xl font-black text-gray-700 active:scale-95 transition-all">0</button>
+                <button
+                  onClick={handleEodPinSubmit}
+                  disabled={passcode.length < 4 || isSubmitting}
+                  className={`h-14 rounded-2xl flex items-center justify-center gap-1 text-[11px] font-black active:scale-95 transition-all ${passcode.length < 4 || isSubmitting ? 'bg-gray-100 text-gray-400' : 'bg-gradient-to-r from-rose-500 to-orange-500 text-white shadow-lg shadow-rose-500/30'}`}
+                >
+                  {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+                  {isSubmitting ? 'ตรวจสอบ' : 'ส่งยอด'}
+                </button>
+              </div>
+              {passError && <p className="text-center text-[10px] font-black text-red-500 mt-3">ไม่พบพนักงานสาขานี้ที่ใช้ PIN นี้</p>}
             </div>
           )}
 

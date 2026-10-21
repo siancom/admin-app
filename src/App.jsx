@@ -2060,6 +2060,29 @@ export default function App() {
     showToast('เข้าสู่ระบบเจ้าของร้านสำเร็จ 👑');
   };
 
+  // 🌟 ส่งยอดด่วนจากหน้าล็อกอิน — เปิด POS เฉพาะหน้า EOD (ไม่ออก session 8 ชม.) เสร็จแล้วกลับหน้าล็อกอิน
+  const [posAutoOpenEod, setPosAutoOpenEod] = useState(null);
+  const [loginFlash, setLoginFlash] = useState(null);
+  const handleQuickEodLoginGate = (branch, emp) => {
+    localStorage.setItem('selectedBranch', branch);
+    localStorage.setItem('userRole', 'staff');
+    setGlobalBranch(branch);
+    setGlobalRole('staff');
+    setPosAutoOpenEod({ employeeId: emp?.id || '', employeeName: emp?.name || '', nonce: Date.now() });
+    setLoginGate(false);
+    setActiveTab('pos');
+  };
+  const handleQuickEodFinished = (submitted) => {
+    setPosAutoOpenEod(null);
+    setActiveTab('dashboard');
+    try { localStorage.removeItem('admin_session_exp'); } catch (e) {}
+    setLoginGate(true);
+    setLoginFlash(submitted
+      ? { type: 'success', text: 'ส่งยอดประจำวันเรียบร้อยแล้ว ✅' }
+      : { type: 'info', text: 'ยกเลิกการส่งยอด — ยังไม่ได้บันทึกข้อมูล' });
+    setTimeout(() => setLoginFlash(null), 5000);
+  };
+
   // Auto-open employee attendance list on first visit (no branch selected)
   useEffect(() => {
     if (!isCloudLoading && !globalBranch && !loginGate) {
@@ -2519,6 +2542,16 @@ const flexMessage = {
   };
   
   const executeDeleteOrder = async (id) => { try { await deleteDoc(getDocRef('orders', id)); showToast('ลบสำเร็จ'); } catch (err) { showToast('ข้อผิดพลาด: ' + err.message); } };
+
+  const executeDeleteCustomer = async (id) => { 
+    try { 
+      await deleteDoc(getDocRef('customers', id)); 
+      showToast('ลบลูกค้าสำเร็จ'); 
+      setSelectedCustomer(null); 
+    } catch (err) { 
+      showToast('ข้อผิดพลาด: ' + err.message); 
+    } 
+  };
 
   const handleIshipBooking = async (bookingData) => {
     if (!ishipModal.order) return;
@@ -3899,6 +3932,9 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
           }}
           onStaffEnter={handleStaffLoginGate}
           onOwnerEnter={handleOwnerLoginGate}
+          dailySales={dailySales}
+          onQuickEod={handleQuickEodLoginGate}
+          flashMessage={loginFlash}
         />
       )}
       {/* Notifications */}
@@ -4110,6 +4146,8 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
               onGoToLogin={() => setShowBranchSelectForPos(true)}
               onGoBack={() => setActiveTab('dashboard')}
               onAddCustomer={() => setIsAddCustomerOpen(true)}
+              autoOpenEod={posAutoOpenEod}
+              onQuickEodFinished={handleQuickEodFinished}
             />
             </ErrorBoundary>
           )}
@@ -4438,7 +4476,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
           )}
 
           {activeTab === 'bookings' && (
-            <div className="flex flex-col h-full space-y-4 max-w-7xl mx-auto">
+            <div className="flex flex-col min-h-full space-y-4 max-w-7xl mx-auto">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-2">
                     {Object.entries(bookingBranchStats).map(([br, s], idx) => (
                         <div key={idx} className="bg-white p-3 sm:p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col relative overflow-hidden group">
@@ -4655,16 +4693,16 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                                                             </div>
                                                             <div className="w-10 shrink-0 border-l-2 border-dashed border-gray-100 flex flex-col items-center justify-center bg-gray-50/30 hover:bg-gray-100 transition-colors relative group">
                                                                 <QrCode size={16} className={`${st === 'รอการยืนยัน' ? 'text-amber-400' : st === 'ยืนยันแล้ว' ? 'text-blue-400' : st === 'กำลังใช้บริการ' ? 'text-purple-400' : st === 'เสร็จสิ้น' ? 'text-emerald-400' : 'text-gray-400'}`} />
-                                                                <div className="absolute top-1 right-1 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                    {st === 'รอการยืนยัน' && <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'ยืนยันแล้ว'); showToast('ยืนยันคิวสำเร็จ'); }} className="p-1 bg-blue-50 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors" title="ยืนยันคิว"><CheckCircle size={10}/></button>}
+                                                                <div className="absolute top-1/2 -translate-y-1/2 right-full mr-1 flex flex-row items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all z-10 bg-white/95 backdrop-blur-sm p-1.5 rounded-2xl shadow-md border border-gray-100 translate-x-2 group-hover:translate-x-0" style={{ width: 'max-content', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
+                                                                    <button onClick={(e) => { e.stopPropagation(); setActionConfirmModal({ isOpen: true, title: 'ลบนัดหมาย', message: 'แน่ใจหรือไม่ที่จะลบรายการนัดหมายนี้?', action: () => executeDeleteBooking(b.id), confirmText: 'ลบ', confirmColor: 'bg-red-600 hover:bg-red-700' }); }} className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-colors shrink-0" title="ลบ"><Trash2 size={14}/></button>
                                                                     {(st === 'รอการยืนยัน' || st === 'ยืนยันแล้ว') && (
-                                                                        <div className="flex gap-1">
-                                                                            <button onClick={(e) => { e.stopPropagation(); setPrintingJobSlipBooking(b); }} className="p-1 bg-blue-50 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors" title="พิมพ์ใบงาน"><Printer size={10}/></button>
-                                                                            <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'กำลังใช้บริการ'); showToast('เช็คอินสำเร็จ'); }} className="p-1 bg-emerald-50 text-emerald-500 hover:bg-emerald-100 rounded-lg transition-colors" title="เช็คอิน"><ScanLine size={10}/></button>
-                                                                            <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'ยกเลิกฉุกเฉิน'); }} className="p-1 bg-red-50 text-red-500 hover:bg-red-100 rounded-lg transition-colors" title="ยกเลิกฉุกเฉิน">🚨</button>
-                                                                        </div>
+                                                                        <>
+                                                                            <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'ยกเลิกฉุกเฉิน'); }} className="p-2 bg-amber-50 text-amber-600 hover:bg-amber-100 rounded-xl transition-colors flex items-center justify-center text-[14px] shrink-0" title="ยกเลิกฉุกเฉิน">🚨</button>
+                                                                            <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'กำลังใช้บริการ'); showToast('เช็คอินสำเร็จ'); }} className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl transition-colors shrink-0" title="เช็คอิน"><ScanLine size={14}/></button>
+                                                                            <button onClick={(e) => { e.stopPropagation(); setPrintingJobSlipBooking(b); }} className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl transition-colors shrink-0" title="พิมพ์ใบงาน"><Printer size={14}/></button>
+                                                                        </>
                                                                     )}
-                                                                    <button onClick={(e) => { e.stopPropagation(); setActionConfirmModal({ isOpen: true, title: 'ลบนัดหมาย', message: 'แน่ใจหรือไม่ที่จะลบรายการนัดหมายนี้?', action: () => executeDeleteBooking(b.id), confirmText: 'ลบ', confirmColor: 'bg-red-600 hover:bg-red-700' }); }} className="p-1 bg-red-50 text-red-500 hover:bg-red-100 rounded-lg transition-colors" title="ลบ"><Trash2 size={10}/></button>
+                                                                    {st === 'รอการยืนยัน' && <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'ยืนยันแล้ว'); showToast('ยืนยันคิวสำเร็จ'); }} className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl transition-colors shrink-0" title="ยืนยันคิว"><CheckCircle size={14}/></button>}
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -4770,16 +4808,16 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                                     </div>
                                     <div className="w-12 shrink-0 border-l-2 border-dashed border-gray-100 flex flex-col items-center justify-center bg-gray-50/30 hover:bg-gray-100 transition-colors relative group">
                                         <QrCode size={18} className={`${st === 'รอการยืนยัน' ? 'text-amber-400' : st === 'ยืนยันแล้ว' ? 'text-blue-400' : st === 'กำลังใช้บริการ' ? 'text-purple-400' : st === 'เสร็จสิ้น' ? 'text-emerald-400' : 'text-gray-400'}`} />
-                                        <div className="absolute top-1 right-1 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            {st === 'รอการยืนยัน' && <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'ยืนยันแล้ว'); showToast('ยืนยันคิวสำเร็จ'); }} className="p-1 bg-blue-50 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors" title="ยืนยันคิว"><CheckCircle size={10}/></button>}
+                                        <div className="absolute top-1/2 -translate-y-1/2 right-full mr-1 flex flex-row items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all z-10 bg-white/95 backdrop-blur-sm p-1.5 rounded-2xl shadow-md border border-gray-100 translate-x-2 group-hover:translate-x-0" style={{ width: 'max-content', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
+                                            <button onClick={(e) => { e.stopPropagation(); setActionConfirmModal({ isOpen: true, title: 'ลบนัดหมาย', message: 'แน่ใจหรือไม่ที่จะลบรายการนัดหมายนี้?', action: () => executeDeleteBooking(b.id), confirmText: 'ลบ', confirmColor: 'bg-red-600 hover:bg-red-700' }); }} className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-colors shrink-0" title="ลบ"><Trash2 size={14}/></button>
                                             {(st === 'รอการยืนยัน' || st === 'ยืนยันแล้ว') && (
-                                                <div className="flex gap-1">
-                                                    <button onClick={(e) => { e.stopPropagation(); setPrintingJobSlipBooking(b); }} className="p-1 bg-blue-50 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors" title="พิมพ์ใบงาน"><Printer size={10}/></button>
-                                                    <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'กำลังใช้บริการ'); showToast('เช็คอินสำเร็จ'); }} className="p-1 bg-emerald-50 text-emerald-500 hover:bg-emerald-100 rounded-lg transition-colors" title="เช็คอิน"><ScanLine size={10}/></button>
-                                                    <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'ยกเลิกฉุกเฉิน'); }} className="p-1 bg-red-50 text-red-500 hover:bg-red-100 rounded-lg transition-colors" title="ยกเลิกฉุกเฉิน">🚨</button>
-                                                </div>
+                                                <>
+                                                    <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'ยกเลิกฉุกเฉิน'); }} className="p-2 bg-amber-50 text-amber-600 hover:bg-amber-100 rounded-xl transition-colors flex items-center justify-center text-[14px] shrink-0" title="ยกเลิกฉุกเฉิน">🚨</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'กำลังใช้บริการ'); showToast('เช็คอินสำเร็จ'); }} className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl transition-colors shrink-0" title="เช็คอิน"><ScanLine size={14}/></button>
+                                                    <button onClick={(e) => { e.stopPropagation(); setPrintingJobSlipBooking(b); }} className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl transition-colors shrink-0" title="พิมพ์ใบงาน"><Printer size={14}/></button>
+                                                </>
                                             )}
-                                            <button onClick={(e) => { e.stopPropagation(); setActionConfirmModal({ isOpen: true, title: 'ลบนัดหมาย', message: 'แน่ใจหรือไม่ที่จะลบรายการนัดหมายนี้?', action: () => executeDeleteBooking(b.id), confirmText: 'ลบ', confirmColor: 'bg-red-600 hover:bg-red-700' }); }} className="p-1 bg-red-50 text-red-500 hover:bg-red-100 rounded-lg transition-colors" title="ลบ"><Trash2 size={10}/></button>
+                                            {st === 'รอการยืนยัน' && <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'ยืนยันแล้ว'); showToast('ยืนยันคิวสำเร็จ'); }} className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl transition-colors shrink-0" title="ยืนยันคิว"><CheckCircle size={14}/></button>}
                                         </div>
                                     </div>
                                 </div>
@@ -4889,26 +4927,26 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                      <div className="w-12 shrink-0 border-l-2 border-dashed border-gray-100 flex flex-col items-center justify-center bg-gray-50/30 hover:bg-gray-100 transition-colors relative group/qr">
                          <QrCode size={18} className={`${st === 'รออนุมัติ' ? 'text-amber-400' : st === 'อนุมัติแล้ว' ? 'text-emerald-400' : 'text-red-400'}`} />
                          
-                         <div className="absolute top-1 right-1 flex flex-col gap-1 opacity-0 group-hover/qr:opacity-100 transition-opacity">
-                             <button onClick={(e) => {
-                               e.stopPropagation();
-                               const customer = customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(o.customerPhone || ''));
-                               let posItems = [];
-                               if (o.cartItems && Array.isArray(o.cartItems) && o.cartItems.length > 0) {
-                                   posItems = o.cartItems.map((item, i) => ({
-                                       id: `${o.id}_${i}`, name: String(item.name || 'สินค้าจากคำสั่งซื้อ'), price: parseNumber(item.price), qty: parseNumber(item.qty || '1'), type: 'product', skipStockUpdate: true, maxQty: 9999, originalItem: { id: o.id, "ชื่อสินค้า": item.name, "ราคาขาย": item.price }, isManualPrice: true
-                                   }));
-                               } else {
-                                   posItems = [{
-                                       id: o.id, name: String(o.courseName || 'สินค้าจากคำสั่งซื้อ'), price: parseNumber(o.price), qty: parseNumber(o.qty || '1'), type: 'product', skipStockUpdate: true, maxQty: 9999, originalItem: { id: o.id, "ชื่อสินค้า": o.courseName, "ราคาขาย": o.price }, isManualPrice: true
-                                   }];
-                               }
-                               const event = new CustomEvent('add-to-pos-cart', { detail: { items: posItems, customer: customer || null } });
-                               setActiveTab('pos');
-                               setTimeout(() => { window.dispatchEvent(event); showToast('ส่งไปคิดเงินที่ POS สำเร็จ'); }, 100);
-                             }} className="p-1 bg-indigo-50 text-indigo-500 hover:bg-indigo-100 rounded-lg transition-colors" title="คิดเงิน (POS)"><ShoppingCart size={10}/></button>
-                             <button onClick={(e) => { e.stopPropagation(); setActionConfirmModal({ isOpen: true, title: 'ลบประวัติคำสั่งซื้อ', message: 'ยืนยันการลบประวัติคำสั่งซื้อนี้ทิ้งถาวร ใช่หรือไม่?', action: () => executeDeleteOrder(o.id), confirmText: 'ลบทิ้ง', confirmColor: 'bg-red-600 hover:bg-red-700' }); }} className="p-1 bg-red-50 text-red-500 hover:bg-red-100 rounded-lg transition-colors" title="ลบ"><Trash2 size={10}/></button>
-                         </div>
+                         <div className="absolute top-1/2 -translate-y-1/2 right-full mr-1 flex flex-row items-center gap-1.5 opacity-0 group-hover/qr:opacity-100 transition-all z-10 bg-white/95 backdrop-blur-sm p-1.5 rounded-2xl shadow-md border border-gray-100 translate-x-2 group-hover/qr:translate-x-0" style={{ width: 'max-content', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
+                              <button onClick={(e) => { e.stopPropagation(); setActionConfirmModal({ isOpen: true, title: 'ลบประวัติคำสั่งซื้อ', message: 'ยืนยันการลบประวัติคำสั่งซื้อนี้ทิ้งถาวร ใช่หรือไม่?', action: () => executeDeleteOrder(o.id), confirmText: 'ลบทิ้ง', confirmColor: 'bg-red-600 hover:bg-red-700' }); }} className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-colors" title="ลบ"><Trash2 size={14}/></button>
+                              <button onClick={(e) => {
+                                e.stopPropagation();
+                                const customer = customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(o.customerPhone || ''));
+                                let posItems = [];
+                                if (o.cartItems && Array.isArray(o.cartItems) && o.cartItems.length > 0) {
+                                    posItems = o.cartItems.map((item, i) => ({
+                                        id: `${o.id}_${i}`, name: String(item.name || 'สินค้าจากคำสั่งซื้อ'), price: parseNumber(item.price), qty: parseNumber(item.qty || '1'), type: 'product', skipStockUpdate: true, maxQty: 9999, originalItem: { id: o.id, "ชื่อสินค้า": item.name, "ราคาขาย": item.price }, isManualPrice: true
+                                    }));
+                                } else {
+                                    posItems = [{
+                                        id: o.id, name: String(o.courseName || 'สินค้าจากคำสั่งซื้อ'), price: parseNumber(o.price), qty: parseNumber(o.qty || '1'), type: 'product', skipStockUpdate: true, maxQty: 9999, originalItem: { id: o.id, "ชื่อสินค้า": o.courseName, "ราคาขาย": o.price }, isManualPrice: true
+                                    }];
+                                }
+                                const event = new CustomEvent('add-to-pos-cart', { detail: { items: posItems, customer: customer || null } });
+                                setActiveTab('pos');
+                                setTimeout(() => { window.dispatchEvent(event); showToast('ส่งไปคิดเงินที่ POS สำเร็จ'); }, 100);
+                              }} className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl transition-colors" title="คิดเงิน (POS)"><ShoppingCart size={14}/></button>
+                          </div>
                      </div>
                   </div>
                   );
@@ -5919,6 +5957,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                     <button onClick={() => { setEditCustomerData({ id: selectedCustomer.id, name: selectedCustomer.computedName, phone: selectedCustomer.computedPhone, issue: selectedCustomer.computedIssue }); setIsEditCustomerOpen(true); }} className="p-2.5 bg-white/20 rounded-full hover:bg-white/30 transition-colors text-white shadow-sm" title="แก้ไขข้อมูลลูกค้า"><PenTool size={18}/></button>
                     <button onClick={handleOpenSelectPrint} className="p-2.5 bg-white/20 rounded-full hover:bg-white/30 transition-colors text-white shadow-sm" title="พิมพ์ใบคอร์สหลายใบ"><Printer size={18}/></button>
                     <button onClick={handlePrintView} className="p-2.5 bg-white/20 rounded-full hover:bg-white/30 transition-colors text-white shadow-sm" title="พิมพ์ประวัติ/บัตรสมาชิก"><FileText size={18}/></button>
+                    <button onClick={() => setActionConfirmModal({ isOpen: true, title: 'ลบข้อมูลลูกค้า', message: 'ยืนยันการลบข้อมูลลูกค้านี้ทิ้งถาวร ใช่หรือไม่?', action: () => executeDeleteCustomer(selectedCustomer.id), confirmText: 'ลบทิ้ง', confirmColor: 'bg-red-600 hover:bg-red-700' })} className="p-2.5 bg-red-500/80 rounded-full hover:bg-red-500 transition-colors text-white shadow-sm ml-2" title="ลบข้อมูลลูกค้า"><Trash2 size={18}/></button>
                     <button onClick={() => setSelectedCustomer(null)} className="p-2.5 bg-white/20 rounded-full hover:bg-white/30 transition-colors text-white ml-2 shadow-sm"><X size={20}/></button>
                 </div>
 
