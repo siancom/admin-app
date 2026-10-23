@@ -1,0 +1,11 @@
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, getDocs } from 'firebase/firestore';
+import { firebaseConfig } from '../src/config/firebase.js';
+const db = getFirestore(initializeApp(firebaseConfig), 'iris-care');
+const s = await getDocs(collection(db, 'daily_sales'));
+const rows = [];
+s.forEach(d => { const e = d.data(); if (!/\/10\/2569$/.test(e.date || '')) return;
+  rows.push({ date: e.date, br: e.branch, totalSales: e.totalSales, cash: e.cashSales, transfer: e.transferSales, manualSales: e.manualSales, manualTransfer: e.manualTransfer, actualCash: e.actualCash, float: e.floatCash, nextFloat: e.nextDayFloat, deposit: e.totalDeposit, remit: e.remitAmount, diff: e.difference, noSales: e.noSales, status: e.status }); });
+rows.sort((a,b)=>a.date.split('/')[0]-b.date.split('/')[0]);
+console.table(rows);
+process.exit(0);
