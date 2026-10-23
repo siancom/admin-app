@@ -40,6 +40,14 @@ const getIsoDate = (d) => {
     return d.createdAt ? getLocalDateStr(d.createdAt) : '';
 };
 
+// รายรับที่มาจากใบส่งยอดเท่านั้น (ไม่มีบิล POS): ยอดโอนที่เจ้าของกรอกเอง + ส่วนต่างเงินสด
+// (difference = เงินสดที่นับได้จริง − เงินสดที่ระบบคาดจากบิล POS)
+// นับเฉพาะใบส่งยอดรูปแบบใหม่ที่มีฟิลด์ manualTransfer เพื่อไม่ให้กระทบข้อมูลเก่า
+const getEodExtraSales = (d) => {
+    if (!d || d.manualTransfer === undefined) return 0;
+    return parseNumber(d.manualTransfer || 0) + parseNumber(d.difference || 0);
+};
+
 const FIXED_COST_CATEGORIES = ['เงินเดือนพนักงาน', 'ค่าน้ำ', 'ค่าไฟ', 'ค่าอินเทอร์เน็ต', 'ค่าเช่าที่'];
 const EXPENSE_COLORS = {
   'เงินเดือนพนักงาน': '#f43f5e',
@@ -414,7 +422,9 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
     });
     let depositDetails = [];
     let confirmedDeposit = 0;
+    let totalEodExtraSales = 0;
     filteredDailySales.forEach(d => {
+       totalEodExtraSales += getEodExtraSales(d);
        const amount = parseNumber(d.totalDeposit || d.expectedDeposit || 0);
        totalDeposit += amount;
        if (d.status === 'อนุมัติแล้ว' || d.status === 'รับเงินแล้ว' || d.status === 'ยืนยันแล้ว') {
@@ -461,9 +471,11 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
       .sort((a, b) => b.qty - a.qty)
       .slice(0, 10);
     
+    const posSales = totalSales;
+    totalSales += totalEodExtraSales;
     totalNet = totalSales - totalExpense - totalOPEX - totalCOGS;
     return { 
-      totalSales, totalExpense, totalOPEX, totalNet, totalCOGS, totalCourseCOGS, totalProductCOGS, totalCash, totalTransfer, totalCod, totalOnline, count, 
+      totalSales, posSales, totalEodExtraSales, totalExpense, totalOPEX, totalNet, totalCOGS, totalCourseCOGS, totalProductCOGS, totalCash, totalTransfer, totalCod, totalOnline, count, 
       totalDeposit, confirmedDeposit, totalSubmitted, totalUnsubmitted, depositDetails, filteredDailySales, topProductsByRevenue, topProductsByQty,
       filteredOrders
     };
@@ -556,6 +568,15 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
        if (isThisMonth) monthCost += p;
     });
 
+    dailySales.forEach(d => {
+       if (filterBranch !== 'ทั้งหมด' && d.branch !== filterBranch) return;
+       const extra = getEodExtraSales(d);
+       if (!extra) return;
+       const iso = getIsoDate(d);
+       if (iso === todayIso) todaySales += extra;
+       if (iso.startsWith(currentMonthStr)) monthSales += extra;
+    });
+
     todayProfit = todaySales - todayCost;
     monthProfit = monthSales - monthCost;
     todayGrossProfit = todaySales - todayCOGS;
@@ -565,7 +586,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
        todayCost, todayProfit, monthCost, monthProfit, todaySales, monthSales, todayGrossProfit, monthGrossProfit, todayCOGS, monthCOGS,
        todayCourseCOGS, todayProductCOGS, monthCourseCOGS, monthProductCOGS
     };
-  }, [orders, expenses, filterBranch, filterDate]);
+  }, [orders, expenses, dailySales, filterBranch, filterDate]);
 
   const currentMonthSalesData = useMemo(() => {
     const now = filterDate ? new Date(filterDate) : new Date();
@@ -1455,7 +1476,14 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                 </div>
                 <div className="text-3xl font-black text-emerald-800 mt-2">฿{stats.totalSales.toLocaleString()}</div>
                 <div className="flex justify-between items-center mt-2">
-                   <div className="text-xs text-emerald-600 font-medium">จาก {stats.count} บิล</div>
+                   <div className="text-xs text-emerald-600 font-medium flex flex-col">
+                      <span>จาก {stats.count} บิล</span>
+                      {stats.totalEodExtraSales !== 0 && (
+                         <span className="text-[10px] text-emerald-700/80" title="ยอดโอนที่เจ้าของกรอกเอง + ส่วนต่างเงินสด จากใบส่งยอด (ไม่มีบิล POS)">
+                            รวมยอดจากใบส่งยอด ฿{stats.totalEodExtraSales.toLocaleString()}
+                         </span>
+                      )}
+                   </div>
                    <div className="flex flex-col gap-1 items-end">
                       <span className="bg-emerald-200/50 text-emerald-700 text-[9px] px-1.5 py-0.5 rounded-md" title="ยอดขายที่ส่งรายงานปิดยอดแล้ว">ส่งแล้ว {stats.totalSubmitted.toLocaleString()}</span>
                       {stats.totalUnsubmitted > 0 && <span className="bg-rose-100/80 text-rose-700 text-[9px] px-1.5 py-0.5 rounded-md" title="ยอดขายที่ยังไม่ได้ส่งรายงานปิดยอด">ยังไม่ส่ง {stats.totalUnsubmitted.toLocaleString()}</span>}
