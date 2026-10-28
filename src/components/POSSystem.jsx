@@ -974,12 +974,16 @@ export default function POSSystem({
     return { cash, transfer, cod, credit, transferDetails, pendingDetails, allSalesDetails, productSalesAmt, courseSalesAmt, manualSalesAmt, online };
   }, [orders, histories, globalBranch, posFilterDate]);
 
+  // 🌟 เจ้าของร้าน หรือ "ส่งยอดด่วน" จากหน้าล็อกอิน ใช้ฟีเจอร์ส่งยอดเหมือนกัน (กรอกยอดโอนเอง / ส่งยอด 0 บาท)
+  const isOwnerRole = globalRole === 'owner';
+  const canOwnerEod = isOwnerRole || !!autoOpenEod;
+
   // 🌟 เจ้าของร้านส่งยอดได้แม้ไม่มีรายการขาย (เช่น ร้านปิด / ส่งย้อนหลัง)
   const isEodNoSales = !((todaySalesBreakdown?.cash || 0) + (todaySalesBreakdown?.transfer || 0) + (todaySalesBreakdown?.credit || 0) + (todaySalesBreakdown?.cod || 0));
-  const isOwnerZeroEod = globalRole === 'owner' && isEodNoSales;
+  const isOwnerZeroEod = canOwnerEod && isEodNoSales;
 
   // 🌟 เจ้าของร้านกรอกยอดโอนเพิ่มเองได้ (รวมกับยอดโอนจากระบบ)
-  const manualTransferNum = globalRole === 'owner' ? (parseNumber(eodData.manualTransfer) || 0) : 0;
+  const manualTransferNum = canOwnerEod ? (parseNumber(eodData.manualTransfer) || 0) : 0;
   const eodBreakdown = useMemo(() => {
     if (!manualTransferNum) return todaySalesBreakdown;
     return {
@@ -987,10 +991,10 @@ export default function POSSystem({
       transfer: (todaySalesBreakdown.transfer || 0) + manualTransferNum,
       transferDetails: [
         ...(todaySalesBreakdown.transferDetails || []),
-        { time: '-', customer: 'เจ้าของร้านกรอกเอง', amount: manualTransferNum, items: eodData.manualTransferNote || 'ยอดโอนที่กรอกเพิ่ม', isManual: true },
+        { time: '-', customer: isOwnerRole ? 'เจ้าของร้านกรอกเอง' : 'กรอกเอง (ส่งยอดด่วน)', amount: manualTransferNum, items: eodData.manualTransferNote || 'ยอดโอนที่กรอกเพิ่ม', isManual: true },
       ],
     };
-  }, [todaySalesBreakdown, manualTransferNum, eodData.manualTransferNote]);
+  }, [todaySalesBreakdown, manualTransferNum, eodData.manualTransferNote, isOwnerRole]);
 
   const currentMonthSales = useMemo(() => {
     const posFilterDateObj = new Date();
@@ -5953,9 +5957,9 @@ export default function POSSystem({
                     <div className="text-center text-blue-400 text-sm mt-4">ไม่มีรายการโอนเงิน</div>
                   )}
                 </div>
-                {globalRole === 'owner' && (
+                {canOwnerEod && (
                   <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 space-y-2">
-                    <label className="block text-sm font-bold text-amber-800">👑 เพิ่มยอดโอน (เฉพาะเจ้าของ)</label>
+                    <label className="block text-sm font-bold text-amber-800">{isOwnerRole ? '👑 เพิ่มยอดโอน (เฉพาะเจ้าของ)' : '➕ เพิ่มยอดโอนที่ไม่ได้คีย์ผ่าน POS'}</label>
                     <input
                       id="eod-manual-transfer"
                       type="number"
@@ -6109,7 +6113,7 @@ export default function POSSystem({
 
                 {isOwnerZeroEod && (
                   <div className="p-3 bg-sky-50 border border-sky-200 rounded-lg text-sky-700 text-xs font-bold text-center">
-                    👑 ไม่มีรายการขายในวันที่เลือก เจ้าของร้านส่งยอด 0 บาทได้เลย ไม่ต้องกรอกยอดเงินสด
+                    {isOwnerRole ? '👑 ไม่มีรายการขายในวันที่เลือก เจ้าของร้านส่งยอด 0 บาทได้เลย ไม่ต้องกรอกยอดเงินสด' : 'ไม่มีรายการขายในวันที่เลือก ส่งยอด 0 บาทได้เลย ไม่ต้องกรอกยอดเงินสด'}
                   </div>
                 )}
 
