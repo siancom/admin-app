@@ -81,7 +81,7 @@ exports.wooProxy = functions.region('asia-southeast1').https.onRequest(async (re
   res.set('Access-Control-Allow-Origin', '*');
   if (req.method === 'OPTIONS') {
     res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
     res.status(204).send('');
     return;
   }
@@ -90,7 +90,7 @@ exports.wooProxy = functions.region('asia-southeast1').https.onRequest(async (re
     const targetUrl = req.query.url;
     if (!targetUrl) return res.status(400).send('Missing url param');
     
-    const headers = {};
+    const headers = { 'Accept': req.headers['accept'] || 'application/json' };
     if (req.headers.authorization) headers['Authorization'] = req.headers.authorization;
     if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type'];
 
@@ -105,6 +105,131 @@ exports.wooProxy = functions.region('asia-southeast1').https.onRequest(async (re
     res.status(r.status).send(text);
   } catch (e) {
     res.status(502).json({ error: e.toString() });
+  }
+});
+
+// 🚚 iShip Open API Proxy — แก้ CORS + รองรับ Auto Refresh Token จาก Firestore (app_settings/shipping) + ดาวน์โหลดใบปะหน้า PDF
+const ISHIP_ALLOWED_PATHS = [
+  'auth/requestToken',
+  'courier_code',
+  'create_order',
+  'request_courier',
+  'query_orders',
+  'cancel_order',
+  'traces',
+  'download/pdf'
+];
+
+exports.ishipProxy = functions.region('asia-southeast1').https.onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  if (req.method === 'OPTIONS') {
+    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+    res.status(204).send('');
+    return;
+  }
+
+  try {
+    let subPath = String(req.path || req.query.endpoint || '').replace(/^\/+|\/+$/g, '');
+    if (subPath === 'requestToken') subPath = 'auth/requestToken';
+    const isAllowed = ISHIP_ALLOWED_PATHS.includes(subPath) || /^get_order\/[A-Za-z0-9_-]+$/.test(subPath);
+    if (!isAllowed) {
+      return res.status(400).json({ status: false, message: `Unsupported iShip endpoint: ${subPath}` });
+    }
+
+    const db = getFirestore('iris-care');
+    const shippingDocRef = db.collection('app_settings').doc('shipping');
+
+    // กรณีขอ Token ใหม่ด้วยเบอร์โทร + รหัสผ่าน
+    if (subPath === 'auth/requestToken') {
+      const authRes = await fetch('https://app.iship.cloud/api/auth/requestToken', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body || {})
+      });
+      const authText = await authRes.text();
+      res.set('Content-Type', 'application/json');
+      return res.status(authRes.status).send(authText);
+    }
+
+    // ดึง Token จาก Header หรือจาก Firestore app_settings/shipping
+    let token = '';
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      token = req.headers.authorization.replace(/^Bearer\s+/i, '').trim();
+    }
+    const shippingSnap = await shippingDocRef.get();
+    const shippingCfg = shippingSnap.exists ? (shippingSnap.data() || {}) : {};
+    if (!token && shippingCfg.ishipToken) {
+      token = String(shippingCfg.ishipToken).trim();
+    }
+
+    const isPdfDownload = subPath === 'download/pdf';
+
+    const callIShip = async (bearerToken) => {
+      const queryStr = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      const targetUrl = `https://app.iship.cloud/api/${subPath}${queryStr}`;
+      const fetchOpts = {
+        method: req.method,
+        headers: {
+          'Accept': isPdfDownload ? 'application/pdf, application/json, */*' : 'application/json',
+          ...(req.method !== 'GET' && req.method !== 'HEAD' ? { 'Content-Type': 'application/json' } : {}),
+          ...(bearerToken ? { 'Authorization': `Bearer ${bearerToken}` } : {})
+        }
+      };
+      if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
+        fetchOpts.body = typeof req.body === 'object' ? JSON.stringify(req.body) : req.body;
+      }
+      return fetch(targetUrl, fetchOpts);
+    };
+
+    const sendPdfIfBinary = async (response) => {
+      const respType = String(response.headers.get('content-type') || '').toLowerCase();
+      if (respType.includes('pdf') || respType.includes('octet-stream')) {
+        const pdfBuf = Buffer.from(await response.arrayBuffer());
+        const safeTrack = String(req.query.tracks || 'waybill').replace(/[^a-zA-Z0-9_-]/g, '');
+        res.set('Content-Type', 'application/pdf');
+        res.set('Content-Disposition', `inline; filename="iship-label-${safeTrack}.pdf"`);
+        res.status(response.status).send(pdfBuf);
+        return true;
+      }
+      return false;
+    };
+
+    let r = await callIShip(token);
+    if (isPdfDownload && r.ok && await sendPdfIfBinary(r)) {
+      return;
+    }
+
+    let text = await r.text();
+
+    // หาก Token หมดอายุ/ไม่ถูกต้อง และมีเบอร์โทร+รหัสผ่านบันทึกไว้ ให้ขอ Token ใหม่อัตโนมัติแล้วลองซ้ำ 1 ครั้ง
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch (e) {}
+    const isUnauth = r.status === 401 || parsed?.code === 9999 || parsed?.message === 'Unauthenticated';
+
+    if (isUnauth && shippingCfg.ishipPhone && shippingCfg.ishipPassword) {
+      const refreshRes = await fetch('https://app.iship.cloud/api/auth/requestToken', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: shippingCfg.ishipPhone, password: shippingCfg.ishipPassword })
+      });
+      const refreshData = await refreshRes.json().catch(() => null);
+      const newToken = refreshData?.data?.accessToken;
+      if (newToken) {
+        await shippingDocRef.set({ ishipToken: newToken, tokenUpdatedAt: new Date().toISOString() }, { merge: true });
+        r = await callIShip(newToken);
+        if (isPdfDownload && r.ok && await sendPdfIfBinary(r)) {
+          return;
+        }
+        text = await r.text();
+      }
+    }
+
+    res.set('Content-Type', 'application/json');
+    return res.status(r.status).send(text);
+  } catch (e) {
+    console.error('ishipProxy error:', e);
+    return res.status(502).json({ status: false, message: e.toString() });
   }
 });
 

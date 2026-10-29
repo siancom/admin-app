@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Clock, Calendar, CheckCircle, UserCheck, UserMinus, X, User, LogOut, Send, Check, XCircle, History, DollarSign, Wallet, ShoppingCart, Lock, Trash2, FileText, ShieldAlert, Gift, Percent } from 'lucide-react';
+import { Clock, Calendar, CheckCircle, UserCheck, UserMinus, X, User, LogOut, Send, Check, XCircle, History, DollarSign, Wallet, ShoppingCart, Lock, Trash2, FileText, ShieldAlert, Gift, Percent, Edit3, RotateCcw } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import PayslipModal from './PayslipModal';
 import { parseNumber } from '../utils/parse';
+import { getOrderStatus } from '../utils/dateUtils';
 import { getFuzzyKey } from '../utils/fuzzy';
 import EmploymentContractModal from './EmploymentContractModal';
 
@@ -45,6 +46,23 @@ export default function EmployeePortal({
   const [isSubmittingAdvance, setIsSubmittingAdvance] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [showContract, setShowContract] = useState(false);
+  const [isOwnerPayrollUnlocked, setIsOwnerPayrollUnlocked] = useState(false);
+  const [isEditingPayroll, setIsEditingPayroll] = useState(false);
+  const [isSavingPayroll, setIsSavingPayroll] = useState(false);
+  const [localOverrides, setLocalOverrides] = useState(employee.payrollOverrides || {});
+  const [localBaseSalary, setLocalBaseSalary] = useState(employee.baseSalary);
+  const [payrollEditForm, setPayrollEditForm] = useState({
+    baseSalary: '',
+    totalCommission: '',
+    totalServiceFees: '',
+    totalFoodAllowance: '',
+    totalAdvances: ''
+  });
+
+  useEffect(() => {
+    setLocalOverrides(employee.payrollOverrides || {});
+    setLocalBaseSalary(employee.baseSalary);
+  }, [employee.id, employee.payrollOverrides, employee.baseSalary]);
 
   const usedAnnualLeave = useMemo(() => {
     // Check approved annual leaves in the current year
@@ -218,55 +236,243 @@ export default function EmployeePortal({
      
      const empAttendance = attendance.filter(a => a.employeeId === employee.id && isInPayrollMonth(a, payrollMonth));
      const daysWorked = new Set(empAttendance.map(a => a.date)).size;
-     const totalFoodAllowance = daysWorked * 50;
+     const foodRate = employee.foodAllowanceRate !== undefined ? Number(employee.foodAllowanceRate) : 50;
+     const autoFoodAllowance = daysWorked * foodRate;
 
-     const baseSalary = parseNumber(employee.baseSalary || 0);
-     const totalIncome = baseSalary + totalCommission + totalServiceFees + totalFoodAllowance - totalAdvances;
+     const autoBaseSalary = parseNumber(localBaseSalary !== undefined ? localBaseSalary : (employee.baseSalary || 0));
+     const autoCommission = Math.ceil(totalCommission);
+     const autoServiceFees = Math.ceil(totalServiceFees);
+     const autoAdvances = Math.ceil(totalAdvances);
+
+     const monthOverride = (localOverrides && localOverrides[payrollMonth]) || employee.payrollOverrides?.[payrollMonth] || {};
+     const hasOverride = Object.keys(monthOverride).some(k => monthOverride[k] !== undefined && monthOverride[k] !== null && monthOverride[k] !== '');
+
+     const finalBaseSalary = monthOverride.baseSalary !== undefined && monthOverride.baseSalary !== null && monthOverride.baseSalary !== ''
+       ? parseNumber(monthOverride.baseSalary)
+       : autoBaseSalary;
+     const finalCommission = monthOverride.totalCommission !== undefined && monthOverride.totalCommission !== null && monthOverride.totalCommission !== ''
+       ? parseNumber(monthOverride.totalCommission)
+       : autoCommission;
+     const finalServiceFees = monthOverride.totalServiceFees !== undefined && monthOverride.totalServiceFees !== null && monthOverride.totalServiceFees !== ''
+       ? parseNumber(monthOverride.totalServiceFees)
+       : autoServiceFees;
+     const finalFoodAllowance = monthOverride.totalFoodAllowance !== undefined && monthOverride.totalFoodAllowance !== null && monthOverride.totalFoodAllowance !== ''
+       ? parseNumber(monthOverride.totalFoodAllowance)
+       : autoFoodAllowance;
+     const finalAdvances = monthOverride.totalAdvances !== undefined && monthOverride.totalAdvances !== null && monthOverride.totalAdvances !== ''
+       ? parseNumber(monthOverride.totalAdvances)
+       : autoAdvances;
+
+     const totalIncome = finalBaseSalary + finalCommission + finalServiceFees + finalFoodAllowance - finalAdvances;
      
      return {
          ...employee,
-         totalCommission,
-         totalServiceFees,
-         totalFoodAllowance,
-         totalAdvances,
+         baseSalary: finalBaseSalary,
+         totalCommission: finalCommission,
+         totalServiceFees: finalServiceFees,
+         totalFoodAllowance: finalFoodAllowance,
+         totalAdvances: finalAdvances,
+         autoBaseSalary,
+         autoCommission,
+         autoServiceFees,
+         autoFoodAllowance,
+         autoAdvances,
+         hasOverride,
          netSalary: totalIncome, // Keep netSalary for UI compatibility if needed elsewhere
          totalIncome, // For PayslipModal
          daysWorked,
          serviceCount,
          serviceLogCount: empServiceLogs.length
      };
-  }, [histories, serviceLogs, advancePayments, employee, payrollMonth]);
+  }, [histories, serviceLogs, advancePayments, attendance, employee, payrollMonth, localOverrides, localBaseSalary]);
+
+  const handleStartEditPayroll = () => {
+    if (!isAdmin && !isOwnerPayrollUnlocked) {
+      const pass = window.prompt('กรอกรหัสผ่านเจ้าของร้านเพื่อปรับแก้ตัวเลขเงินเดือน:');
+      if (pass === null) return;
+      const masterPass = String(appSettings?.masterPasscode || '999999');
+      if (String(pass).trim() !== masterPass) {
+        alert('รหัสผ่านเจ้าของร้านไม่ถูกต้อง');
+        return;
+      }
+      setIsOwnerPayrollUnlocked(true);
+    }
+    setPayrollEditForm({
+      baseSalary: String(payrollEmployee.baseSalary ?? 0),
+      totalCommission: String(payrollEmployee.totalCommission ?? 0),
+      totalServiceFees: String(payrollEmployee.totalServiceFees ?? 0),
+      totalFoodAllowance: String(payrollEmployee.totalFoodAllowance ?? 0),
+      totalAdvances: String(payrollEmployee.totalAdvances ?? 0)
+    });
+    setIsEditingPayroll(true);
+  };
+
+  const handleSavePayrollOverride = async () => {
+    setIsSavingPayroll(true);
+    try {
+      const newMonthOverride = {
+        baseSalary: parseNumber(payrollEditForm.baseSalary),
+        totalCommission: parseNumber(payrollEditForm.totalCommission),
+        totalServiceFees: parseNumber(payrollEditForm.totalServiceFees),
+        totalFoodAllowance: parseNumber(payrollEditForm.totalFoodAllowance),
+        totalAdvances: parseNumber(payrollEditForm.totalAdvances),
+        updatedAt: new Date().toISOString()
+      };
+      const updatedOverrides = {
+        ...(employee.payrollOverrides || {}),
+        ...localOverrides,
+        [payrollMonth]: newMonthOverride
+      };
+      await updateDoc(doc(db, 'employees', employee.id), {
+        baseSalary: newMonthOverride.baseSalary,
+        payrollOverrides: updatedOverrides
+      });
+      setLocalBaseSalary(newMonthOverride.baseSalary);
+      setLocalOverrides(updatedOverrides);
+      setIsEditingPayroll(false);
+    } catch (err) {
+      alert('บันทึกตัวเลขเงินเดือนไม่สำเร็จ: ' + err.message);
+    }
+    setIsSavingPayroll(false);
+  };
+
+  const handleResetPayrollOverride = async () => {
+    if (!window.confirm('ต้องการรีเซ็ตตัวเลขกลับไปใช้ยอดที่ระบบคำนวณอัตโนมัติใช่หรือไม่?')) return;
+    setIsSavingPayroll(true);
+    try {
+      const updatedOverrides = {
+        ...(employee.payrollOverrides || {}),
+        ...localOverrides
+      };
+      delete updatedOverrides[payrollMonth];
+      await updateDoc(doc(db, 'employees', employee.id), {
+        payrollOverrides: updatedOverrides
+      });
+      setLocalOverrides(updatedOverrides);
+      setIsEditingPayroll(false);
+    } catch (err) {
+      alert('รีเซ็ตไม่สำเร็จ: ' + err.message);
+    }
+    setIsSavingPayroll(false);
+  };
   
   // Calculate Branch Target Progress
   const branchTargetStats = useMemo(() => {
-     const currentMonth = new Date().toISOString().substring(0, 7);
+     const now = new Date();
+     const currentMonth = now.getMonth();
+     const currentYear = now.getFullYear();
+     const currentMonthStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
      
      // Handle branch name mismatch (e.g. "เฉวง" vs "สาขาเฉวง")
      const empBranch = employee.branch || '';
-     const altBranch = empBranch.startsWith('สาขา') ? empBranch.replace('สาขา', '').trim() : 'สาขา' + empBranch;
+     const cleanBranch = empBranch.replace('สาขา', '').trim();
+     const altBranch = empBranch.startsWith('สาขา') ? cleanBranch : 'สาขา' + cleanBranch;
+     const validBranches = branches.map(b => b.name || b.id).filter(b => b && b !== 'ทั้งหมด');
+     const firstClean = String(validBranches[0] || '').replace('สาขา', '').trim();
+     const isFirstBranch = cleanBranch && (!firstClean || cleanBranch === firstClean);
+     const hasHQBranch = validBranches.includes('สำนักงานใหญ่');
+
+     const resolveTarget = (mapObj) => {
+       if (!mapObj) return 0;
+       if (isFirstBranch && !hasHQBranch && parseNumber(mapObj['สำนักงานใหญ่']) > 0) {
+         return parseNumber(mapObj['สำนักงานใหญ่']);
+       }
+       return parseNumber(mapObj[empBranch] || mapObj[altBranch] || mapObj[cleanBranch] || 0);
+     };
      
      let branchSales = 0;
+     let courseSales = 0;
+     let productSales = 0;
+
      orders.forEach(o => {
-       const isSameMonth = o.createdAt && o.createdAt.startsWith(currentMonth);
-       const isSameBranch = o.branch === empBranch || o.branch === altBranch;
-       if (isSameMonth && isSameBranch && (!o.status || o.status === 'อนุมัติแล้ว')) {
+       if (!o.createdAt || (o.status && getOrderStatus(o) !== 'อนุมัติแล้ว')) return;
+       const d = new Date(o.createdAt);
+       const isSameMonth = d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+       const oClean = String(o.branch || '').replace('สาขา', '').trim();
+       const isSameBranch = o.branch === empBranch || o.branch === altBranch || (cleanBranch && oClean === cleanBranch);
+       if (isSameMonth && isSameBranch) {
          const isPO = o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า');
          const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
          if (!isPO && !isReq) {
-           branchSales += parseNumber(o.price);
+           let p = parseNumber(o.price);
+           if (o.orderChannel === 'shopee' && o.shopeeNetReceived !== undefined) {
+             p = parseNumber(o.shopeeNetReceived);
+           }
+           let debtPaymentAmt = 0;
+           let cSales = 0, pSales = 0;
+           if (o.cartItems && Array.isArray(o.cartItems)) {
+             o.cartItems.forEach(item => {
+               if (item.type === 'debt_payment') debtPaymentAmt += (parseNumber(item.price) * parseNumber(item.qty || 1));
+               else if (item.type === 'course') cSales += (parseNumber(item.price) * parseNumber(item.qty || 1));
+               else if (item.type === 'product') pSales += (parseNumber(item.price) * parseNumber(item.qty || 1));
+             });
+           }
+           const actualSales = Math.max(0, p - debtPaymentAmt);
+           branchSales += actualSales;
+           if (cSales === 0 && pSales === 0 && actualSales > 0) cSales = actualSales;
+           const totalCP = cSales + pSales;
+           if (totalCP > 0) {
+             courseSales += (cSales / totalCP) * actualSales;
+             productSales += (pSales / totalCP) * actualSales;
+           }
          }
        }
      });
+
+     dailySales.forEach(d => {
+       if (!d || d.manualTransfer === undefined) return;
+       const dClean = String(d.branch || '').replace('สาขา', '').trim();
+       const isSameBranch = d.branch === empBranch || d.branch === altBranch || (cleanBranch && dClean === cleanBranch);
+       if (!isSameBranch) return;
+       let iso = '';
+       if (d.date && d.date.includes('/')) {
+         const parts = d.date.split('/');
+         if (parts.length === 3) {
+           let [day, month, year] = parts;
+           year = String(parseInt(year) > 2500 ? parseInt(year) - 543 : year);
+           iso = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+         }
+       } else if (d.createdAt) {
+         const dt = new Date(d.createdAt);
+         if (!isNaN(dt.getTime())) {
+           iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+         }
+       }
+       if (iso.startsWith(currentMonthStr)) {
+         branchSales += parseNumber(d.manualTransfer || 0) + parseNumber(d.difference || 0);
+       }
+     });
      
-     let target = parseNumber(appSettings?.branchTargets?.[empBranch] || 0);
-     if (!target) {
-        target = parseNumber(appSettings?.branchTargets?.[altBranch] || 0);
-     }
+     const target = resolveTarget(appSettings?.branchTargets);
+     const courseTarget = resolveTarget(appSettings?.courseTargets);
+     const productTarget = resolveTarget(appSettings?.productTargets);
      
      const percent = target > 0 ? Math.min(100, (branchSales / target) * 100) : 0;
+
+     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+     const todayDate = now.getDate();
+     const remainingDays = Math.max(1, daysInMonth - todayDate + 1);
+     const remainingAmount = Math.max(0, target - branchSales);
+     const dailyNeeded = remainingAmount > 0 ? Math.ceil(remainingAmount / remainingDays) : 0;
+     const baseDailyTarget = target > 0 ? Math.ceil(target / daysInMonth) : 0;
+     const currentDailyAvg = todayDate > 0 ? Math.round(branchSales / todayDate) : 0;
      
-     return { branchSales, target, percent };
-  }, [orders, appSettings, employee.branch]);
+     return {
+       branchSales,
+       target,
+       percent,
+       courseSales,
+       courseTarget,
+       productSales,
+       productTarget,
+       daysInMonth,
+       remainingDays,
+       remainingAmount,
+       dailyNeeded,
+       baseDailyTarget,
+       currentDailyAvg
+     };
+  }, [orders, dailySales, appSettings, employee.branch, branches]);
 
   const handleSubmitService = async (e) => {
     e.preventDefault();
@@ -564,10 +770,21 @@ export default function EmployeePortal({
                      {/* ปุ่มหลักปุ่มเดียวตามสถานะ */}
                      {neverClockedInToday ? (
                         <div>
-                           <button onClick={() => onClockIn(employee)} className="w-full py-4 md:py-5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-base md:text-lg shadow-lg shadow-indigo-600/30 transition-transform active:scale-95 flex items-center justify-center gap-3">
-                              <UserCheck size={24} /> เข้างาน (บันทึกเวลา + GPS)
-                           </button>
-                           <p className="text-[10px] text-center text-slate-400 font-bold mt-2">ต้องอยู่ใกล้สาขา (GPS ระยะ 100 เมตร) จึงจะบันทึกได้</p>
+                           {(() => {
+                              const activeBranchCount = branches.filter(b => !b.isMaintenance).length || branches.length;
+                              const gpsBranchCount = branches.filter(b => !b.isMaintenance && b.lat && b.lng).length;
+                              const skipGps = activeBranchCount <= 1 || gpsBranchCount <= 1;
+                              return (
+                                 <>
+                                    <button onClick={() => onClockIn(employee)} className="w-full py-4 md:py-5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-base md:text-lg shadow-lg shadow-indigo-600/30 transition-transform active:scale-95 flex items-center justify-center gap-3">
+                                       <UserCheck size={24} /> {skipGps ? 'เข้างาน (บันทึกเวลา)' : 'เข้างาน (บันทึกเวลา + GPS)'}
+                                    </button>
+                                    {!skipGps && (
+                                       <p className="text-[10px] text-center text-slate-400 font-bold mt-2">ต้องอยู่ใกล้สาขา (GPS ระยะ 100 เมตร) จึงจะบันทึกได้</p>
+                                    )}
+                                 </>
+                              );
+                           })()}
                         </div>
                      ) : isPosLocked ? (
                         <div className="w-full py-4 bg-slate-100 text-slate-500 rounded-2xl font-black text-sm flex items-center justify-center gap-2">
@@ -710,36 +927,157 @@ export default function EmployeePortal({
 
                   {/* Salary Breakdown */}
                   <div className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200 shadow-sm relative">
-                     <div className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2"><DollarSign size={16} className="text-emerald-500"/> รายละเอียดการคำนวณเงินเดือน</div>
+                     <div className="flex items-center justify-between mb-3 pr-7">
+                        <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                           <DollarSign size={16} className="text-emerald-500"/> รายละเอียดการคำนวณเงินเดือน
+                           {payrollEmployee.hasOverride && !isEditingPayroll && (
+                              <span className="text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">ปรับแก้โดยเจ้าของร้าน</span>
+                           )}
+                        </div>
+                        {!isEditingPayroll && (
+                           <button
+                              onClick={handleStartEditPayroll}
+                              className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors"
+                              title="แก้ไขตัวเลขเงินเดือน (เจ้าของร้าน)"
+                           >
+                              <Edit3 size={13} /> แก้ไขตัวเลข
+                           </button>
+                        )}
+                     </div>
                      <button onClick={() => setShowContract(true)} className="absolute top-4 right-4 text-slate-400 hover:text-indigo-600 transition-colors p-1" title="ดูหนังสือสัญญา">
                         <FileText size={18} />
                      </button>
-                     <div className="space-y-2 text-xs md:text-sm">
-                        <div className="flex justify-between items-center text-slate-600">
-                           <span>ฐานเงินเดือน</span>
-                           <span className="font-bold">฿{(Number(employee.baseSalary) || 0).toLocaleString()}</span>
+                     {isEditingPayroll ? (
+                        <div className="space-y-2.5 text-xs md:text-sm">
+                           <div className="flex justify-between items-center text-slate-600 gap-2">
+                              <span>ฐานเงินเดือน</span>
+                              <div className="flex items-center gap-1">
+                                 <span className="text-slate-400 font-bold">฿</span>
+                                 <input
+                                    type="number"
+                                    value={payrollEditForm.baseSalary}
+                                    onChange={e => setPayrollEditForm({ ...payrollEditForm, baseSalary: e.target.value })}
+                                    className="w-28 md:w-32 text-right font-bold text-slate-800 bg-slate-50 border border-slate-300 focus:border-indigo-500 rounded-lg px-2.5 py-1 outline-none"
+                                 />
+                              </div>
+                           </div>
+                           <div className="flex justify-between items-center text-slate-600 gap-2">
+                              <span>ค่าคอมมิชชัน (จากยอดขาย)</span>
+                              <div className="flex items-center gap-1">
+                                 <span className="text-emerald-600 font-bold">+ ฿</span>
+                                 <input
+                                    type="number"
+                                    value={payrollEditForm.totalCommission}
+                                    onChange={e => setPayrollEditForm({ ...payrollEditForm, totalCommission: e.target.value })}
+                                    className="w-28 md:w-32 text-right font-bold text-emerald-700 bg-emerald-50/50 border border-emerald-300 focus:border-emerald-500 rounded-lg px-2.5 py-1 outline-none"
+                                 />
+                              </div>
+                           </div>
+                           <div className="flex justify-between items-center text-slate-600 gap-2">
+                              <span>ค่ามือ / ค่าจี้ไฝ</span>
+                              <div className="flex items-center gap-1">
+                                 <span className="text-emerald-600 font-bold">+ ฿</span>
+                                 <input
+                                    type="number"
+                                    value={payrollEditForm.totalServiceFees}
+                                    onChange={e => setPayrollEditForm({ ...payrollEditForm, totalServiceFees: e.target.value })}
+                                    className="w-28 md:w-32 text-right font-bold text-emerald-700 bg-emerald-50/50 border border-emerald-300 focus:border-emerald-500 rounded-lg px-2.5 py-1 outline-none"
+                                 />
+                              </div>
+                           </div>
+                           <div className="flex justify-between items-center text-slate-600 gap-2">
+                              <span>ค่าอาหาร</span>
+                              <div className="flex items-center gap-1">
+                                 <span className="text-emerald-600 font-bold">+ ฿</span>
+                                 <input
+                                    type="number"
+                                    value={payrollEditForm.totalFoodAllowance}
+                                    onChange={e => setPayrollEditForm({ ...payrollEditForm, totalFoodAllowance: e.target.value })}
+                                    className="w-28 md:w-32 text-right font-bold text-emerald-700 bg-emerald-50/50 border border-emerald-300 focus:border-emerald-500 rounded-lg px-2.5 py-1 outline-none"
+                                 />
+                              </div>
+                           </div>
+                           <div className="flex justify-between items-center text-slate-600 gap-2">
+                              <span>หักเบิกล่วงหน้า</span>
+                              <div className="flex items-center gap-1">
+                                 <span className="text-rose-500 font-bold">- ฿</span>
+                                 <input
+                                    type="number"
+                                    value={payrollEditForm.totalAdvances}
+                                    onChange={e => setPayrollEditForm({ ...payrollEditForm, totalAdvances: e.target.value })}
+                                    className="w-28 md:w-32 text-right font-bold text-rose-600 bg-rose-50/50 border border-rose-300 focus:border-rose-500 rounded-lg px-2.5 py-1 outline-none"
+                                 />
+                              </div>
+                           </div>
+                           <div className="border-t border-dashed border-slate-200 pt-2 mt-2 flex justify-between items-center">
+                              <span className="font-black text-slate-800">รายรับสุทธิ</span>
+                              <span className="font-black text-emerald-600 text-base">
+                                 ฿{(
+                                    parseNumber(payrollEditForm.baseSalary) +
+                                    parseNumber(payrollEditForm.totalCommission) +
+                                    parseNumber(payrollEditForm.totalServiceFees) +
+                                    parseNumber(payrollEditForm.totalFoodAllowance) -
+                                    parseNumber(payrollEditForm.totalAdvances)
+                                 ).toLocaleString()}
+                              </span>
+                           </div>
+                           <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+                              {payrollEmployee.hasOverride && (
+                                 <button
+                                    type="button"
+                                    onClick={handleResetPayrollOverride}
+                                    disabled={isSavingPayroll}
+                                    className="mr-auto flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 transition-colors"
+                                 >
+                                    <RotateCcw size={13} /> รีเซ็ตตามระบบ
+                                 </button>
+                              )}
+                              <button
+                                 type="button"
+                                 onClick={() => setIsEditingPayroll(false)}
+                                 disabled={isSavingPayroll}
+                                 className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                              >
+                                 ยกเลิก
+                              </button>
+                              <button
+                                 type="button"
+                                 onClick={handleSavePayrollOverride}
+                                 disabled={isSavingPayroll}
+                                 className="flex items-center gap-1 px-4 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors"
+                              >
+                                 <Check size={14} /> {isSavingPayroll ? 'กำลังบันทึก...' : 'บันทึกตัวเลข'}
+                              </button>
+                           </div>
                         </div>
-                        <div className="flex justify-between items-center text-slate-600">
-                           <span>ค่าคอมมิชชัน (จากยอดขาย)</span>
-                           <span className="font-bold text-emerald-600">+ ฿{payrollEmployee.totalCommission.toLocaleString()}</span>
+                     ) : (
+                        <div className="space-y-2 text-xs md:text-sm">
+                           <div className="flex justify-between items-center text-slate-600">
+                              <span>ฐานเงินเดือน</span>
+                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>฿{(Number(payrollEmployee.baseSalary) || 0).toLocaleString()}</span>
+                           </div>
+                           <div className="flex justify-between items-center text-slate-600">
+                              <span>ค่าคอมมิชชัน (จากยอดขาย)</span>
+                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-emerald-600 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>+ ฿{payrollEmployee.totalCommission.toLocaleString()}</span>
+                           </div>
+                           <div className="flex justify-between items-center text-slate-600">
+                              <span>ค่ามือ / ค่าจี้ไฝ</span>
+                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-emerald-600 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>+ ฿{payrollEmployee.totalServiceFees.toLocaleString()}</span>
+                           </div>
+                           <div className="flex justify-between items-center text-slate-600">
+                              <span>ค่าอาหาร</span>
+                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-emerald-600 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>+ ฿{(payrollEmployee.totalFoodAllowance || 0).toLocaleString()}</span>
+                           </div>
+                           <div className="flex justify-between items-center text-slate-600">
+                              <span>หักเบิกล่วงหน้า</span>
+                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-rose-500 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>- ฿{payrollEmployee.totalAdvances.toLocaleString()}</span>
+                           </div>
+                           <div className="border-t border-dashed border-slate-200 pt-2 mt-2 flex justify-between items-center">
+                              <span className="font-black text-slate-800">รายรับสุทธิ</span>
+                              <span className="font-black text-emerald-600 text-base">฿{payrollEmployee.netSalary.toLocaleString()}</span>
+                           </div>
                         </div>
-                        <div className="flex justify-between items-center text-slate-600">
-                           <span>ค่ามือ / ค่าจี้ไฝ</span>
-                           <span className="font-bold text-emerald-600">+ ฿{payrollEmployee.totalServiceFees.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-slate-600">
-                           <span>ค่าอาหาร</span>
-                           <span className="font-bold text-emerald-600">+ ฿{(payrollEmployee.totalFoodAllowance || 0).toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-slate-600">
-                           <span>หักเบิกล่วงหน้า</span>
-                           <span className="font-bold text-rose-500">- ฿{payrollEmployee.totalAdvances.toLocaleString()}</span>
-                        </div>
-                        <div className="border-t border-dashed border-slate-200 pt-2 mt-2 flex justify-between items-center">
-                           <span className="font-black text-slate-800">รายรับสุทธิ</span>
-                           <span className="font-black text-emerald-600 text-base">฿{payrollEmployee.netSalary.toLocaleString()}</span>
-                        </div>
-                     </div>
+                     )}
                   </div>
                   
                   <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
@@ -755,9 +1093,32 @@ export default function EmployeePortal({
                         <div className="bg-gradient-to-r from-pink-500 to-rose-500 h-3 rounded-full transition-all duration-1000" style={{ width: `${branchTargetStats.percent}%` }}></div>
                      </div>
                      <div className="flex justify-between text-xs font-bold text-slate-400">
-                        <span>ทำได้ ฿{branchTargetStats.branchSales.toLocaleString()}</span>
-                        <span>เป้า ฿{branchTargetStats.target.toLocaleString()}</span>
+                        <span>ทำได้ ฿{branchTargetStats.branchSales.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        <span>เป้า ฿{branchTargetStats.target.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                      </div>
+                     {branchTargetStats.target > 0 && (
+                        <div className="mt-3 pt-3 border-t border-dashed border-slate-200 space-y-1.5">
+                           {branchTargetStats.remainingAmount > 0 ? (
+                              <div className="flex flex-wrap items-center justify-between gap-2 bg-pink-50/70 border border-pink-100 rounded-xl px-3 py-2">
+                                 <span className="text-xs font-bold text-pink-700">
+                                    🎯 ต้องทำเฉลี่ยอีกวันละ <span className="text-sm font-black text-rose-600">฿{branchTargetStats.dailyNeeded.toLocaleString()}</span>
+                                 </span>
+                                 <span className="text-[11px] font-bold text-pink-600/80">
+                                    ขาดอีก ฿{branchTargetStats.remainingAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })} ({branchTargetStats.remainingDays} วันที่เหลือ)
+                                 </span>
+                              </div>
+                           ) : (
+                              <div className="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2 text-xs font-bold text-emerald-700">
+                                 <span>🎉 ทะลุเป้าหมายเดือนนี้แล้ว!</span>
+                                 <span>เกินเป้า +฿{(branchTargetStats.branchSales - branchTargetStats.target).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                              </div>
+                           )}
+                           <div className="flex justify-between text-[11px] font-bold text-slate-400 px-1">
+                              <span>ทำได้เฉลี่ย: ฿{branchTargetStats.currentDailyAvg.toLocaleString()}/วัน</span>
+                              <span>เป้าเฉลี่ยทั้งเดือน: ฿{branchTargetStats.baseDailyTarget.toLocaleString()}/วัน</span>
+                           </div>
+                        </div>
+                     )}
                   </div>
                   {/* Monthly Requests Summary */}
                   <div className="bg-white p-4 md:p-5 rounded-3xl border border-slate-200 shadow-sm mb-4">

@@ -34,7 +34,7 @@ import { QRCodeSVG } from 'qrcode.react';
 
 // --- FIREBASE IMPORTS ---
 import { signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, writeBatch, query, where, getDocs, setDoc, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, deleteField, writeBatch, query, where, getDocs, setDoc, orderBy } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject, uploadString } from 'firebase/storage';
 import { auth, db, getCol, getDocRef, storage } from './config/firebase';
 import html2canvas from 'html2canvas';
@@ -55,8 +55,8 @@ import SidebarItem from './components/SidebarItem';
 import InputField from './components/InputField';
 import ModalWrapper from './components/ModalWrapper';
 import AddCourseModal from './components/AddCourseModal';
-const SignaturePad = React.lazy(() => import('./components/SignaturePad'));
-const BarcodeScannerModal = React.lazy(() => import('./components/BarcodeScannerModal'));
+import SignaturePad from './components/SignaturePad';
+import BarcodeScannerModal from './components/BarcodeScannerModal';
 import POSSystem from './components/POSSystem';
 import PayslipModal from './components/PayslipModal';
 import FrontAttendanceModal from './components/FrontAttendanceModal';
@@ -83,6 +83,7 @@ import SettingsPage from './components/SettingsPage';
 import DailyBookingModal from './components/DailyBookingModal';
 import CreditManagementModal from './components/CreditManagementModal';
 import IShipBookingModal from './components/IShipBookingModal';
+import ShippingLabelModal from './components/ShippingLabelModal';
 import AddressManagerModal from './components/AddressManagerModal';
 import { fetch17Track } from './utils/wooProxy';
 // 📦 17TRACK — แปลงสถานะพัสดุเป็นไทย (ใช้ร่วมทุกหน้าที่แสดง trackingInfo)
@@ -243,6 +244,7 @@ export default function App() {
   const orderTicketRef = useRef(null);
   const [isDownloadingTicket, setIsDownloadingTicket] = useState(false);
   const [ishipModal, setIshipModal] = useState({ isOpen: false, order: null });
+  const [shippingLabelOrder, setShippingLabelOrder] = useState(null);
   const [isCheckInOpen, setIsCheckInOpen] = useState(false);
   const [isCheckInScannerOpen, setIsCheckInScannerOpen] = useState(false);
   const [checkInInput, setCheckInInput] = useState('');
@@ -753,10 +755,61 @@ export default function App() {
     return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsubPromo(); unsub8(); unsub9(); unsub10(); unsub11(); unsub12(); unsub13(); unsub14(); unsub15(); unsub16(); };
   }, [user]);
 
-  // Auto-detect branch based on GPS when branches are loaded (runs once per session)
+  // ซิงค์เป้ายอดขายที่เคยถูกบันทึกไว้ใต้คีย์ 'สำนักงานใหญ่' (จากบั๊กค่าเริ่มต้น dropdown) ไปยังสาขาแรกจริง (เช่น 'เฉวง' / 'สาขาเฉวง')
+  useEffect(() => {
+    if (!branches || branches.length === 0) return;
+    const validBranchNames = branches.map(b => b.name || b.id).filter(Boolean);
+    if (validBranchNames.includes('สำนักงานใหญ่')) return;
+
+    const hqTarget = appSettings?.branchTargets?.['สำนักงานใหญ่'];
+    if (hqTarget === undefined) return;
+
+    const firstBranch = validBranchNames[0];
+    if (!firstBranch) return;
+    const cleanFirst = String(firstBranch).replace('สาขา', '').trim();
+    const altFirst = String(firstBranch).startsWith('สาขา') ? cleanFirst : `สาขา${cleanFirst}`;
+
+    const migrateMap = (mapObj) => {
+      if (!mapObj || mapObj['สำนักงานใหญ่'] === undefined) return undefined;
+      const val = mapObj['สำนักงานใหญ่'];
+      const next = { ...mapObj, 'สำนักงานใหญ่': deleteField() };
+      if (val > 0) {
+        next[firstBranch] = val;
+        next[altFirst] = val;
+        next[cleanFirst] = val;
+      }
+      return next;
+    };
+
+    const payload = {};
+    const nextBranchTargets = migrateMap(appSettings?.branchTargets);
+    const nextCourseTargets = migrateMap(appSettings?.courseTargets);
+    const nextProductTargets = migrateMap(appSettings?.productTargets);
+    const nextBranchBudgets = migrateMap(appSettings?.branchBudgets);
+    if (nextBranchTargets) payload.branchTargets = nextBranchTargets;
+    if (nextCourseTargets) payload.courseTargets = nextCourseTargets;
+    if (nextProductTargets) payload.productTargets = nextProductTargets;
+    if (nextBranchBudgets) payload.branchBudgets = nextBranchBudgets;
+
+    if (Object.keys(payload).length > 0) {
+      setDoc(doc(db, 'app_settings', 'financial'), payload, { merge: true }).catch(console.error);
+    }
+  }, [branches, appSettings]);
+
+  // Auto-detect branch based on GPS when branches are loaded (runs once per session; skip GPS if only 1 branch)
   useEffect(() => {
     if (!isCloudLoading && branches.length > 0 && !hasAutoDetectedBranch.current) {
       hasAutoDetectedBranch.current = true;
+      const activeBranches = branches.filter(b => !b.isMaintenance);
+      const branchesWithGps = activeBranches.filter(b => b.lat && b.lng);
+      if (activeBranches.length <= 1 || branchesWithGps.length <= 1) {
+        const singleBranchName = (activeBranches[0] || branches[0])?.name;
+        if (singleBranchName && globalBranch !== singleBranchName) {
+          setGlobalBranch(singleBranchName);
+          localStorage.setItem('selectedBranch', singleBranchName);
+        }
+        return;
+      }
       
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
@@ -2557,20 +2610,43 @@ const flexMessage = {
     if (!ishipModal.order) return;
     try {
       showToast('กำลังบันทึกข้อมูลการจัดส่ง...');
-      
-      const q = query(collection(db, 'orders'), where('orderNo', '==', ishipModal.order.orderNo || ishipModal.order.id));
-      const snap = await getDocs(q);
-      if(!snap.empty) {
-        await updateDoc(doc(db, 'orders', snap.docs[0].id), { 
-           trackingNo: bookingData.trackingNumber,
-           ishipOrderRef: bookingData.rawApiResult?.data?.order_id || ('ISHIP' + Date.now()),
-           status: 'กำลังจัดส่ง',
-           'สถานะ': 'กำลังจัดส่ง'
-        });
-        showToast(`สร้างออเดอร์สำเร็จ! เลขพัสดุ: ${bookingData.trackingNumber}`);
-        setIshipModal({ isOpen: false, order: null });
-        setOrderTicket(null);
+      const targetOrder = ishipModal.order;
+      const updateFields = {
+        trackingNo: bookingData.trackingNumber,
+        isIShip: true,
+        ishipCourier: bookingData.courier || '',
+        ishipSortCode: bookingData.rawApiResult?.data?.sortCode || '',
+        ishipSortingLineCode: bookingData.rawApiResult?.data?.sortingLineCode || '',
+        ishipDstStoreName: bookingData.rawApiResult?.data?.dstStoreName || '',
+        codAmount: bookingData.codAmount || 0,
+        ...(bookingData.dstAddress ? { shippingAddress: bookingData.dstAddress } : {}),
+        ishipOrderRef: bookingData.rawApiResult?.data?.ref || bookingData.rawApiResult?.data?.id || ('ISHIP' + Date.now()),
+        status: 'กำลังจัดส่ง',
+        'สถานะ': 'กำลังจัดส่ง'
+      };
+
+      let updated = false;
+      if (targetOrder.id) {
+        try {
+          await updateDoc(doc(db, 'orders', targetOrder.id), updateFields);
+          updated = true;
+        } catch (directErr) {
+          console.warn('Direct order id update fallback to query:', directErr);
+        }
       }
+      if (!updated) {
+        const q = query(collection(db, 'orders'), where('orderNo', '==', targetOrder.orderNo || targetOrder.id));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          await updateDoc(doc(db, 'orders', snap.docs[0].id), updateFields);
+          updated = true;
+        }
+      }
+
+      showToast(`สร้างออเดอร์สำเร็จ! เลขพัสดุ: ${bookingData.trackingNumber}${bookingData.pickupNote || ''}`);
+      setIshipModal({ isOpen: false, order: null });
+      setOrderTicket(null);
+      setShippingLabelOrder({ ...targetOrder, ...updateFields });
     } catch(e) {
       console.error(e);
       showToast('เกิดข้อผิดพลาดในการบันทึกข้อมูลจัดส่ง', 'error');
@@ -3926,6 +4002,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
           employees={employees}
           attendance={employeeAttendance}
           onOpenAttendance={(b, emp) => { 
+            posAfterIdentity.current = false;
             setGlobalBranch(b); 
             setInitialEmployeeForAttendance(emp || null);
             setShowFrontAttendance(true); 
@@ -4219,7 +4296,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                     </button>
                     {activeStaff && (
                     <button
-                      onClick={() => { setAttendanceMode('select'); setShowFrontAttendance(true); }}
+                      onClick={() => { posAfterIdentity.current = false; setInitialEmployeeForAttendance(null); setAttendanceMode('select'); setShowFrontAttendance(true); }}
                       className="flex items-center gap-2 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-sm font-bold transition-colors border border-emerald-100 active:scale-95"
                       title="เปลี่ยนตัวตนผู้ใช้งาน"
                     >
@@ -4236,6 +4313,8 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                {/* Quick Actions for Staff */}
                <div className="grid grid-cols-2 gap-3 mb-6">
                  <button onClick={() => {
+                   posAfterIdentity.current = false;
+                   setAttendanceMode('board');
                    const savedEmpId = localStorage.getItem('personalEmployeeId');
                    if (savedEmpId) {
                      const emp = employees.find(e => e.id === savedEmpId);
@@ -4880,6 +4959,17 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                              {o.itemType === 'custom_image' && (
                                 <button onClick={(e) => { e.stopPropagation(); window.open(o.customOrderImage || o.slipImage || o.faceImage, '_blank'); }} className="bg-pink-50 text-pink-600 border border-pink-200 px-1.5 py-0.5 rounded font-bold flex items-center hover:bg-pink-100 transition-colors shadow-sm">
                                    <ImageIcon size={10} className="mr-0.5" /> ดูรูป
+                                </button>
+                             )}
+                             {(o.trackingNo || o.shippingAddress || o.itemType === 'product' || (Array.isArray(o.cartItems) && o.cartItems.some(c => c.type === 'product' || c.type === 'simple'))) && (
+                                <button
+                                  onClick={(e) => {
+                                     e.stopPropagation();
+                                     setShippingLabelOrder(o);
+                                  }}
+                                  className="bg-orange-50 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded font-bold flex items-center hover:bg-orange-100 transition-colors shadow-sm"
+                                >
+                                   <Printer size={10} className="mr-0.5" /> พิมพ์ใบแปะหน้า
                                 </button>
                              )}
                              {o.trackingNo && (
@@ -6802,22 +6892,30 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                     <p className="font-bold text-gray-800 text-sm mb-3">{String(orderTicket.customerName || 'ไม่ระบุชื่อ')}</p>
                     <p className="text-[10px] text-gray-400 uppercase font-bold mb-1">เลขที่บิล</p>
                     <p className="font-bold text-gray-800 text-sm mb-3">{orderTicket.orderNo || orderTicket.id}</p>
+                    {orderTicket.trackingNo && (
+                       <>
+                          <p className="text-[10px] text-gray-400 uppercase font-bold mb-1">เลขพัสดุ (Tracking)</p>
+                          <p className="font-mono font-black text-emerald-700 text-sm mb-3">{orderTicket.trackingNo}</p>
+                       </>
+                    )}
                     <p className="text-[10px] text-gray-400 uppercase font-bold mb-1">วันที่และเวลา</p>
                     <p className="font-bold text-gray-800 text-sm">{new Date(orderTicket.createdAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}</p>
                  </div>
               </div>
               
-              {(orderTicket.itemType === 'product' || (orderTicket.cartItems && orderTicket.cartItems.some(i => i.type === 'product' || i.type === 'simple')) || orderTicket.shippingAddress || (orderTicket.transactionType && orderTicket.transactionType.includes('purchase'))) && (
+              {(orderTicket.trackingNo || orderTicket.itemType === 'product' || (orderTicket.cartItems && orderTicket.cartItems.some(i => i.type === 'product' || i.type === 'simple')) || orderTicket.shippingAddress || (orderTicket.transactionType && orderTicket.transactionType.includes('purchase'))) && (
                   <div className="flex flex-col gap-2 mb-4 w-full px-2">
-                     {orderTicket.waybillUrl ? (
-                         <button onClick={(e) => { e.stopPropagation(); window.open(orderTicket.waybillUrl, '_blank'); }} className="w-full py-2.5 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-xl font-bold text-orange-600 transition-colors flex items-center justify-center shadow-sm">
-                            <Truck size={16} className="mr-2" /> พิมพ์ใบปะหน้า (Waybill)
-                         </button>
-                     ) : (
-                         <button onClick={(e) => { e.stopPropagation(); setIshipModal({ isOpen: true, order: orderTicket }); }} className="w-full py-2.5 bg-blue-500 hover:bg-blue-600 rounded-xl font-bold text-white transition-colors flex items-center justify-center shadow-md">
-                            <Package size={16} className="mr-2" /> เรียกขนส่ง (iShip)
+                     <button onClick={(e) => { e.stopPropagation(); setShippingLabelOrder(orderTicket); }} className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 rounded-xl font-black text-white transition-colors flex items-center justify-center shadow-md gap-2">
+                        <Printer size={16} /> พิมพ์ใบแปะหน้า (QR & บาร์โค้ด)
+                     </button>
+                     {orderTicket.waybillUrl && (
+                         <button onClick={(e) => { e.stopPropagation(); window.open(orderTicket.waybillUrl, '_blank'); }} className="w-full py-2 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-xl font-bold text-orange-600 text-xs transition-colors flex items-center justify-center shadow-sm">
+                            <Truck size={14} className="mr-1.5" /> เปิดลิงก์ใบปะหน้าเดิม
                          </button>
                      )}
+                     <button onClick={(e) => { e.stopPropagation(); setIshipModal({ isOpen: true, order: orderTicket }); }} className="w-full py-2.5 bg-blue-500 hover:bg-blue-600 rounded-xl font-bold text-white transition-colors flex items-center justify-center shadow-md gap-2">
+                        <Package size={16} /> {orderTicket.trackingNo ? 'จองขนส่งใหม่ / เรียกรถ (iShip)' : 'เรียกขนส่ง (iShip)'}
+                     </button>
                   </div>
               )}
               
@@ -7069,6 +7167,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
           orders={orders}
           serviceLogs={serviceLogs}
           globalBranch={globalBranch}
+          globalRole={globalRole}
           initialEmployee={initialEmployeeForAttendance}
           featureFlags={featureFlags}
           mode={attendanceMode}
@@ -7088,6 +7187,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
             }
           }}
           onClose={() => {
+             posAfterIdentity.current = false;
              setShowFrontAttendance(false);
              setInitialEmployeeForAttendance(null);
           }}
@@ -7365,7 +7465,20 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
         isOpen={ishipModal.isOpen} 
         order={ishipModal.order} 
         onClose={() => setIshipModal({isOpen: false, order: null})} 
+        onPrintLabel={(address) => {
+          if (!ishipModal.order) return;
+          setShippingLabelOrder({
+            ...ishipModal.order,
+            ...(address ? { shippingAddress: address } : {})
+          });
+        }}
         onSubmit={handleIshipBooking} 
+      />
+      <ShippingLabelModal
+        isOpen={!!shippingLabelOrder}
+        order={shippingLabelOrder}
+        globalBranch={globalBranch}
+        onClose={() => setShippingLabelOrder(null)}
       />
       <AddressManagerModal 
         isOpen={isAddressManagerOpen} 

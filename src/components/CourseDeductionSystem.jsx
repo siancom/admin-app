@@ -6,7 +6,7 @@ import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import { parseNumber } from '../utils/parse';
 import { getFuzzyKey } from '../utils/fuzzy';
 import { sendCourseDeductionNotification } from '../utils/lineUtils';
-const SignaturePad = React.lazy(() => import('./SignaturePad'));
+import SignaturePad from './SignaturePad';
 
 export default function CourseDeductionSystem({ 
   customers, 

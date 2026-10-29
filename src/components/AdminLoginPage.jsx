@@ -3,8 +3,13 @@ import { Sparkles, MapPin, Navigation, Users, Crown, Delete, ArrowRight, Loader2
 
 // 🌟 หน้าล็อกอินแอดมิน IrisCare — เลือกสาขา (GPS ไฮไลต์อัตโนมัติ) + เข้าแบบพนักงาน/เจ้าของร้าน (รหัสผ่าน)
 export default function AdminLoginPage({ branches = [], employees = [], attendance = [], appSettings = {}, initialBranch = null, onStaffEnter, onOwnerEnter, onOpenAttendance, dailySales = [], onQuickEod, flashMessage = null }) {
+  const activeBranches = branches.filter(b => !b.isMaintenance);
+  const displayBranches = activeBranches.length > 0 ? activeBranches : branches;
+  const empBranchCount = new Set(employees.map(e => String(e.branch || '').replace('สาขา', '').trim()).filter(Boolean)).size;
+  const isSingleBranchMode = displayBranches.length <= 1 || empBranchCount <= 1;
+
   const [now, setNow] = useState(new Date());
-  const [selectedBranch, setSelectedBranch] = useState(initialBranch || null);
+  const [selectedBranch, setSelectedBranch] = useState(() => initialBranch || (displayBranches.length === 1 ? displayBranches[0].name : null));
   const [nearestBranch, setNearestBranch] = useState(null);
   const [mode, setMode] = useState('main'); // 'main' | 'owner_passcode'
   const [passcode, setPasscode] = useState('');
@@ -17,15 +22,24 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
     return () => clearInterval(t);
   }, []);
 
-  // GPS: หาสาขาใกล้ตัว (ไฮไลต์ + เลือกให้อัตโนมัติถ้าในระยะ 2 กม.)
+  // GPS: หาสาขาใกล้ตัว (ไฮไลต์ + เลือกให้อัตโนมัติถ้าในระยะ 2 กม. — หากมีสาขาเดียวให้เลือกทันทีและข้าม GPS)
   useEffect(() => {
-    if (branches.length === 0 || !navigator.geolocation) return;
+    if (displayBranches.length === 0) return;
+    if (isSingleBranchMode) {
+      setSelectedBranch(prev => prev || displayBranches[0].name);
+      return;
+    }
+    const branchesWithGps = displayBranches.filter(b => b.lat && b.lng);
+    if (branchesWithGps.length <= 1 || !navigator.geolocation) {
+      if (displayBranches.length === 1) setSelectedBranch(displayBranches[0].name);
+      return;
+    }
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
         const R = 6371e3;
         let nearest = null, minDist = Infinity;
-        branches.forEach(b => {
+        branchesWithGps.forEach(b => {
           if (b.lat && b.lng) {
             const φ1 = b.lat * Math.PI / 180, φ2 = latitude * Math.PI / 180;
             const Δφ = (latitude - b.lat) * Math.PI / 180, Δλ = (longitude - b.lng) * Math.PI / 180;
@@ -42,7 +56,7 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
       () => {},
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
     );
-  }, [branches]);
+  }, [branches, employees]);
 
   useEffect(() => {
     if (branches.length > 0 && !selectedBranch && nearestBranch === null) {
@@ -180,10 +194,14 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
             </h2>
             <p className="text-[10px] text-gray-400 font-bold mb-3 ml-7 flex items-center gap-1">
               <Navigation size={10} className="text-teal-500" />
-              {nearestBranch ? `ระบบตรวจพบว่าคุณอยู่ใกล้ ${nearestBranch}` : 'ระบบจะตรวจสาขาใกล้คุณอัตโนมัติ (GPS)'}
+              {isSingleBranchMode
+                ? `เลือกสาขา ${selectedBranch || displayBranches[0]?.name || ''} อัตโนมัติ (ข้ามการเช็ค GPS)`
+                : nearestBranch
+                  ? `ระบบตรวจพบว่าคุณอยู่ใกล้ ${nearestBranch}`
+                  : 'ระบบจะตรวจสาขาใกล้คุณอัตโนมัติ (GPS)'}
             </p>
-            <div className="grid grid-cols-2 gap-2.5 mb-5">
-              {branches.map(b => {
+            <div className={`grid ${displayBranches.length === 1 ? 'grid-cols-1' : 'grid-cols-2'} gap-2.5 mb-5`}>
+              {displayBranches.map(b => {
                 const isSel = selectedBranch === b.name;
                 const isNear = nearestBranch === b.name;
                 return (
@@ -267,30 +285,20 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
                   </button>
                 )}
                 
-                <div className="grid grid-cols-2 gap-2.5">
-                  <button
-                    onClick={() => { if (selectedBranch) { setMode('staff_passcode'); setPasscode(''); } }}
-                    disabled={!selectedBranch}
-                    className={`p-4 rounded-2xl text-left border-2 transition-all active:scale-95 ${!selectedBranch ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed' : 'border-indigo-100 bg-indigo-50/60 hover:border-indigo-400 hover:shadow-lg hover:shadow-indigo-500/20'}`}
-                  >
-                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/30 mb-2.5">
-                      <Users size={22} className="text-white" />
-                    </div>
-                    <p className="text-[13px] font-black text-gray-800">พนักงาน</p>
-                    <p className="text-[9px] text-gray-500 font-bold leading-snug mt-0.5">แดชบอร์ดส่วนกลาง<br/>ระบุ PIN เพื่อปลดล็อก</p>
-                  </button>
-                  <button
-                    onClick={() => { if (selectedBranch) { setMode('owner_passcode'); setPasscode(''); } }}
-                    disabled={!selectedBranch}
-                    className={`p-4 rounded-2xl text-left border-2 transition-all active:scale-95 ${!selectedBranch ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed' : 'border-amber-100 bg-amber-50/60 hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/20'}`}
-                  >
-                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/30 mb-2.5">
-                      <Crown size={22} className="text-white" />
-                    </div>
+                <button
+                  onClick={() => { if (selectedBranch) { setMode('owner_passcode'); setPasscode(''); } }}
+                  disabled={!selectedBranch}
+                  className={`group relative overflow-hidden p-4 rounded-2xl text-left border-2 transition-all active:scale-[0.98] flex items-center gap-3 ${!selectedBranch ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed' : 'border-amber-100 bg-amber-50/60 hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/20'}`}
+                >
+                  <div className="w-11 h-11 shrink-0 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/30">
+                    <Crown size={22} className="text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-black text-gray-800">เจ้าของร้าน</p>
-                    <p className="text-[9px] text-gray-500 font-bold leading-snug mt-0.5">สิทธิ์เต็มระบบ<br/>รหัสผ่านหลัก 6 หลัก</p>
-                  </button>
-                </div>
+                    <p className="text-[10px] text-gray-500 font-bold leading-snug mt-0.5">สิทธิ์เต็มระบบ • รหัสผ่านหลัก 6 หลัก</p>
+                  </div>
+                  <ArrowRight size={18} className="shrink-0 transition-transform group-hover:translate-x-1 text-amber-400" />
+                </button>
 
                 {/* 🌟 ส่งยอดด่วน (EOD) — ไม่ต้องเข้าระบบเต็ม */}
                 <button

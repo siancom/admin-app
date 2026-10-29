@@ -255,25 +255,39 @@ export default function SalesHistoryModal({
             <>
               {/* Monthly Target Progress */}
               {(() => {
-                 const target = appSettings?.branchTargets?.[globalBranch || 'สำนักงานใหญ่'] || 0;
+                 const branchName = globalBranch || 'สำนักงานใหญ่';
+                 const cleanBranch = String(branchName).replace('สาขา', '').trim();
+                 const altBranch = String(branchName).startsWith('สาขา') ? cleanBranch : `สาขา${cleanBranch}`;
+                 const target = Number(appSettings?.branchTargets?.[branchName] || appSettings?.branchTargets?.[altBranch] || appSettings?.branchTargets?.[cleanBranch] || 0);
                  if (target <= 0) return null;
-                 const progress = Math.min(100, (currentMonthSales / Number(target)) * 100);
+                 const progress = Math.min(100, (currentMonthSales / target) * 100);
+                 const now = new Date();
+                 const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+                 const remainingDays = Math.max(1, daysInMonth - now.getDate() + 1);
+                 const remainingAmount = Math.max(0, target - currentMonthSales);
+                 const dailyNeeded = remainingAmount > 0 ? Math.ceil(remainingAmount / remainingDays) : 0;
+                 const baseDailyTarget = Math.ceil(target / daysInMonth);
                  return (
                    <div className="mb-3 bg-gradient-to-r from-indigo-50 to-blue-50 p-3 rounded-xl border border-indigo-100 shadow-sm">
                       <div className="flex justify-between items-center mb-1.5">
                          <div className="text-xs font-bold text-indigo-800">เป้ายอดขายเดือนนี้ ({globalBranch || 'สำนักงานใหญ่'})</div>
                          <div className="text-xs font-bold text-indigo-600">
-                            ฿{currentMonthSales.toLocaleString()} / ฿{Number(target).toLocaleString()}
+                            ฿{currentMonthSales.toLocaleString()} / ฿{target.toLocaleString()}
                          </div>
                       </div>
-                      <div className="w-full bg-indigo-200/50 rounded-full h-1.5 mb-1 overflow-hidden">
+                      <div className="w-full bg-indigo-200/50 rounded-full h-1.5 mb-1.5 overflow-hidden">
                          <div 
                             className="bg-indigo-600 h-1.5 rounded-full transition-all duration-1000 ease-out" 
                             style={{ width: `${progress}%` }}
                          ></div>
                       </div>
-                      <div className="text-[9px] text-right text-indigo-500 font-medium">
-                         คิดเป็น {progress.toFixed(1)}%
+                      <div className="flex flex-wrap justify-between items-center gap-1 text-[10px] text-indigo-600 font-bold">
+                         <span>
+                            {remainingAmount > 0
+                              ? `ต้องทำเฉลี่ยอีกวันละ ฿${dailyNeeded.toLocaleString()} (ขาดอีก ฿${remainingAmount.toLocaleString()} · เหลือ ${remainingDays} วัน)`
+                              : `🎉 ทะลุเป้าหมายเดือนนี้แล้ว! (เป้าเฉลี่ย ฿${baseDailyTarget.toLocaleString()}/วัน)`}
+                         </span>
+                         <span className="text-indigo-500 font-medium">คิดเป็น {progress.toFixed(1)}%</span>
                       </div>
                    </div>
                  );

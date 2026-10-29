@@ -5,7 +5,7 @@ import { addDoc, updateDoc, doc } from 'firebase/firestore';
 import EmployeePortal from './EmployeePortal';
 import PinModal from './PinModal';
 
-export default function FrontAttendanceModal({ employees = [], attendance = [], branches = [], leaves = [], advancePayments = [], histories = [], dailySales = [], onClose, onGoToPOS, appSettings = {}, orders = [], serviceLogs = [], requisitions = [], globalBranch, initialEmployee, featureFlags = {}, mode = 'board', onStaffIdentity }) {
+export default function FrontAttendanceModal({ employees = [], attendance = [], branches = [], leaves = [], advancePayments = [], histories = [], dailySales = [], onClose, onGoToPOS, appSettings = {}, orders = [], serviceLogs = [], requisitions = [], globalBranch, globalRole, initialEmployee, featureFlags = {}, mode = 'board', onStaffIdentity }) {
   const [branchFilter, setBranchFilter] = useState(globalBranch || 'ทั้งหมด');
   const [selectedBranches, setSelectedBranches] = useState({});
   const [selectedEmployeeForPortal, setSelectedEmployeeForPortal] = useState(null);
@@ -31,21 +31,31 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
 
   const hasTriggeredInitial = React.useRef(false);
   React.useEffect(() => {
-    if (initialEmployee && !hasTriggeredInitial.current && attendance.length >= 0) {
+    if (initialEmployee && !hasTriggeredInitial.current) {
       hasTriggeredInitial.current = true;
-      const todayAtt = getTodayAttendance(initialEmployee.id);
-      if (!todayAtt || todayAtt.clockOut) {
-         // Auto clock in, then open PIN gate
-         handleClockIn(initialEmployee.id, initialEmployee.name, initialEmployee.branch, initialEmployee);
-      }
-      // 🌟 เข้าผ่านปุ่ม "แดชบอร์ด" → หลัง PIN ให้เข้าแดชบอร์ดของตัวเอง (profile) ไม่ใช่ POS
+      // 🌟 เข้าผ่านปุ่ม "แดชบอร์ด" หรือเลือกพนักงานจากหน้าล็อกอิน → หลังใส่ PIN ให้เข้าแดชบอร์ดของตัวเอง (profile) ไม่ใช่ POS
       openEmployeePinGate(initialEmployee, 'profile');
     }
-  }, [initialEmployee, attendance]);
+  }, [initialEmployee]);
 
-  // Auto-detect branch based on GPS if globalBranch is not set
+  const activeBranches = useMemo(() => {
+    const active = branches.filter(b => !b.isMaintenance);
+    return active.length > 0 ? active : branches;
+  }, [branches]);
+
+  const isSingleBranchMode = useMemo(() => {
+    const empBranchCount = new Set(employees.map(e => String(e.branch || '').replace('สาขา', '').trim()).filter(Boolean)).size;
+    const branchesWithGps = activeBranches.filter(b => b.lat && b.lng);
+    return activeBranches.length <= 1 || branchesWithGps.length <= 1 || empBranchCount <= 1;
+  }, [activeBranches, employees]);
+
+  // Auto-detect branch based on GPS if globalBranch is not set (skip GPS if only 1 branch)
   React.useEffect(() => {
-    if (!globalBranch && navigator.geolocation && branches.length > 0) {
+    if (isSingleBranchMode) {
+      if (activeBranches[0]?.name) setBranchFilter(activeBranches[0].name);
+      return;
+    }
+    if (!globalBranch && navigator.geolocation && activeBranches.length > 1) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
@@ -155,6 +165,10 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
     }
 
     if (action === 'profile') {
+      const todayAtt = getTodayAttendance(emp.id);
+      if (!todayAtt || todayAtt.clockOut) {
+        handleClockIn(emp.id, emp.name, emp.branch, null, true);
+      }
       if (onStaffIdentity) onStaffIdentity(emp);
       setSelectedEmployeeForPortal(emp);
       return;
@@ -179,7 +193,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
 
   const handlePinSubmit = async (pin) => {
     const emp = pinModal.employee;
-    const action = pinModal.action || 'pos';
+    const action = pinModal.action || 'profile';
     if (!emp) return;
     const correctPin = String(emp.pin || '1234');
     if (pin === correctPin) {
@@ -197,7 +211,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
 
   const verifyLocation = (branchName) => {
     return new Promise((resolve) => {
-       if (featureFlags?.requireGpsForAttendance === false) {
+       if (featureFlags?.requireGpsForAttendance === false || isSingleBranchMode) {
            return resolve(true);
        }
        const branch = branches.find(b => b.name === branchName);
@@ -273,7 +287,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
       if (!isAuto) alert(`บันทึกเวลาเข้างาน ${empName} สำเร็จ`);
       
       if (empObj) {
-         setPinModal({ isOpen: true, employee: empObj, error: '' });
+         setPinModal(prev => ({ isOpen: true, employee: empObj, error: '', action: prev.action || 'profile' }));
       }
       return true;
     } catch (err) {
@@ -461,7 +475,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
       {/* Employee Portal Overlay */}
       {selectedEmployeeForPortal && (
          <EmployeePortal
-           employee={selectedEmployeeForPortal}
+           employee={employees.find(e => e.id === selectedEmployeeForPortal.id) || selectedEmployeeForPortal}
            attendance={attendance}
            leaves={leaves}
            advancePayments={advancePayments}
@@ -472,6 +486,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
            appSettings={appSettings}
            orders={orders}
            serviceLogs={serviceLogs}
+           isAdmin={globalRole === 'owner'}
            onClose={() => setSelectedEmployeeForPortal(null)}
            onClockIn={(emp) => handleClockIn(emp.id, emp.name, emp.branch)}
            onClockOut={(att) => handleClockOut(att.id, att.employeeName, att.branch, selectedEmployeeForPortal.branch)}

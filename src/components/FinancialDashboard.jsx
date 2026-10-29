@@ -10,7 +10,7 @@ import { computeOwnerCostPrice } from '../utils/priceUtils';
 import { getOrderStatus, isInPayrollMonth } from '../utils/dateUtils';
 import { getFuzzyKey } from '../utils/fuzzy';
 import { db, storage } from '../config/firebase';
-import { doc, setDoc, updateDoc, deleteDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, deleteDoc, deleteField, collection, serverTimestamp } from 'firebase/firestore';
 import ModalWrapper from './ModalWrapper';
 import MonthlyEodPrintModal from './MonthlyEodPrintModal';
 import DailyReportPrintModal from './DailyReportPrintModal';
@@ -125,10 +125,19 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
   const showPrompt = (title, defaultValue, placeholder, onConfirm, type = 'text') => {
      setPromptModal({ isOpen: true, title, defaultValue, placeholder, onConfirm, type });
   };
+  const targetBranches = branches.map(b => b.name || b.id).filter(b => b && b !== 'ทั้งหมด');
+  if (targetBranches.length === 0) targetBranches.push('สำนักงานใหญ่');
+
   const [targetInput, setTargetInput] = useState('');
   const [courseTargetInput, setCourseTargetInput] = useState('');
   const [productTargetInput, setProductTargetInput] = useState('');
-  const [targetBranch, setTargetBranch] = useState('สำนักงานใหญ่');
+  const [targetBranch, setTargetBranch] = useState(() => targetBranches[0] || 'สำนักงานใหญ่');
+
+  useEffect(() => {
+    if (targetBranches.length > 0 && !targetBranches.includes(targetBranch)) {
+      setTargetBranch(targetBranches[0]);
+    }
+  }, [targetBranches, targetBranch]);
   const [targetProfit, setTargetProfit] = useState(100000);
   const [showFormula, setShowFormula] = useState(false);
   const [showSimulatorModal, setShowSimulatorModal] = useState(false);
@@ -159,8 +168,6 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
   const [viewingPO, setViewingPO] = useState(null); // the order object to view
 
   const branchOptions = ['ทั้งหมด', ...branches.map(b => b.name || b.id)];
-  const targetBranches = branches.map(b => b.name || b.id).filter(b => b !== 'ทั้งหมด');
-  if (targetBranches.length === 0) targetBranches.push('สำนักงานใหญ่');
 
   const expenseDataByBranch = useMemo(() => {
     const now = new Date();
@@ -203,27 +210,28 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
   }, [expenses]);
 
   useEffect(() => {
-    if (appSettings?.branchTargets?.[targetBranch]) {
-      setTargetInput(appSettings.branchTargets[targetBranch]);
-    } else {
-      setTargetInput('');
-    }
-    if (appSettings?.courseTargets?.[targetBranch]) {
-      setCourseTargetInput(appSettings.courseTargets[targetBranch]);
-    } else {
-      setCourseTargetInput('');
-    }
-    if (appSettings?.productTargets?.[targetBranch]) {
-      setProductTargetInput(appSettings.productTargets[targetBranch]);
-    } else {
-      setProductTargetInput('');
-    }
-    if (appSettings?.branchBudgets?.[targetBranch]) {
-      setBudgetInput(appSettings.branchBudgets[targetBranch]);
-    } else {
-      setBudgetInput('');
-    }
-  }, [appSettings, targetBranch]);
+    const cleanBranch = String(targetBranch || '').replace('สาขา', '').trim();
+    const altBranch = String(targetBranch || '').startsWith('สาขา') ? cleanBranch : `สาขา${cleanBranch}`;
+    const firstClean = String(targetBranches[0] || '').replace('สาขา', '').trim();
+    const isFirstBranch = cleanBranch && cleanBranch === firstClean;
+    const hasHQBranch = targetBranches.includes('สำนักงานใหญ่');
+
+    const resolveTargetVal = (mapObj) => {
+      if (!mapObj) return '';
+      if (isFirstBranch && !hasHQBranch && mapObj['สำนักงานใหญ่']) {
+        return mapObj['สำนักงานใหญ่'];
+      }
+      if (mapObj[targetBranch]) return mapObj[targetBranch];
+      if (mapObj[altBranch]) return mapObj[altBranch];
+      if (mapObj[cleanBranch]) return mapObj[cleanBranch];
+      return '';
+    };
+
+    setTargetInput(resolveTargetVal(appSettings?.branchTargets));
+    setCourseTargetInput(resolveTargetVal(appSettings?.courseTargets));
+    setProductTargetInput(resolveTargetVal(appSettings?.productTargets));
+    setBudgetInput(resolveTargetVal(appSettings?.branchBudgets));
+  }, [appSettings, targetBranch, targetBranches.join(',')]);
 
   // Helper to parse payment method string back to numbers
   const parsePaymentStr = (str) => {
@@ -589,16 +597,23 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
   }, [orders, expenses, dailySales, filterBranch, filterDate]);
 
   const currentMonthSalesData = useMemo(() => {
-    const now = filterDate ? new Date(filterDate) : new Date();
+    const now = filterDate ? new Date(filterDate + 'T00:00:00') : new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
+    const currentMonthStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const cleanFilterBranch = String(filterBranch || '').replace('สาขา', '').trim();
+    const matchesBranch = (b) => {
+      if (filterBranch === 'ทั้งหมด') return true;
+      const cleanB = String(b || '').replace('สาขา', '').trim();
+      return b === filterBranch || (cleanFilterBranch && cleanB === cleanFilterBranch);
+    };
     
     let dailyData = Array.from({ length: daysInMonth }, (_, i) => ({ day: i + 1, sales: 0 }));
     
     orders.forEach(o => {
       if (!o.createdAt) return;
-      if (filterBranch !== 'ทั้งหมด' && o.branch !== filterBranch) return;
+      if (!matchesBranch(o.branch)) return;
       
       const d = new Date(o.createdAt);
       if (d.getMonth() === currentMonth && d.getFullYear() === currentYear && (!o.status || getOrderStatus(o) === 'อนุมัติแล้ว')) {
@@ -620,33 +635,63 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
         }
       }
     });
+
+    dailySales.forEach(d => {
+      if (!matchesBranch(d.branch)) return;
+      const extra = getEodExtraSales(d);
+      if (!extra) return;
+      const iso = getIsoDate(d);
+      if (iso.startsWith(currentMonthStr)) {
+        const dayNum = parseInt(iso.split('-')[2], 10);
+        if (dayNum >= 1 && dayNum <= daysInMonth && dailyData[dayNum - 1]) {
+          dailyData[dayNum - 1].sales = Math.max(0, dailyData[dayNum - 1].sales + extra);
+        }
+      }
+    });
     
-    const maxSales = Math.max(...dailyData.map(d => d.sales), 1); // Avoid division by zero
-    return { data: dailyData, maxSales };
-  }, [orders, filterBranch, filterDate]);
+    const actualMaxSales = Math.max(...dailyData.map(d => d.sales), 0);
+    const maxSales = Math.max(actualMaxSales, 1); // Avoid division by zero
+    const totalMonthSales = dailyData.reduce((sum, d) => sum + d.sales, 0);
+    return { data: dailyData, maxSales, actualMaxSales, totalMonthSales };
+  }, [orders, dailySales, filterBranch, filterDate]);
 
   const handleUpdateTarget = async () => {
     setIsSavingTarget(true);
     try {
+      const cleanBranch = String(targetBranch || '').replace('สาขา', '').trim();
+      const altBranch = String(targetBranch || '').startsWith('สาขา') ? cleanBranch : `สาขา${cleanBranch}`;
+      const hasHQBranch = targetBranches.includes('สำนักงานใหญ่');
+      const cleanupHQ = !hasHQBranch ? { 'สำนักงานใหญ่': deleteField() } : {};
+
       const currentTargets = appSettings?.branchTargets || {};
       const currentCourseTargets = appSettings?.courseTargets || {};
       const currentProductTargets = appSettings?.productTargets || {};
+      const currentBudgets = appSettings?.branchBudgets || {};
+
       await setDoc(doc(db, 'app_settings', 'financial'), { 
         branchTargets: {
           ...currentTargets,
-          [targetBranch]: parseNumber(targetInput)
+          [targetBranch]: parseNumber(targetInput),
+          [altBranch]: parseNumber(targetInput),
+          ...cleanupHQ
         },
         courseTargets: {
           ...currentCourseTargets,
-          [targetBranch]: parseNumber(courseTargetInput)
+          [targetBranch]: parseNumber(courseTargetInput),
+          [altBranch]: parseNumber(courseTargetInput),
+          ...cleanupHQ
         },
         productTargets: {
           ...currentProductTargets,
-          [targetBranch]: parseNumber(productTargetInput)
+          [targetBranch]: parseNumber(productTargetInput),
+          [altBranch]: parseNumber(productTargetInput),
+          ...cleanupHQ
         },
         branchBudgets: {
-          ...(appSettings?.branchBudgets || {}),
-          [targetBranch]: parseNumber(budgetInput)
+          ...currentBudgets,
+          [targetBranch]: parseNumber(budgetInput),
+          [altBranch]: parseNumber(budgetInput),
+          ...cleanupHQ
         }
       }, { merge: true });
       alert('บันทึกเป้าหมายสำเร็จ');
@@ -979,8 +1024,15 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
   };
 
   const breakEvenAnalysis = useMemo(() => {
-    const branchData = expenseDataByBranch.find(b => (b.branchName === targetBranch) || (targetBranch === 'ทั้งหมด' && b.branchName !== 'none')) 
-      ? expenseDataByBranch.filter(b => targetBranch === 'ทั้งหมด' || b.branchName === targetBranch).reduce((acc, curr) => ({
+    const cleanTarget = String(targetBranch || '').replace('สาขา', '').trim();
+    const isTargetBranch = (bName) => {
+      if (targetBranch === 'ทั้งหมด') return bName !== 'none';
+      const cleanB = String(bName || '').replace('สาขา', '').trim();
+      return bName === targetBranch || (cleanTarget && cleanB === cleanTarget);
+    };
+
+    const branchData = expenseDataByBranch.find(b => isTargetBranch(b.branchName)) 
+      ? expenseDataByBranch.filter(b => isTargetBranch(b.branchName)).reduce((acc, curr) => ({
           fixedTotal: acc.fixedTotal + curr.fixedTotal,
           varTotal: acc.varTotal + curr.varTotal
       }), { fixedTotal: 0, varTotal: 0 }) 
@@ -1001,7 +1053,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
     
     orders.forEach(o => {
       if (!o.createdAt || getOrderStatus(o) !== 'อนุมัติแล้ว') return;
-      if (targetBranch !== 'ทั้งหมด' && o.branch !== targetBranch) return;
+      if (targetBranch !== 'ทั้งหมด' && !isTargetBranch(o.branch)) return;
       
       const d = new Date(o.createdAt);
       if (d.getMonth() !== currentMonth || d.getFullYear() !== currentYear) return;
@@ -1327,23 +1379,42 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
 
             {/* Monthly Graph */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-              <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><BarChart3 size={18} className="text-indigo-500" /> กราฟยอดขายประจำเดือนนี้</h3>
-              <div className="h-48 flex items-end gap-1 sm:gap-2">
-                {currentMonthSalesData.data.map((d, i) => (
-                  <div key={i} className="flex-1 flex flex-col items-center justify-end group relative h-full">
-                    {/* Tooltip */}
-                    <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-[10px] px-2 py-1 rounded pointer-events-none whitespace-nowrap z-10">
-                      วันที่ {d.day}: ฿{d.sales.toLocaleString()}
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2"><BarChart3 size={18} className="text-indigo-500" /> กราฟยอดขายประจำเดือนนี้</h3>
+                <div className="flex items-center gap-3 text-xs font-bold">
+                  <span className="text-slate-500">รวมเดือนนี้: <span className="text-indigo-600 font-black">฿{currentMonthSalesData.totalMonthSales.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></span>
+                  {currentMonthSalesData.actualMaxSales > 0 && (
+                    <span className="text-slate-400">สูงสุด/วัน: <span className="text-emerald-600 font-black">฿{currentMonthSalesData.actualMaxSales.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span></span>
+                  )}
+                </div>
+              </div>
+              <div className="h-48 flex items-end gap-1 sm:gap-2 pt-6">
+                {currentMonthSalesData.data.map((d, i) => {
+                  const barHeightPx = d.sales > 0
+                    ? Math.max(Math.round((d.sales / currentMonthSalesData.maxSales) * 140), 10)
+                    : 4;
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center justify-end group relative">
+                      {/* Tooltip */}
+                      <div className="absolute -top-9 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-[10px] px-2 py-1 rounded pointer-events-none whitespace-nowrap z-10 shadow-md">
+                        วันที่ {d.day}: ฿{d.sales.toLocaleString()}
+                      </div>
+                      {/* Compact amount label above non-zero bars on desktop */}
+                      {d.sales > 0 && (
+                        <span className="hidden md:block text-[9px] font-bold text-indigo-600 mb-1 leading-none">
+                          {d.sales >= 1000 ? `${(d.sales / 1000).toFixed(d.sales >= 10000 ? 0 : 1)}k` : d.sales.toLocaleString()}
+                        </span>
+                      )}
+                      {/* Bar */}
+                      <div 
+                        className={`w-full rounded-t-md transition-all duration-500 ${d.sales > 0 ? 'bg-indigo-500 group-hover:bg-indigo-400 shadow-xs' : 'bg-slate-100'}`} 
+                        style={{ height: `${barHeightPx}px` }}
+                      ></div>
+                      {/* Label */}
+                      <span className={`text-[9px] sm:text-xs mt-2 font-mono ${d.sales > 0 ? 'text-indigo-600 font-bold' : 'text-slate-400'}`}>{d.day}</span>
                     </div>
-                    {/* Bar */}
-                    <div 
-                      className={`w-full rounded-t-sm transition-all duration-500 ${d.sales > 0 ? 'bg-indigo-500 group-hover:bg-indigo-400' : 'bg-slate-100'}`} 
-                      style={{ height: `${Math.max((d.sales / currentMonthSalesData.maxSales) * 100, d.sales > 0 ? 5 : 0)}%` }}
-                    ></div>
-                    {/* Label */}
-                    <span className="text-[9px] sm:text-xs text-slate-400 mt-2 font-mono">{d.day}</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 

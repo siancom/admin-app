@@ -22,12 +22,12 @@ import FollowUpPromptModal from './FollowUpPromptModal';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import { storage } from '../config/firebase';
 import IShipBookingModal from './IShipBookingModal';
+import Barcode128 from './Barcode128';
 
-// Lazy load heavy components to avoid Vite circular dependency bugs in minified builds
-const SignaturePad = React.lazy(() => import('./SignaturePad'));
-const ShopeeImportModal = React.lazy(() => import('./ShopeeImportModal'));
-const SalesHistoryModal = React.lazy(() => import('./SalesHistoryModal'));
-const BarcodeScannerModal = React.lazy(() => import('./BarcodeScannerModal'));
+import SignaturePad from './SignaturePad';
+import ShopeeImportModal from './ShopeeImportModal';
+import SalesHistoryModal from './SalesHistoryModal';
+import BarcodeScannerModal from './BarcodeScannerModal';
 const CosmeticsIcon = ({ size = 24, className = "" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <rect x="4" y="3" width="4" height="4" rx="1" />
@@ -2307,6 +2307,7 @@ export default function POSSystem({
         paymentMethodStr,
         orderChannel,
         shippingAddress,
+        trackingNo: posTrackingClean,
         splitPayment: {...splitPayment},
         createdAt: customDateObj,
         customerSignature: custSignatureUrl,
@@ -5674,53 +5675,107 @@ export default function POSSystem({
       </div>
     ) : null}
 
-        {printMode === 'label' && (
-          <div className={`${showPreviewModal ? 'flex shadow-2xl flex-col' : 'hidden'} print:shadow-none print:flex print:flex-col w-[100mm] h-[150mm] max-w-full text-black font-sans bg-white m-0 p-4 leading-tight mx-auto border-2 border-black box-border`}>
-        <div className="border-b-2 border-black pb-3 mb-3 flex justify-between items-start">
-          <div>
-            <h1 className="font-black text-2xl mb-1">ผู้ส่ง (SENDER)</h1>
-            <p className="font-bold text-sm">IRIS NATURES</p>
-            <p className="text-xs">{globalBranch || "สำนักงานใหญ่"}</p>
-            <p className="text-xs mt-1">เลขที่ออเดอร์: <span className="font-bold">{receiptData.orderNo}</span></p>
-            <p className="text-xs">วันที่: {new Date(receiptData.createdAt).toLocaleDateString('th-TH')}</p>
-          </div>
-          <div className="text-right">
-             <div className="text-4xl font-black border-4 border-black px-3 py-1 inline-block">
-                {receiptData.splitPayment.cod > 0 ? 'COD' : 'PAID'}
-             </div>
-             {receiptData.splitPayment.cod > 0 && (
-                <div className="text-xl font-bold mt-2">เก็บเงิน: ฿{receiptData.splitPayment.cod.toLocaleString()}</div>
-             )}
-          </div>
-        </div>
-        
-        <div className="flex-1 border-b-2 border-black pb-3 mb-3">
-          <h1 className="font-black text-2xl mb-3">ผู้รับ (RECEIVER)</h1>
-          {receiptData.shippingAddress ? (
-            <div className="text-xl whitespace-pre-wrap leading-relaxed font-bold">
-              {receiptData.shippingAddress}
-            </div>
-          ) : (
-            <div className="text-xl whitespace-pre-wrap leading-relaxed font-bold">
-              {receiptData.customerName}{'\n'}
-              โทร: {receiptData.customerPhone}
-            </div>
-          )}
-        </div>
-        
-        <div className="h-1/3 min-h-[40mm]">
-           <h2 className="font-bold text-lg mb-2">รายการสินค้า ({receiptData.items.length} รายการ):</h2>
-           <div className="text-sm space-y-1 font-semibold">
-             {receiptData.items.map((item, idx) => (
-                <div key={idx} className="flex justify-between items-start">
-                   <span className="pr-2">{idx+1}. {item.name}</span>
-                   <span className="font-black text-base shrink-0">x{item.qty}</span>
+        {printMode === 'label' && (() => {
+          const labelCode = String(receiptData.trackingNo || receiptData.orderNo || 'IRIS0001').trim();
+          const codVal = Number(receiptData.splitPayment?.cod || 0);
+          return (
+          <div className={`${showPreviewModal ? 'flex shadow-2xl flex-col' : 'hidden'} print:shadow-none print:flex print:flex-col w-[100mm] min-h-[150mm] max-w-full text-black font-sans bg-white m-0 p-3 leading-tight mx-auto border-2 border-black box-border justify-between`}>
+            <div>
+              {/* Top Header */}
+              <div className="border-b-2 border-black pb-2 flex justify-between items-start gap-2">
+                <div>
+                  <span className="bg-black text-white font-black text-xs px-2 py-0.5 uppercase tracking-wide inline-block">
+                    {receiptData.trackingNo?.startsWith('TH') ? 'FLASH EXPRESS' : 'IRIS EXPRESS'}
+                  </span>
+                  <p className="font-bold text-[11px] mt-1">IRIS NATURES • สาขา{globalBranch || 'สำนักงานใหญ่'}</p>
                 </div>
-             ))}
-           </div>
-        </div>
-      </div>
-        )}
+                <div className="text-right shrink-0">
+                  <div className={`text-xl font-black border-2 border-black px-2.5 py-0.5 inline-block leading-none ${codVal > 0 ? 'bg-black text-white' : 'bg-white text-black'}`}>
+                    {codVal > 0 ? 'COD' : 'PAID'}
+                  </div>
+                  {codVal > 0 ? (
+                    <div className="text-xs font-black mt-0.5">เก็บเงิน ฿{codVal.toLocaleString()}</div>
+                  ) : (
+                    <div className="text-[9px] font-bold mt-0.5">ไม่ต้องเก็บเงิน</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Real 1D Code-128 Barcode */}
+              <div className="py-2 px-1 border-b-2 border-black bg-white">
+                <div className="text-[9px] font-bold uppercase tracking-wider text-center mb-1">
+                  {receiptData.trackingNo ? 'TRACKING NO. (เลขพัสดุ)' : 'ORDER REF. (เลขที่ออเดอร์)'}
+                </div>
+                <Barcode128
+                  value={labelCode}
+                  height={50}
+                  showText={true}
+                  textClassName="text-sm font-mono font-black tracking-[0.18em] mt-1 text-black leading-none"
+                />
+              </div>
+
+              {/* Sender */}
+              <div className="py-2 border-b-2 border-black text-[11px] leading-snug">
+                <span className="font-black text-xs underline">ผู้ส่ง (FROM):</span>{' '}
+                <span className="font-bold">ศูนย์ความงามไอริส (Iris Natures) ({globalBranch || 'สำนักงานใหญ่'})</span>
+                <div className="text-[10px]">โทร: 097-064-3249 • อ.เกาะสมุย จ.สุราษฎร์ธานี 84320</div>
+              </div>
+
+              {/* Receiver + Real 2D QR Code */}
+              <div className="py-2.5 border-b-2 border-black flex items-start justify-between gap-2.5 min-h-[42mm]">
+                <div className="flex-1 min-w-0">
+                  <div className="font-black text-xs underline mb-1">ผู้รับ (TO):</div>
+                  {receiptData.shippingAddress ? (
+                    <div className="text-sm whitespace-pre-wrap leading-snug font-black break-words">
+                      {receiptData.shippingAddress}
+                    </div>
+                  ) : (
+                    <div className="text-sm whitespace-pre-wrap leading-snug font-black break-words">
+                      {receiptData.customerName}{'\n'}
+                      โทร: {receiptData.customerPhone}
+                    </div>
+                  )}
+                </div>
+                <div className="shrink-0 flex flex-col items-center border-2 border-black p-1.5 bg-white">
+                  <QRCodeSVG value={labelCode} size={80} level="M" includeMargin={false} />
+                  <span className="text-[8px] font-mono font-black mt-1 max-w-[80px] truncate">{labelCode}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Items & Footer */}
+            <div className="pt-2 flex flex-col justify-between flex-1">
+              <div>
+                <div className="flex justify-between text-[10px] font-black mb-1">
+                  <span>รายการสินค้า ({receiptData.items?.length || 0} รายการ)</span>
+                  <span className="font-mono">#{receiptData.orderNo}</span>
+                </div>
+                <div className="text-[11px] space-y-0.5 font-bold max-h-[24mm] overflow-hidden">
+                  {(receiptData.items || []).map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-start gap-2">
+                      <span className="truncate">{idx + 1}. {item.name}</span>
+                      <span className="font-mono font-black shrink-0">x{item.qty}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-2 pt-1.5 border-t border-dashed border-black flex items-end justify-between text-[9px] font-semibold">
+                <div>วันที่: {new Date(receiptData.createdAt).toLocaleDateString('th-TH')}</div>
+                {receiptData.trackingNo && receiptData.orderNo && receiptData.trackingNo !== receiptData.orderNo && (
+                  <div className="w-[36mm]">
+                    <Barcode128
+                      value={receiptData.orderNo}
+                      height={20}
+                      showText={true}
+                      textClassName="text-[8px] font-mono font-bold tracking-wider mt-0.5 text-black leading-none text-center"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          );
+        })()}
         </div>
       </div>,
       document.body
@@ -7152,6 +7207,7 @@ export default function POSSystem({
             paymentMethodStr: order.paymentMethod,
             orderChannel: order.orderChannel,
             shippingAddress: order.shippingAddress,
+            trackingNo: order.trackingNo || '',
             splitPayment: order.splitPayment || { cash: 0, transfer: 0, cod: 0, credit: 0 },
             createdAt: new Date(order.createdAt)
           });
@@ -7472,28 +7528,36 @@ export default function POSSystem({
     
     <IShipBookingModal 
       isOpen={ishipModal.isOpen} 
-      order={{ customerName: selectedCustomer ? String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"])) : 'ลูกค้าทั่วไป', shippingAddress }} 
+      order={{
+        orderNo: activeWcOrderId || 'DRAFT',
+        customerName: selectedCustomer ? String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]) || '') : 'ลูกค้าทั่วไป',
+        customerPhone: selectedCustomer ? String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]) || '') : '',
+        codAmount: splitPayment.cod > 0 ? splitPayment.cod : 0,
+        shippingAddress
+      }} 
       onClose={() => setIshipModal({isOpen: false})} 
       onPrintLabel={(address) => {
          const tempReceipt = {
            orderNo: activeWcOrderId || 'DRAFT',
+           trackingNo: posTrackingNo || '',
+           customerName: selectedCustomer ? String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]) || '') : 'ลูกค้าทั่วไป',
+           customerPhone: selectedCustomer ? String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]) || '') : '',
            createdAt: new Date(),
            splitPayment: { cod: splitPayment.cod > 0 ? splitPayment.cod : 0, cash: 0, transfer: 0, credit: 0 },
            shippingAddress: address || shippingAddress,
-           items: [],
+           items: [...cart],
          };
          setReceiptData(tempReceipt);
          setPrintMode('label');
          setShowPreviewModal(true);
       }}
       onSubmit={async (data) => {
-         showToast('กำลังส่งข้อมูลไปยัง iShip...');
          if (data && data.trackingNumber) {
             setPosTrackingNo(data.trackingNumber);
             if (data.dstAddress) {
                 setShippingAddress(data.dstAddress);
             }
-            showToast(`สร้างเลขพัสดุสำเร็จ: ${data.trackingNumber}`, 'success');
+            showToast(`สร้างเลขพัสดุสำเร็จ: ${data.trackingNumber}${data.pickupNote || ''}`, 'success');
          }
          setIshipModal({ isOpen: false });
       }} 

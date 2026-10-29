@@ -412,22 +412,40 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
       // In a real system, diligence allowance might be conditional, but for now we'll pass it to the view.
       // The user can manually adjust it if needed via another system, but we'll include it in total for now.
 
-      const baseSalary = Math.ceil(parseNumber(emp.baseSalary || 0));
+      const autoBaseSalary = Math.ceil(parseNumber(emp.baseSalary || 0));
       totalAdvances = Math.ceil(totalAdvances);
       
-      const finalCommission = Math.ceil(totalCommission);
-      const finalServiceFees = Math.ceil(totalServiceFees);
+      const autoCommission = Math.ceil(totalCommission);
+      const autoServiceFees = Math.ceil(totalServiceFees);
+
+      const monthOverride = emp.payrollOverrides?.[payrollMonth] || {};
+      const baseSalary = monthOverride.baseSalary !== undefined && monthOverride.baseSalary !== null && monthOverride.baseSalary !== ''
+        ? parseNumber(monthOverride.baseSalary)
+        : autoBaseSalary;
+      const finalCommission = monthOverride.totalCommission !== undefined && monthOverride.totalCommission !== null && monthOverride.totalCommission !== ''
+        ? parseNumber(monthOverride.totalCommission)
+        : autoCommission;
+      const finalServiceFees = monthOverride.totalServiceFees !== undefined && monthOverride.totalServiceFees !== null && monthOverride.totalServiceFees !== ''
+        ? parseNumber(monthOverride.totalServiceFees)
+        : autoServiceFees;
+      const finalFoodAllowance = monthOverride.totalFoodAllowance !== undefined && monthOverride.totalFoodAllowance !== null && monthOverride.totalFoodAllowance !== ''
+        ? parseNumber(monthOverride.totalFoodAllowance)
+        : totalFoodAllowance;
+      const finalAdvances = monthOverride.totalAdvances !== undefined && monthOverride.totalAdvances !== null && monthOverride.totalAdvances !== ''
+        ? parseNumber(monthOverride.totalAdvances)
+        : totalAdvances;
       
       // Included diligenceAllowance as a standard benefit for now.
-      const totalIncome = baseSalary + finalCommission + finalServiceFees + totalFoodAllowance + diligenceAllowance - totalAdvances;
+      const totalIncome = baseSalary + finalCommission + finalServiceFees + finalFoodAllowance + diligenceAllowance - finalAdvances;
 
       return {
           ...emp,
+          baseSalary,
           totalCommission: finalCommission,
           totalServiceFees: finalServiceFees,
-          totalFoodAllowance,
+          totalFoodAllowance: finalFoodAllowance,
           diligenceAllowance,
-          totalAdvances,
+          totalAdvances: finalAdvances,
           totalIncome,
           daysWorked,
           serviceCount,
@@ -1688,7 +1706,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
       {/* Employee Portal Overlay */}
       {selectedEmployeeForPortal && (
          <EmployeePortal 
-           employee={selectedEmployeeForPortal}
+           employee={employees.find(e => e.id === selectedEmployeeForPortal.id) || selectedEmployeeForPortal}
            attendance={attendance}
            leaves={leaves}
            advancePayments={advancePayments}
