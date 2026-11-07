@@ -3480,7 +3480,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
   
   const submitCourseBooking = async (e) => { 
       e.preventDefault(); if (isSlotTaken(bookingDateTime)) return showToast('เวลานี้มีลูกค้าจองคิวไว้แล้ว (คิวเต็ม) กรุณาเลือกเวลาอื่นครับ');
-      try { await addDoc(getCol('bookings'), { courseId: String(bookingCourse?.id || ''), courseRef: String(getFuzzyKey(bookingCourse, ["เลขที่ใบคอส", "col_2"]) || ''), courseName: String(getFuzzyKey(bookingCourse, ["ชื่อคอส", "col_8"]) || 'ไม่ระบุคอร์ส'), customerName: String(getFuzzyKey(bookingCourse, ["ผู้ซื้อคอส", "col_9"]) || ''), customerPhone: String(getFuzzyKey(bookingCourse, ["เบอร์โทร", "col_1"]) || ''), dateTime: String(bookingDateTime), date: String(bookingDateTime).split('T')[0] || '', time: String(bookingDateTime).split('T')[1] || '', branch: String(bookingCourseBranch), status: 'รอการยืนยัน', createdAt: new Date().toISOString() }); setBookingCourse(null); setBookingDateTime(''); setBookingCourseBranch(globalBranch || 'เฉวง'); showToast('ส่งคำขอจองคิวสำเร็จ'); } catch (err) { showToast('ข้อผิดพลาด: ' + err.message); } 
+      try { await addDoc(getCol('bookings'), { courseId: String(bookingCourse?.id || ''), courseRef: String(getFuzzyKey(bookingCourse, ["เลขที่ใบคอส", "col_2"]) || ''), courseName: String(getFuzzyKey(bookingCourse, ["ชื่อคอส", "col_8"]) || 'ไม่ระบุคอร์ส'), customerName: String(getFuzzyKey(bookingCourse, ["ผู้ซื้อคอส", "col_9"]) || ''), customerPhone: String(getFuzzyKey(bookingCourse, ["เบอร์โทร", "col_1"]) || ''), dateTime: String(bookingDateTime), date: String(bookingDateTime).split('T')[0] || '', time: String(bookingDateTime).split('T')[1] || '', branch: String(bookingCourseBranch), status: 'ยืนยันแล้ว', createdAt: new Date().toISOString() }); setBookingCourse(null); setBookingDateTime(''); setBookingCourseBranch(globalBranch || 'เฉวง'); showToast('จองคิวสำเร็จ ได้รับการยืนยันทันที'); } catch (err) { showToast('ข้อผิดพลาด: ' + err.message); } 
   };
   
   const submitGeneralBooking = async (e) => { 
@@ -3498,13 +3498,13 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
               date: String(generalBookingForm.dateTime).split('T')[0] || '', 
               time: String(generalBookingForm.dateTime).split('T')[1] || '', 
               branch: String(generalBookingForm.branch), 
-              status: isWalkIn ? 'กำลังใช้บริการ' : 'รอการยืนยัน', 
+              status: isWalkIn ? 'กำลังใช้บริการ' : 'ยืนยันแล้ว', 
               serviceStartTime: isWalkIn ? nowIso : null,
               createdAt: nowIso 
           }); 
           setIsGeneralBookingOpen(false); 
           setGeneralBookingForm({ name: '', phone: '', service: '', dateTime: '', branch: globalBranch || 'เฉวง' }); 
-          showToast(isWalkIn ? 'เพิ่มคิว Walk-in เข้าใช้บริการสำเร็จ' : 'เพิ่มคิวนัดหมายใหม่สำเร็จ'); 
+          showToast(isWalkIn ? 'เพิ่มคิว Walk-in เข้าใช้บริการสำเร็จ' : 'เพิ่มคิวนัดหมายใหม่ (อนุมัติทันที) สำเร็จ'); 
       } catch (err) { showToast('ข้อผิดพลาด: ' + err.message); } 
   };
 
@@ -4854,14 +4854,10 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                                                                         </div>
                                                                         <p className="font-bold text-gray-800 text-[11px] leading-tight truncate max-w-[100px]">{String(b.customerName || '-').split(' ')[0]}</p>
                                                                     </div>
-                                                                    <select value={st} onChange={(e) => updateBookingStatus(b.id, e.target.value)} onClick={(e) => e.stopPropagation()} className={`px-2 py-0.5 rounded text-[9px] font-bold border outline-none appearance-none cursor-pointer ${st === 'รอการยืนยัน' ? 'bg-amber-50 text-amber-600 border-amber-300' : st === 'ยืนยันแล้ว' ? 'bg-blue-50 text-blue-600 border-blue-300' : st === 'กำลังใช้บริการ' ? 'bg-purple-50 text-purple-600 border-purple-300 animate-pulse' : st === 'เสร็จสิ้น' ? 'bg-emerald-50 text-emerald-600 border-emerald-300' : 'bg-gray-50 text-gray-600 border-gray-300'}`}>
-                                                                        <option value="รอการยืนยัน">รอการยืนยัน</option>
-                                                                        <option value="ยืนยันแล้ว">ยืนยันแล้ว</option>
-                                                                        <option value="กำลังใช้บริการ">กำลังใช้บริการ</option>
-                                                                        <option value="เสร็จสิ้น">เสร็จสิ้น</option>
-                                                                        <option value="ยกเลิก">ยกเลิก</option>
-                                                                        <option value="ยกเลิกฉุกเฉิน">🚨 ยกเลิกฉุกเฉิน</option>
-                                                                    </select>
+                                                                    <button onClick={(e) => { e.stopPropagation(); setBookingTicket(b); }} className={`px-2 py-0.5 rounded-full text-[9px] font-bold border transition-all hover:scale-105 active:scale-95 flex items-center gap-1 shadow-xs ${st === 'รอการยืนยัน' ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' : st === 'ยืนยันแล้ว' ? 'bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100' : st === 'กำลังใช้บริการ' ? 'bg-purple-50 text-purple-700 border-purple-300 hover:bg-purple-100 animate-pulse' : st === 'เสร็จสิ้น' ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100' : 'bg-gray-50 text-gray-700 border-gray-300 hover:bg-gray-100'}`} title="แตะเพื่อเปิดหน้าต่างปรับสถานะ">
+                                                                        <span>{st}</span>
+                                                                        <span className="text-[8px] opacity-75">✏️</span>
+                                                                    </button>
                                                                 </div>
                                                                 
                                                                 <div className="flex flex-wrap items-center justify-between gap-1 mb-2">
@@ -4906,19 +4902,9 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                                                                     </div>
                                                                 </div>
                                                             </div>
-                                                            <div className="w-10 shrink-0 border-l-2 border-dashed border-gray-100 flex flex-col items-center justify-center bg-gray-50/30 hover:bg-gray-100 transition-colors relative group">
-                                                                <QrCode size={16} className={`${st === 'รอการยืนยัน' ? 'text-amber-400' : st === 'ยืนยันแล้ว' ? 'text-blue-400' : st === 'กำลังใช้บริการ' ? 'text-purple-400' : st === 'เสร็จสิ้น' ? 'text-emerald-400' : 'text-gray-400'}`} />
-                                                                <div className="absolute top-1/2 -translate-y-1/2 right-full mr-1 flex flex-row items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all z-10 bg-white/95 backdrop-blur-sm p-1.5 rounded-2xl shadow-md border border-gray-100 translate-x-2 group-hover:translate-x-0" style={{ width: 'max-content', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
-                                                                    <button onClick={(e) => { e.stopPropagation(); setActionConfirmModal({ isOpen: true, title: 'ลบนัดหมาย', message: 'แน่ใจหรือไม่ที่จะลบรายการนัดหมายนี้?', action: () => executeDeleteBooking(b.id), confirmText: 'ลบ', confirmColor: 'bg-red-600 hover:bg-red-700' }); }} className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-colors shrink-0" title="ลบ"><Trash2 size={14}/></button>
-                                                                    {(st === 'รอการยืนยัน' || st === 'ยืนยันแล้ว') && (
-                                                                        <>
-                                                                            <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'ยกเลิกฉุกเฉิน'); }} className="p-2 bg-amber-50 text-amber-600 hover:bg-amber-100 rounded-xl transition-colors flex items-center justify-center text-[14px] shrink-0" title="ยกเลิกฉุกเฉิน">🚨</button>
-                                                                            <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'กำลังใช้บริการ'); showToast('เช็คอินสำเร็จ'); }} className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl transition-colors shrink-0" title="เช็คอิน"><ScanLine size={14}/></button>
-                                                                            <button onClick={(e) => { e.stopPropagation(); setPrintingJobSlipBooking(b); }} className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl transition-colors shrink-0" title="พิมพ์ใบงาน"><Printer size={14}/></button>
-                                                                        </>
-                                                                    )}
-                                                                    {st === 'รอการยืนยัน' && <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'ยืนยันแล้ว'); showToast('ยืนยันคิวสำเร็จ'); }} className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl transition-colors shrink-0" title="ยืนยันคิว"><CheckCircle size={14}/></button>}
-                                                                </div>
+                                                            <div onClick={(e) => { e.stopPropagation(); setBookingTicket(b); }} className="w-10 shrink-0 border-l-2 border-dashed border-gray-100 flex flex-col items-center justify-center bg-gray-50/40 hover:bg-blue-50/60 transition-colors cursor-pointer group/qr" title="คลิกดู E-Ticket & ปรับสถานะ">
+                                                                <QrCode size={16} className={`transition-transform group-hover/qr:scale-110 ${st === 'รอการยืนยัน' ? 'text-amber-500' : st === 'ยืนยันแล้ว' ? 'text-blue-500' : st === 'กำลังใช้บริการ' ? 'text-purple-500' : st === 'เสร็จสิ้น' ? 'text-emerald-500' : 'text-gray-400'}`} />
+                                                                <span className="text-[7px] font-bold text-gray-400 mt-0.5 group-hover/qr:text-blue-600">จัดการ</span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -4972,14 +4958,10 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                                                 </div>
                                                 <p className="font-bold text-gray-800 text-[11px] leading-tight truncate max-w-[100px]">{String(b.customerName || '-').split(' ')[0]}</p>
                                             </div>
-                                            <select value={st} onChange={(e) => updateBookingStatus(b.id, e.target.value)} onClick={(e) => e.stopPropagation()} className={`px-2 py-0.5 rounded text-[9px] font-bold border outline-none appearance-none cursor-pointer ${st === 'รอการยืนยัน' ? 'bg-amber-50 text-amber-600 border-amber-300' : st === 'ยืนยันแล้ว' ? 'bg-blue-50 text-blue-600 border-blue-300' : st === 'กำลังใช้บริการ' ? 'bg-purple-50 text-purple-600 border-purple-300 animate-pulse' : st === 'เสร็จสิ้น' ? 'bg-emerald-50 text-emerald-600 border-emerald-300' : 'bg-gray-50 text-gray-600 border-gray-300'}`}>
-                                                                        <option value="รอการยืนยัน">รอการยืนยัน</option>
-                                                                        <option value="ยืนยันแล้ว">ยืนยันแล้ว</option>
-                                                                        <option value="กำลังใช้บริการ">กำลังใช้บริการ</option>
-                                                                        <option value="เสร็จสิ้น">เสร็จสิ้น</option>
-                                                                        <option value="ยกเลิก">ยกเลิก</option>
-                                                                        <option value="ยกเลิกฉุกเฉิน">🚨 ยกเลิกฉุกเฉิน</option>
-                                                                    </select>
+                                            <button onClick={(e) => { e.stopPropagation(); setBookingTicket(b); }} className={`px-2 py-0.5 rounded-full text-[9px] font-bold border transition-all hover:scale-105 active:scale-95 flex items-center gap-1 shadow-xs ${st === 'รอการยืนยัน' ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' : st === 'ยืนยันแล้ว' ? 'bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100' : st === 'กำลังใช้บริการ' ? 'bg-purple-50 text-purple-700 border-purple-300 hover:bg-purple-100 animate-pulse' : st === 'เสร็จสิ้น' ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100' : 'bg-gray-50 text-gray-700 border-gray-300 hover:bg-gray-100'}`} title="แตะเพื่อเปิดหน้าต่างปรับสถานะ">
+                                                                        <span>{st}</span>
+                                                                        <span className="text-[8px] opacity-75">✏️</span>
+                                                                    </button>
                                         </div>
                                         
                                         <div className="flex flex-wrap items-center justify-between gap-1 mb-2">
@@ -5024,19 +5006,9 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="w-12 shrink-0 border-l-2 border-dashed border-gray-100 flex flex-col items-center justify-center bg-gray-50/30 hover:bg-gray-100 transition-colors relative group">
-                                        <QrCode size={18} className={`${st === 'รอการยืนยัน' ? 'text-amber-400' : st === 'ยืนยันแล้ว' ? 'text-blue-400' : st === 'กำลังใช้บริการ' ? 'text-purple-400' : st === 'เสร็จสิ้น' ? 'text-emerald-400' : 'text-gray-400'}`} />
-                                        <div className="absolute top-1/2 -translate-y-1/2 right-full mr-1 flex flex-row items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all z-10 bg-white/95 backdrop-blur-sm p-1.5 rounded-2xl shadow-md border border-gray-100 translate-x-2 group-hover:translate-x-0" style={{ width: 'max-content', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
-                                            <button onClick={(e) => { e.stopPropagation(); setActionConfirmModal({ isOpen: true, title: 'ลบนัดหมาย', message: 'แน่ใจหรือไม่ที่จะลบรายการนัดหมายนี้?', action: () => executeDeleteBooking(b.id), confirmText: 'ลบ', confirmColor: 'bg-red-600 hover:bg-red-700' }); }} className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-colors shrink-0" title="ลบ"><Trash2 size={14}/></button>
-                                            {(st === 'รอการยืนยัน' || st === 'ยืนยันแล้ว') && (
-                                                <>
-                                                    <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'ยกเลิกฉุกเฉิน'); }} className="p-2 bg-amber-50 text-amber-600 hover:bg-amber-100 rounded-xl transition-colors flex items-center justify-center text-[14px] shrink-0" title="ยกเลิกฉุกเฉิน">🚨</button>
-                                                    <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'กำลังใช้บริการ'); showToast('เช็คอินสำเร็จ'); }} className="p-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl transition-colors shrink-0" title="เช็คอิน"><ScanLine size={14}/></button>
-                                                    <button onClick={(e) => { e.stopPropagation(); setPrintingJobSlipBooking(b); }} className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl transition-colors shrink-0" title="พิมพ์ใบงาน"><Printer size={14}/></button>
-                                                </>
-                                            )}
-                                            {st === 'รอการยืนยัน' && <button onClick={(e) => { e.stopPropagation(); updateBookingStatus(b.id, 'ยืนยันแล้ว'); showToast('ยืนยันคิวสำเร็จ'); }} className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl transition-colors shrink-0" title="ยืนยันคิว"><CheckCircle size={14}/></button>}
-                                        </div>
+                                    <div onClick={(e) => { e.stopPropagation(); setBookingTicket(b); }} className="w-12 shrink-0 border-l-2 border-dashed border-gray-100 flex flex-col items-center justify-center bg-gray-50/40 hover:bg-blue-50/60 transition-colors cursor-pointer group/qr" title="คลิกดู E-Ticket & ปรับสถานะ">
+                                        <QrCode size={18} className={`transition-transform group-hover/qr:scale-110 ${st === 'รอการยืนยัน' ? 'text-amber-500' : st === 'ยืนยันแล้ว' ? 'text-blue-500' : st === 'กำลังใช้บริการ' ? 'text-purple-500' : st === 'เสร็จสิ้น' ? 'text-emerald-500' : 'text-gray-400'}`} />
+                                        <span className="text-[8px] font-bold text-gray-400 mt-0.5 group-hover/qr:text-blue-600">จัดการ</span>
                                     </div>
                                 </div>
                             );
@@ -5782,6 +5754,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
               bookings={bookings} 
               storeHolidays={storeHolidays} 
               branches={branches} 
+              onSelectBooking={setBookingTicket}
             />
           )}
 
@@ -6717,7 +6690,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                          date: String(formData.date || formData.dateTime.split('T')[0]),
                          time: String(formData.time || formData.dateTime.split('T')[1]),
                          branch: String(formData.branch), 
-                         status: 'รอการยืนยัน', 
+                         status: 'ยืนยันแล้ว', 
                          createdAt: new Date().toISOString() 
                      }); 
                      setIsGeneralBookingOpen(false); 
@@ -7030,33 +7003,224 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
         </div>
       )}
 
-      {/* QR Code Ticket Modal */}
-      {bookingTicket && (
-        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm" onClick={() => setBookingTicket(null)}>
-           <div className="bg-white w-full max-w-xs rounded-[32px] p-6 shadow-2xl animate-in zoom-in-95 text-center relative overflow-hidden" onClick={e => e.stopPropagation()}>
-              <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-blue-400 to-indigo-500"></div>
-              <h3 className="font-black text-xl text-gray-800 mb-2 mt-2">ตั๋วนัดหมาย</h3>
-              <p className="text-xs text-gray-500 mb-6">{bookingTicket.courseName}</p>
+      {/* Enhanced Booking Detail & Status Modal */}
+      {bookingTicket && (() => {
+        const currentSt = String(bookingTicket.status || 'ยืนยันแล้ว').trim();
+        const bSafeDt = getSafeDateTime(bookingTicket);
+
+        const handleModalStatusChange = async (targetStatus) => {
+          try {
+            await updateBookingStatus(bookingTicket.id, targetStatus);
+            setBookingTicket(prev => prev ? ({ ...prev, status: targetStatus }) : null);
+          } catch (err) {
+            console.error('Failed to change status:', err);
+          }
+        };
+
+        const statusOptions = [
+          {
+            key: 'กำลังใช้บริการ',
+            label: 'เช็คอิน / กำลังใช้บริการ',
+            sub: 'เริ่มทำหัตถการ & ระบุเตียง',
+            icon: ScanLine,
+            activeColor: 'bg-purple-600 text-white shadow-purple-200 border-purple-600',
+            idleColor: 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
+          },
+          {
+            key: 'ยืนยันแล้ว',
+            label: 'ยืนยันคิวแล้ว',
+            sub: 'อนุมัติเรียบร้อย รอเข้ารับบริการ',
+            icon: CheckCircle,
+            activeColor: 'bg-blue-600 text-white shadow-blue-200 border-blue-600',
+            idleColor: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+          },
+          {
+            key: 'เสร็จสิ้น',
+            label: 'ให้บริการเสร็จสิ้น',
+            sub: 'จบคิว / ปิดการให้บริการ',
+            icon: CheckCircle,
+            activeColor: 'bg-emerald-600 text-white shadow-emerald-200 border-emerald-600',
+            idleColor: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+          },
+          {
+            key: 'รอการยืนยัน',
+            label: 'รอการยืนยัน',
+            sub: 'คำขอจองคิว / รอดำเนินการ',
+            icon: Clock,
+            activeColor: 'bg-amber-600 text-white shadow-amber-200 border-amber-600',
+            idleColor: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+          },
+          {
+            key: 'ยกเลิกฉุกเฉิน',
+            label: '🚨 ยกเลิกฉุกเฉิน',
+            sub: 'เหตุสุดวิสัย / คลินิกปิดด่วน',
+            icon: AlertTriangle,
+            activeColor: 'bg-rose-600 text-white shadow-rose-200 border-rose-600',
+            idleColor: 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+          },
+          {
+            key: 'ยกเลิก',
+            label: 'ยกเลิกนัดหมาย',
+            sub: 'ลูกค้ายกเลิก หรือไม่มาตามนัด',
+            icon: X,
+            activeColor: 'bg-gray-700 text-white shadow-gray-200 border-gray-700',
+            idleColor: 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+          }
+        ];
+
+        return (
+          <div className="fixed inset-0 z-[160] flex items-center justify-center p-3 sm:p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in" onClick={() => setBookingTicket(null)}>
+            <div className="bg-white w-full max-w-lg rounded-3xl p-5 sm:p-6 shadow-2xl animate-in zoom-in-95 relative overflow-hidden max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500"></div>
               
-              <div className="bg-white p-2 rounded-2xl border-2 border-gray-100 shadow-sm mb-6 inline-block">
-                  <QRCodeSVG value={bookingTicket.id || bookingTicket.ticketNo || ''} size={120} level="H" />
+              {/* Header */}
+              <div className="flex justify-between items-center pb-3 border-b border-gray-100 mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                    <Calendar size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-lg text-gray-800 leading-tight">จัดการคิวนัดหมาย & ปรับสถานะ</h3>
+                    <p className="text-[11px] text-gray-500">ปรับเปลี่ยนสถานะง่ายๆ เพียงแตะปุ่มที่ต้องการ</p>
+                  </div>
+                </div>
+                <button onClick={() => setBookingTicket(null)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition-colors">
+                  <X size={16} />
+                </button>
               </div>
-              
-              <div className="text-left bg-gray-50 p-4 rounded-xl mb-6">
-                 <div className="flex justify-between items-start mb-2">
+
+              <div className="overflow-y-auto space-y-4 pr-1">
+                {/* Current Status Banner */}
+                <div className={`p-3.5 rounded-2xl border flex items-center justify-between ${
+                  currentSt === 'รอการยืนยัน' ? 'bg-amber-50/80 border-amber-200 text-amber-800' :
+                  currentSt === 'ยืนยันแล้ว' ? 'bg-blue-50/80 border-blue-200 text-blue-800' :
+                  currentSt === 'กำลังใช้บริการ' ? 'bg-purple-50/80 border-purple-200 text-purple-800 ring-2 ring-purple-100' :
+                  currentSt === 'เสร็จสิ้น' ? 'bg-emerald-50/80 border-emerald-200 text-emerald-800' :
+                  'bg-rose-50/80 border-rose-200 text-rose-800'
+                }`}>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-75">สถานะปัจจุบัน</span>
+                    <h4 className="text-base font-black flex items-center gap-1.5 mt-0.5">
+                      {currentSt === 'กำลังใช้บริการ' && <span className="inline-block w-2.5 h-2.5 rounded-full bg-purple-500 animate-ping mr-1"></span>}
+                      {currentSt}
+                      {bookingTicket.bedNumber && <span className="text-xs font-bold px-2 py-0.5 bg-white rounded-full border border-purple-200 text-purple-700 ml-1">เตียง {bookingTicket.bedNumber}</span>}
+                    </h4>
+                    {bookingTicket.cancelReason && (
+                      <p className="text-xs text-rose-600 mt-1 font-medium">สาเหตุ: {bookingTicket.cancelReason}</p>
+                    )}
+                  </div>
+                  <BookingCountdown booking={bookingTicket} />
+                </div>
+
+                {/* Booking Info Card with QR */}
+                <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl flex items-center justify-between gap-3">
+                  <div className="flex-1 space-y-1.5 min-w-0">
                     <div>
-                      <p className="text-[10px] text-gray-400 uppercase font-bold mb-0.5">ชื่อลูกค้า</p>
-                      <p className="font-bold text-gray-800 text-sm">{bookingTicket.customerName}</p>
+                      <span className="text-[9px] font-bold text-gray-400 uppercase">บริการ / คอร์ส</span>
+                      <p className="font-black text-gray-800 text-sm truncate">{bookingTicket.courseName || 'บริการทั่วไป'}</p>
                     </div>
-                    <BookingCountdown booking={bookingTicket} />
-                 </div>
-                 <p className="text-[10px] text-gray-400 uppercase font-bold mb-1">วันที่และเวลา</p>
-                 <p className="font-bold text-gray-800 text-sm">{formatDateTimeStr(getSafeDateTime(bookingTicket))}</p>
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="font-bold text-gray-700 flex items-center gap-1">
+                        <User size={13} className="text-gray-400" /> {bookingTicket.customerName || '-'}
+                      </span>
+                      {bookingTicket.customerPhone && (
+                        <a href={`tel:${bookingTicket.customerPhone}`} onClick={e => e.stopPropagation()} className="font-mono text-indigo-600 font-bold hover:underline flex items-center gap-0.5">
+                          <Phone size={11} /> {bookingTicket.customerPhone}
+                        </a>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-gray-600 flex items-center gap-2">
+                      <span className="font-bold">🗓️ {bSafeDt ? new Date(bSafeDt).toLocaleDateString('th-TH', {day: 'numeric', month: 'numeric', year: 'numeric'}) : (bookingTicket.date || '-')}</span>
+                      <span className="font-black text-indigo-600">⏰ {bSafeDt ? bSafeDt.split('T')[1]?.substring(0,5) : (bookingTicket.time || '-')} น.</span>
+                      <span className="bg-white px-2 py-0.5 rounded-md border border-slate-200 text-[10px] font-bold text-slate-600">📍 {bookingTicket.branch || 'เฉวง'}</span>
+                    </div>
+                  </div>
+                  <div className="bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm shrink-0 flex flex-col items-center">
+                    <QRCodeSVG value={bookingTicket.id || bookingTicket.ticketNo || ''} size={68} level="H" />
+                    <span className="text-[8px] font-mono text-gray-400 mt-0.5">{bookingTicket.ticketNo || (bookingTicket.id ? bookingTicket.id.slice(0,6) : '')}</span>
+                  </div>
+                </div>
+
+                {/* Status Selection Buttons */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-black text-gray-700">แตะเพื่อเปลี่ยนสถานะ:</span>
+                    <span className="text-[10px] text-gray-400 font-medium">(คลิกปุ่มจะอัปเดตและแจ้งเตือนทันที)</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {statusOptions.map((opt) => {
+                      const isCurrent = currentSt === opt.key;
+                      const IconComp = opt.icon;
+                      return (
+                        <button
+                          key={opt.key}
+                          onClick={() => handleModalStatusChange(opt.key)}
+                          className={`p-2.5 rounded-xl border text-left flex items-start gap-2.5 transition-all active:scale-95 ${
+                            isCurrent
+                              ? `${opt.activeColor} shadow-md scale-[1.02] ring-2 ring-offset-1`
+                              : `${opt.idleColor} shadow-sm`
+                          }`}
+                        >
+                          <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${isCurrent ? 'bg-white/20' : 'bg-white shadow-xs'}`}>
+                            <IconComp size={16} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-black leading-tight flex items-center gap-1">
+                              {opt.label}
+                              {isCurrent && <span className="text-[9px] px-1 py-0.2 bg-white/30 rounded">ปัจจุบัน</span>}
+                            </div>
+                            <div className={`text-[10px] truncate mt-0.5 ${isCurrent ? 'text-white/80' : 'text-gray-500'}`}>
+                              {opt.sub}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-              <button onClick={() => setBookingTicket(null)} className="w-full py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-bold text-gray-700 transition-colors">ปิดหน้าต่าง</button>
-           </div>
-        </div>
-      )}
+
+              {/* Bottom Actions */}
+              <div className="pt-3 border-t border-gray-100 mt-3 flex items-center justify-between gap-2">
+                <button
+                  onClick={() => {
+                    setPrintingJobSlipBooking(bookingTicket);
+                    setBookingTicket(null);
+                  }}
+                  className="px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 border border-indigo-200"
+                >
+                  <Printer size={14} /> พิมพ์ใบงาน
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const bId = bookingTicket.id;
+                      setBookingTicket(null);
+                      setActionConfirmModal({
+                        isOpen: true,
+                        title: 'ลบนัดหมาย',
+                        message: 'แน่ใจหรือไม่ที่จะลบรายการนัดหมายนี้?',
+                        action: () => executeDeleteBooking(bId),
+                        confirmText: 'ลบ',
+                        confirmColor: 'bg-red-600 hover:bg-red-700'
+                      });
+                    }}
+                    className="px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 border border-red-200"
+                  >
+                    <Trash2 size={14} /> ลบ
+                  </button>
+                  <button
+                    onClick={() => setBookingTicket(null)}
+                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-colors"
+                  >
+                    ปิด
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* QR Code Ticket Modal for Orders */}
       {orderTicket && (

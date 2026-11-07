@@ -9,7 +9,8 @@ import BookingCountdown from './BookingCountdown';
 export default function CalendarBookingDashboard({ 
     bookings = [], 
     storeHolidays = [],
-    branches = []
+    branches = [],
+    onSelectBooking
 }) {
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [selectedDate, setSelectedDate] = useState(null);
@@ -285,7 +286,12 @@ export default function CalendarBookingDashboard({
                                 ) : (
                                     <div className="space-y-3">
                                         {selectedDayBookings.map(b => (
-                                            <div key={b.id} className="p-4 border border-slate-200 rounded-2xl bg-white flex justify-between items-center shadow-sm">
+                                            <div 
+                                                key={b.id} 
+                                                onClick={() => onSelectBooking && onSelectBooking(b)} 
+                                                className="p-4 border border-slate-200 rounded-2xl bg-white flex justify-between items-center shadow-sm cursor-pointer hover:border-indigo-400 hover:shadow-md transition-all group"
+                                                title="คลิกเพื่อจัดการคิวนัดหมาย & ปรับสถานะ"
+                                            >
                                                 <div>
                                                     <div className="font-black text-slate-800 text-lg">{b.time} น.</div>
                                                     <div className="font-bold text-slate-600 text-sm flex items-center gap-2 mt-1">

@@ -30,7 +30,7 @@ export default function FollowUpPromptModal({ isOpen, onClose, customer, onCompl
         cleanPhone: (customer.phone || '').replace(/\D/g, ''),
         service: 'Follow-up (ติดตามผล)',
         branch: globalBranch || 'สำนักงานใหญ่',
-        status: 'รอการยืนยัน',
+        status: 'ยืนยันแล้ว',
         isFollowUp: true,
         source: 'Auto-FollowUp',
         createdAt: serverTimestamp()
