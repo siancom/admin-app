@@ -3,41 +3,51 @@ import { Bed, User, Clock, CheckCircle, X, Phone, Activity, FileText, QrCode } f
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from '../config/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
+import { getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
+import { getSafeDateTime } from '../utils/dateUtils';
 
-export default function RoomManagementBoard({ bookings, orders = [], globalBranch, isOpen, onClose, onRetrieveParkedOrder }) {
+export default function RoomManagementBoard({ bookings = [], orders = [], globalBranch, isOpen, onClose, onRetrieveParkedOrder }) {
+  const [expandedBed, setExpandedBed] = useState(null);
+  const [printQrBed, setPrintQrBed] = useState(null);
+
   if (!isOpen) return null;
 
   // สมมติว่าคลินิกมี 4 เตียงหลัก (สามารถปรับเพิ่มลดได้ตามต้องการ)
   const totalBeds = 4;
-  
-  const [expandedBed, setExpandedBed] = useState(null);
-  const [printQrBed, setPrintQrBed] = useState(null);
-  
-  // กรองเฉพาะคิวของสาขานี้ และวันที่ปัจจุบัน
-  const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  
-  const activeBookings = bookings.filter(b => 
-    (b.date === today || b.date.replace(/\//g, '-') === today.replace(/\//g, '-')) &&
-    (!globalBranch || b.branch === globalBranch || b.branch === 'สำนักงานใหญ่') &&
-    b.status === 'กำลังใช้บริการ'
-  );
 
-  const parkedOrders = orders
-    .filter(o => 
-      o.status === 'รอชำระเงิน' && 
+  // กรองเฉพาะคิวของสาขานี้ และวันที่ปัจจุบัน
+  const todayIso = getLocalYYYYMMDD();
+  const normGlobalBranch = normalizeBranchName(globalBranch);
+
+  const activeBookings = (bookings || []).filter(b => {
+    if (!b || b.status !== 'กำลังใช้บริการ') return false;
+    if (normGlobalBranch && normalizeBranchName(b.branch) !== normGlobalBranch) return false;
+    const safeDt = getSafeDateTime(b);
+    if (safeDt) return safeDt.startsWith(todayIso);
+    if (typeof b.date === 'string' && b.date.trim()) {
+      return getLocalYYYYMMDD(b.date) === todayIso;
+    }
+    return false;
+  });
+
+  const parkedOrders = (orders || [])
+    .filter(o =>
+      o &&
+      o.status === 'รอชำระเงิน' &&
       o.source === 'POS_Parked' &&
-      (!globalBranch || o.branch === globalBranch || o.branch === 'สำนักงานใหญ่') &&
-      (new Date(o.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) === today || 
-       new Date(o.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-') === today.replace(/\//g, '-'))
+      (!normGlobalBranch || normalizeBranchName(o.branch) === normGlobalBranch) &&
+      getLocalYYYYMMDD(o.createdAt) === todayIso
     )
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
   const handleFreeBed = async (bookingId) => {
     try {
-      // เปลี่ยนสถานะคิวเป็นรอชำระเงิน หรือ เสร็จสิ้น (เพื่อให้เตียงว่าง)
+      // เปลี่ยนสถานะคิวเป็นเสร็จสิ้น (เพื่อให้เตียงว่างและไม่ถูกรีเซ็ตเป็นรอการยืนยัน)
       const bookingRef = doc(db, 'bookings', bookingId);
       await updateDoc(bookingRef, {
-        status: 'รอชำระเงิน',
+        status: 'เสร็จสิ้น',
+        "สถานะ": 'เสร็จสิ้น',
+        serviceEndTime: new Date().toISOString(),
         bedNumber: null
       });
       setExpandedBed(null);

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Sparkles, MapPin, Navigation, Users, Crown, Delete, ArrowRight, Loader2, Clock, Banknote, CheckCircle, Zap } from 'lucide-react';
+import { getLocalYYYYMMDD, normalizeBranchName, parseThaiDate } from '../utils/parse';
 
 // 🌟 หน้าล็อกอินแอดมิน IrisCare — เลือกสาขา (GPS ไฮไลต์อัตโนมัติ) + เข้าแบบพนักงาน/เจ้าของร้าน (รหัสผ่าน)
 export default function AdminLoginPage({ branches = [], employees = [], attendance = [], appSettings = {}, initialBranch = null, onStaffEnter, onOwnerEnter, onOpenAttendance, dailySales = [], onQuickEod, flashMessage = null }) {
   const activeBranches = branches.filter(b => !b.isMaintenance);
   const displayBranches = activeBranches.length > 0 ? activeBranches : branches;
-  const empBranchCount = new Set(employees.map(e => String(e.branch || '').replace('สาขา', '').trim()).filter(Boolean)).size;
+  const empBranchCount = new Set(employees.map(e => normalizeBranchName(e.branch)).filter(Boolean)).size;
   const isSingleBranchMode = displayBranches.length <= 1 || empBranchCount <= 1;
 
   const [now, setNow] = useState(new Date());
@@ -70,10 +71,9 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
     if (passcode.length < 4) return;
     setIsSubmitting(true);
     setTimeout(() => {
-      const normalizeBranch = b => String(b || '').replace('สาขา', '').trim();
-      const emp = employees.find(e => normalizeBranch(e.branch) === normalizeBranch(selectedBranch) && String(e.pin || '1234') === passcode);
+      const emp = employees.find(e => normalizeBranchName(e.branch) === normalizeBranchName(selectedBranch) && String(e.pin || '1234') === passcode);
       if (emp) {
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalYYYYMMDD();
         const todayAtt = attendance.find(a => a.employeeId === emp.id && a.date === todayStr && !a.clockOut);
         if (!todayAtt) {
             alert(`คุณ ${emp.name} ยังไม่ได้ลงเวลาเข้างาน\nกรุณากด "ลงเวลาเข้า/ออกงาน" ก่อนเข้าใช้งานระบบครับ`);
@@ -114,10 +114,10 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
   };
 
   // 🌟 ส่งยอดด่วน (EOD) — เช็คว่าสาขานี้ส่งยอดวันนี้แล้วหรือยัง
-  const normBranch = (b) => String(b || '').replace('สาขา', '').trim();
+  const todayIso = getLocalYYYYMMDD(now);
   const todayTh = now.toLocaleDateString('th-TH');
   const todayEodRecords = selectedBranch
-    ? dailySales.filter(d => d.date === todayTh && normBranch(d.branch) === normBranch(selectedBranch))
+    ? dailySales.filter(d => (d.date === todayIso || d.date === todayTh || getLocalYYYYMMDD(parseThaiDate(d.date)) === todayIso) && normalizeBranchName(d.branch) === normalizeBranchName(selectedBranch))
     : [];
   const eodDoneToday = todayEodRecords.length > 0;
   const lastEodRecord = [...todayEodRecords].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0];
@@ -135,7 +135,7 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
     if (passcode.length < 4) return;
     setIsSubmitting(true);
     setTimeout(() => {
-      const emp = employees.find(e => normBranch(e.branch) === normBranch(selectedBranch) && String(e.pin || '1234') === passcode);
+      const emp = employees.find(e => normalizeBranchName(e.branch) === normalizeBranchName(selectedBranch) && String(e.pin || '1234') === passcode);
       if (emp && onQuickEod) {
         onQuickEod(selectedBranch, emp);
         setMode('main');
@@ -235,8 +235,8 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
                   <div className="mb-2">
                     <p className="text-[11px] font-bold text-gray-500 mb-2 flex items-center"><Users size={12} className="mr-1"/> พนักงานสาขา {selectedBranch}</p>
                     <div className="flex overflow-x-auto gap-3 pb-2 snap-x" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-                       {employees.filter(e => String(e.branch || '').replace('สาขา', '').trim() === String(selectedBranch || '').replace('สาขา', '').trim()).map(emp => {
-                          const todayStr = new Date().toISOString().split('T')[0];
+                       {employees.filter(e => normalizeBranchName(e.branch) === normalizeBranchName(selectedBranch)).map(emp => {
+                          const todayStr = getLocalYYYYMMDD(now);
                           const todayAtt = attendance.find(a => a.employeeId === emp.id && a.date === todayStr && !a.clockOut);
                           const isClockedIn = !!todayAtt;
 
@@ -261,7 +261,7 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
                           </div>
                           );
                        })}
-                       {employees.filter(e => String(e.branch || '').replace('สาขา', '').trim() === String(selectedBranch || '').replace('สาขา', '').trim()).length === 0 && (
+                       {employees.filter(e => normalizeBranchName(e.branch) === normalizeBranchName(selectedBranch)).length === 0 && (
                           <div className="w-full py-4 text-center text-[11px] font-bold text-gray-400 border border-dashed border-gray-200 rounded-2xl">
                              ไม่พบรายชื่อพนักงาน
                           </div>

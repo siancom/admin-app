@@ -2,8 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { Users, Clock, DollarSign, Plus, Trash2, Edit, UserCheck, UserMinus, Calendar, Printer, FileText, CheckCircle, History, Wallet, XCircle, ShoppingCart, Briefcase, Download, ExternalLink, User, LogIn, LogOut } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
-import { parseNumber } from '../utils/parse';
+import { parseNumber, getLocalYYYYMMDD, normalizeBranchName, parseThaiDate } from '../utils/parse';
 import { getFuzzyKey } from '../utils/fuzzy';
+import { calculateEmployeeMonthlyPayroll } from '../utils/payrollUtils';
 import { toPng } from 'html-to-image';
 import PayslipModal from './PayslipModal';
 import EmployeePortal from './EmployeePortal';
@@ -17,16 +18,16 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
   // Employee Management State
   const [isEditingEmployee, setIsEditingEmployee] = useState(false);
   const [employeeFormTab, setEmployeeFormTab] = useState('general');
-  const [employeeForm, setEmployeeForm] = useState({ id: null, name: '', phone: '', branch: 'เฉวง', baseSalary: '', commissionRate: '', productCommissionRate: '', foodAllowanceRate: 50, diligenceAllowance: 500, vipProductLimit: 2000, vipUniformAllowance: 1500, vipAnnualLeaveDays: 10, vipBirthdayBonus: 1000, vipProductDiscountRate: 30, weeklyDaysOff: [], employmentStatus: 'probation', employmentStartDate: new Date().toISOString().split('T')[0], probationDays: 119 });
+  const [employeeForm, setEmployeeForm] = useState({ id: null, name: '', phone: '', branch: 'เฉวง', baseSalary: '', commissionRate: '', productCommissionRate: '', foodAllowanceRate: 50, diligenceAllowance: 500, vipProductLimit: 2000, vipUniformAllowance: 1500, vipAnnualLeaveDays: 10, vipBirthdayBonus: 1000, vipProductDiscountRate: 30, weeklyDaysOff: [], employmentStatus: 'probation', employmentStartDate: getLocalYYYYMMDD(), probationDays: 119 });
   // Payroll Filter & Payslip State
-  const [payrollMonth, setPayrollMonth] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
+  const [payrollMonth, setPayrollMonth] = useState(getLocalYYYYMMDD().substring(0, 7)); // YYYY-MM
   const [selectedPayslipEmployee, setSelectedPayslipEmployee] = useState(null);
   const [selectedContractEmployee, setSelectedContractEmployee] = useState(null);
   const [isPrintingAction, setIsPrintingAction] = useState(false);
 
   // Attendance History State
-  const [attendanceMonth, setAttendanceMonth] = useState(new Date().toISOString().substring(0, 7));
-  const [scheduleMonth, setScheduleMonth] = useState(new Date().toISOString().substring(0, 7));
+  const [attendanceMonth, setAttendanceMonth] = useState(getLocalYYYYMMDD().substring(0, 7));
+  const [scheduleMonth, setScheduleMonth] = useState(getLocalYYYYMMDD().substring(0, 7));
   const [editingAttendance, setEditingAttendance] = useState(null);
   const [historyEmployeeFilter, setHistoryEmployeeFilter] = useState('all');
 
@@ -66,7 +67,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
         diligenceAllowance: parseNumber(employeeForm.diligenceAllowance),
         weeklyDaysOff: employeeForm.weeklyDaysOff || [],
         employmentStatus: employeeForm.employmentStatus || 'probation',
-        employmentStartDate: employeeForm.employmentStartDate || new Date().toISOString().split('T')[0],
+        employmentStartDate: employeeForm.employmentStartDate || getLocalYYYYMMDD(),
         probationDays: parseInt(employeeForm.probationDays) || 119,
         vipProductLimit: parseNumber(employeeForm.vipProductLimit),
         usedVipProductLimit: parseNumber(employeeForm.usedVipProductLimit),
@@ -85,7 +86,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
         await addDoc(getCol('employees'), data);
       }
       setIsEditingEmployee(false);
-      setEmployeeForm({ id: null, name: '', phone: '', branch: 'เฉวง', baseSalary: '', commissionRate: '', productCommissionRate: '', foodAllowanceRate: 50, diligenceAllowance: 500, vipProductLimit: 2000, vipUniformAllowance: 1500, vipAnnualLeaveDays: 10, vipBirthdayBonus: 1000, vipProductDiscountRate: 30, weeklyDaysOff: [], employmentStatus: 'probation', employmentStartDate: new Date().toISOString().split('T')[0], probationDays: 119 });
+      setEmployeeForm({ id: null, name: '', phone: '', branch: 'เฉวง', baseSalary: '', commissionRate: '', productCommissionRate: '', foodAllowanceRate: 50, diligenceAllowance: 500, vipProductLimit: 2000, vipUniformAllowance: 1500, vipAnnualLeaveDays: 10, vipBirthdayBonus: 1000, vipProductDiscountRate: 30, weeklyDaysOff: [], employmentStatus: 'probation', employmentStartDate: getLocalYYYYMMDD(), probationDays: 119 });
       alert('บันทึกข้อมูลพนักงานสำเร็จ');
     } catch (err) {
       console.error(err);
@@ -104,14 +105,21 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
   };
 
   // ==== Handle Attendance ====
+  const toDatetimeLocalValue = (isoStr) => {
+    if (!isoStr) return '';
+    const d = typeof isoStr?.toDate === 'function' ? isoStr.toDate() : new Date(isoStr);
+    if (isNaN(d.getTime())) return '';
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+
   const getTodayAttendance = (empId) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalYYYYMMDD();
     return attendance.find(a => a.employeeId === empId && a.date === today);
   };
 
   const handleClockIn = async (empId, empName) => {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalYYYYMMDD();
       const time = new Date().toISOString();
       await addDoc(getCol('employee_attendance'), {
         employeeId: empId,
@@ -128,9 +136,13 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
 
   const handleClockOut = async (attendanceId, attBranch, empBranch) => {
     const branchToCheck = attBranch || empBranch;
-    if (branchToCheck !== 'เฉวง') {
+    if (normalizeBranchName(branchToCheck) !== 'เฉวง') {
+        const todayIso = getLocalYYYYMMDD();
         const todayStr = new Date().toLocaleDateString('th-TH');
-        const hasSubmittedEOD = dailySales.some(d => d.date === todayStr && d.branch === branchToCheck);
+        const hasSubmittedEOD = dailySales.some(d =>
+          normalizeBranchName(d.branch) === normalizeBranchName(branchToCheck) &&
+          (d.date === todayIso || d.date === todayStr || getLocalYYYYMMDD(parseThaiDate(d.date)) === todayIso)
+        );
         
         if (!hasSubmittedEOD) {
             alert(`ไม่สามารถลงเวลาออกงานได้ กรุณาส่งยอดประจำวัน (EOD) ของสาขา ${branchToCheck} ก่อนครับ`);
@@ -260,7 +272,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
      else if (req.createdAt && req.createdAt.toDate) currentIso = req.createdAt.toDate().toISOString();
      else currentIso = new Date().toISOString();
 
-     const currentDateStr = currentIso.split('T')[0];
+     const currentDateStr = getLocalYYYYMMDD(currentIso) || getLocalYYYYMMDD();
      const newDate = window.prompt('ระบุวันที่ส่งคำร้องใหม่ (YYYY-MM-DD):', currentDateStr);
      
      if (!newDate) return;
@@ -275,7 +287,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
         let colName = '';
         if (req.reqType === 'leave') colName = 'employee_leaves';
         else if (req.reqType === 'advance') colName = 'advance_payments';
-        else if (req.reqType === 'supplies') colName = 'supplies_requisitions';
+        else if (req.reqType === 'supplies') colName = 'employee_requisitions';
 
         if (colName) {
            const oldTime = currentIso.includes('T') ? currentIso.split('T')[1] : '12:00:00.000Z';
@@ -290,7 +302,29 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
 
   const handleUpdateRequisitionStatus = async (id, newStatus) => {
       try {
-          await updateDoc(doc(db, 'supplies_requisitions', id), { status: newStatus, updatedAt: new Date().toISOString() });
+          const req = (requisitions || []).find(r => r.id === id);
+          const wasApproved = req && (req.status === 'อนุมัติแล้ว' || req.status === 'approved' || req.status === 'อนุมัติ');
+          const nowIso = new Date().toISOString();
+          await updateDoc(doc(db, 'employee_requisitions', id), { status: newStatus, updatedAt: nowIso });
+
+          if (!wasApproved && (newStatus === 'อนุมัติแล้ว' || newStatus === 'approved' || newStatus === 'อนุมัติ') && req?.employeeId) {
+              const emp = employees.find(e => e.id === req.employeeId);
+              const amt = parseNumber(req.amount ?? req.quantity);
+              if (amt > 0) {
+                  const itemText = String(req.itemName || '');
+                  if (req.benefitType === 'product_limit' || itemText.includes('เบิกวงเงินผลิตภัณฑ์')) {
+                      await updateDoc(doc(db, 'employees', req.employeeId), {
+                          usedVipProductLimit: parseNumber(emp?.usedVipProductLimit) + amt,
+                          updatedAt: nowIso
+                      });
+                  } else if (req.benefitType === 'uniform_allowance' || itemText.includes('เบิกค่าชุดยูนิฟอร์ม')) {
+                      await updateDoc(doc(db, 'employees', req.employeeId), {
+                          usedVipUniformAllowance: parseNumber(emp?.usedVipUniformAllowance) + amt,
+                          updatedAt: nowIso
+                      });
+                  }
+              }
+          }
       } catch(err) {
           alert('เกิดข้อผิดพลาด: ' + err.message);
       }
@@ -307,6 +341,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
   const handleToggleCustomLeave = async (emp, dateStr, existingLeave) => {
       try {
           if (existingLeave) {
+              if (!window.confirm(`ต้องการยกเลิกวันลา (${existingLeave.leaveType || 'หยุดพิเศษ'}) ของ ${emp.name} วันที่ ${dateStr} ใช่หรือไม่?`)) return;
               await deleteDoc(doc(db, 'employee_leaves', existingLeave.id));
           } else {
               const data = {
@@ -328,133 +363,16 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
   };
 
   // ==== Handle Payroll ====
-  const isInPayrollMonth = (item, monthPrefix) => {
-      if (!item) return false;
-      if (item.createdAt && item.createdAt.includes('T')) return item.createdAt.startsWith(monthPrefix);
-      
-      const dStr1 = String(item.date || '');
-      const dStr2 = String(item.วันที่ || '');
-      
-      if (dStr1.startsWith(monthPrefix) || dStr2.startsWith(monthPrefix)) return true;
-    
-      for (const dStr of [dStr1, dStr2]) {
-          if (dStr && dStr.includes('/')) {
-              const parts = dStr.split('/');
-              if (parts.length === 3) {
-                  let year = parseInt(parts[2], 10);
-                  if (year > 2500) year -= 543;
-                  if (`${year}-${parts[1].padStart(2, '0')}` === monthPrefix) return true;
-              }
-          }
-      }
-      return false;
-  };
-
-  const getPayrollData = () => {
-    // histories has the service records.
-    // Filter histories by month
-    const monthHistories = histories.filter(h => isInPayrollMonth(h, payrollMonth));
-
-    return filteredEmployees.map(emp => {
-      // Find commissions for this employee in this month
-      let totalCommission = 0;
-      let serviceCount = 0;
-      monthHistories.forEach(h => {
-          const sName = String(getFuzzyKey(h, ["ชื่อเจ้าหน้าที่", "ชื่อพนักงาน", "staffName", "ผู้ให้บริการ", "เจ้าหน้าที่", "พนักงาน", "paymentStaff"]) || '');
-          if (!sName) return;
-          
-          const staffNames = sName.split(/[,/]|และ|กับ/).map(s => s.trim()).filter(s => s);
-          if (staffNames.includes(emp.name)) {
-             const price = parseNumber(getFuzzyKey(h, ["ราคา", "price", "จำนวนเงิน", "ยอดเงิน"]) || 0);
-             const typeStr = String(getFuzzyKey(h, ["ประเภท"]) || '');
-             const shareCount = staffNames.length;
-             if (typeStr.includes('ซื้อสินค้า')) {
-                 totalCommission += (price * (parseFloat(emp.productCommissionRate) || 0) / 100) / shareCount;
-             } else {
-                 totalCommission += (price * (parseFloat(emp.commissionRate) || 0) / 100) / shareCount;
-             }
-             serviceCount++;
-          }
-      });
-
-      const empServiceLogs = (serviceLogs || []).filter(s => s.employeeId === emp.id && isInPayrollMonth(s, payrollMonth));
-      let totalServiceFees = 0;
-      empServiceLogs.forEach(s => {
-          const typeName = String(s.type || '').toLowerCase();
-          let rawAmount = parseNumber(s.amount);
-          const isPOS = typeof s.note === 'string' && s.note.startsWith('POS:');
-          
-          if (isPOS && (typeName.includes('จี้ไฝ') || typeName.includes('mole')) && rawAmount < 100) rawAmount = rawAmount * 10;
-
-          if (typeName.includes('นวดหน้า') || typeName.includes('active skin') || typeName.includes('ipl รักแร้') || typeName.includes('ทรีทเม้นท์')) {
-              totalServiceFees += 50;
-          } else if (typeName.includes('กดสิว')) {
-              totalServiceFees += 30;
-          } else if (typeName.includes('สปา') || typeName.includes('ขัดตัว')) {
-              totalServiceFees += 100;
-          } else if (typeName.includes('จี้ไฝ') || typeName.includes('กระ') || typeName.includes('ติ่งเนื้อ') || typeName.includes('mole')) {
-              totalServiceFees += rawAmount < 1000 ? (rawAmount * 0.10) : (rawAmount * 0.20);
-          } else {
-              totalServiceFees += isPOS ? (rawAmount * 0.10) : rawAmount;
-          }
-      });
-      
-      const empAdvances = (advancePayments || []).filter(a => a.employeeId === emp.id && (a.status === 'อนุมัติ' || a.status === 'อนุมัติแล้ว') && isInPayrollMonth(a, payrollMonth));
-      let totalAdvances = 0;
-      empAdvances.forEach(a => totalAdvances += parseNumber(a.amount));
-
-      const empAttendance = (attendance || []).filter(a => a.employeeId === emp.id && isInPayrollMonth(a, payrollMonth));
-      const daysWorked = new Set(empAttendance.map(a => a.date)).size;
-      const foodRate = emp.foodAllowanceRate !== undefined ? Number(emp.foodAllowanceRate) : 50;
-      const totalFoodAllowance = daysWorked * foodRate;
-      
-      const diligenceAllowance = emp.diligenceAllowance !== undefined ? Number(emp.diligenceAllowance) : 500;
-      // In a real system, diligence allowance might be conditional, but for now we'll pass it to the view.
-      // The user can manually adjust it if needed via another system, but we'll include it in total for now.
-
-      const autoBaseSalary = Math.ceil(parseNumber(emp.baseSalary || 0));
-      totalAdvances = Math.ceil(totalAdvances);
-      
-      const autoCommission = Math.ceil(totalCommission);
-      const autoServiceFees = Math.ceil(totalServiceFees);
-
-      const monthOverride = emp.payrollOverrides?.[payrollMonth] || {};
-      const baseSalary = monthOverride.baseSalary !== undefined && monthOverride.baseSalary !== null && monthOverride.baseSalary !== ''
-        ? parseNumber(monthOverride.baseSalary)
-        : autoBaseSalary;
-      const finalCommission = monthOverride.totalCommission !== undefined && monthOverride.totalCommission !== null && monthOverride.totalCommission !== ''
-        ? parseNumber(monthOverride.totalCommission)
-        : autoCommission;
-      const finalServiceFees = monthOverride.totalServiceFees !== undefined && monthOverride.totalServiceFees !== null && monthOverride.totalServiceFees !== ''
-        ? parseNumber(monthOverride.totalServiceFees)
-        : autoServiceFees;
-      const finalFoodAllowance = monthOverride.totalFoodAllowance !== undefined && monthOverride.totalFoodAllowance !== null && monthOverride.totalFoodAllowance !== ''
-        ? parseNumber(monthOverride.totalFoodAllowance)
-        : totalFoodAllowance;
-      const finalAdvances = monthOverride.totalAdvances !== undefined && monthOverride.totalAdvances !== null && monthOverride.totalAdvances !== ''
-        ? parseNumber(monthOverride.totalAdvances)
-        : totalAdvances;
-      
-      // Included diligenceAllowance as a standard benefit for now.
-      const totalIncome = baseSalary + finalCommission + finalServiceFees + finalFoodAllowance + diligenceAllowance - finalAdvances;
-
-      return {
-          ...emp,
-          baseSalary,
-          totalCommission: finalCommission,
-          totalServiceFees: finalServiceFees,
-          totalFoodAllowance: finalFoodAllowance,
-          diligenceAllowance,
-          totalAdvances: finalAdvances,
-          totalIncome,
-          daysWorked,
-          serviceCount,
-          serviceLogCount: empServiceLogs.length
-      };
-    });
-  };
-
-  const payrollData = getPayrollData();
+  const payrollData = useMemo(() => {
+    return filteredEmployees.map(emp =>
+      calculateEmployeeMonthlyPayroll(emp, payrollMonth, {
+        histories,
+        serviceLogs,
+        advancePayments,
+        attendance,
+      })
+    );
+  }, [filteredEmployees, payrollMonth, histories, serviceLogs, advancePayments, attendance]);
   const attendanceHistoryData = getAttendanceHistory();
 
   return (
@@ -604,11 +522,11 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                    <form onSubmit={handleUpdateAttendance} className="flex flex-wrap gap-4 items-end">
                       <div>
                          <label className="block text-xs font-bold text-slate-500 mb-1">เวลาเข้างาน</label>
-                         <input type="datetime-local" step="1" required value={editingAttendance.clockIn ? editingAttendance.clockIn.slice(0, 19) : ''} onChange={e => setEditingAttendance({...editingAttendance, clockIn: new Date(e.target.value).toISOString()})} className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                         <input type="datetime-local" required value={toDatetimeLocalValue(editingAttendance.clockIn)} onChange={e => { if (!e.target.value) return; const d = new Date(e.target.value); if (!isNaN(d.getTime())) setEditingAttendance({...editingAttendance, clockIn: d.toISOString()}); }} className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm" />
                       </div>
                       <div>
                          <label className="block text-xs font-bold text-slate-500 mb-1">เวลาออกงาน</label>
-                         <input type="datetime-local" step="1" value={editingAttendance.clockOut ? editingAttendance.clockOut.slice(0, 19) : ''} onChange={e => setEditingAttendance({...editingAttendance, clockOut: e.target.value ? new Date(e.target.value).toISOString() : null})} className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                         <input type="datetime-local" value={toDatetimeLocalValue(editingAttendance.clockOut)} onChange={e => { if (!e.target.value) { setEditingAttendance({...editingAttendance, clockOut: null}); return; } const d = new Date(e.target.value); if (!isNaN(d.getTime())) setEditingAttendance({...editingAttendance, clockOut: d.toISOString()}); }} className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm" />
                       </div>
                       <button type="submit" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-sm transition-colors">บันทึก</button>
                       <button type="button" onClick={() => setEditingAttendance(null)} className="px-4 py-2 bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 rounded-lg text-sm font-bold transition-colors">ยกเลิก</button>
@@ -804,7 +722,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                         </tr>
                       ))}
                       {leaves.length === 0 && (
-                        <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลการลางาน</td></tr>
+                        <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลการลางาน</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -1179,7 +1097,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
              </div>
 
              {/* Real-time Monthly Summary Banner */}
-             <div className="bg-slate-50/50 border-b border-slate-200 p-6 grid grid-cols-2 md:grid-cols-5 gap-4">
+             <div className="bg-slate-50/50 border-b border-slate-200 p-6 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
                     <span className="text-slate-500 text-xs font-bold mb-1">รวมเงินเดือนพื้นฐาน</span>
                     <span className="text-xl font-black text-slate-800">฿{payrollData.reduce((sum, emp) => sum + (emp.baseSalary || 0), 0).toLocaleString()}</span>
@@ -1187,6 +1105,10 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
                     <span className="text-slate-500 text-xs font-bold mb-1">รวมค่าอาหาร</span>
                     <span className="text-xl font-black text-orange-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalFoodAllowance || 0), 0).toLocaleString()}</span>
+                </div>
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
+                    <span className="text-slate-500 text-xs font-bold mb-1">รวมค่ามือ</span>
+                    <span className="text-xl font-black text-pink-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalServiceFees || 0), 0).toLocaleString()}</span>
                 </div>
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
                     <span className="text-slate-500 text-xs font-bold mb-1">รวมค่าคอมมิชชั่น</span>
@@ -1211,6 +1133,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                      <th className="px-6 py-4 text-right">เงินเดือนพื้นฐาน</th>
                      <th className="px-6 py-4 text-right">ค่าอาหาร</th>
                      <th className="px-6 py-4 text-right">เบี้ยขยัน</th>
+                     <th className="px-6 py-4 text-right">ค่ามือ</th>
                      <th className="px-6 py-4 text-right">ค่าคอมมิชชั่น</th>
                      <th className="px-6 py-4 text-right">เบิกเงินล่วงหน้า</th>
                      <th className="px-6 py-4 text-right">ให้บริการ (ครั้ง)</th>
@@ -1226,10 +1149,11 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                        <td className="px-6 py-4 text-right font-medium">฿{(emp.baseSalary || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right font-medium text-orange-600">฿{(emp.totalFoodAllowance || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right font-medium text-teal-600">฿{(emp.diligenceAllowance || 0).toLocaleString()}</td>
-                       <td className="px-6 py-4 text-right font-medium text-indigo-600">฿{emp.totalCommission.toLocaleString()}</td>
+                       <td className="px-6 py-4 text-right font-medium text-pink-600">฿{(emp.totalServiceFees || 0).toLocaleString()}</td>
+                       <td className="px-6 py-4 text-right font-medium text-indigo-600">฿{(emp.totalCommission || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right font-medium text-rose-600">฿{(emp.totalAdvances || 0).toLocaleString()}</td>
-                       <td className="px-6 py-4 text-right text-slate-500">{emp.serviceCount}</td>
-                       <td className="px-6 py-4 text-right font-black text-emerald-600 text-base">฿{emp.totalIncome.toLocaleString()}</td>
+                       <td className="px-6 py-4 text-right text-slate-500">{emp.serviceCount + (emp.serviceLogCount || 0)}</td>
+                       <td className="px-6 py-4 text-right font-black text-emerald-600 text-base">฿{(emp.totalIncome || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-center">
                           <button 
                              onClick={() => setSelectedPayslipEmployee(emp)} 
@@ -1242,7 +1166,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                      </tr>
                    ))}
                    {payrollData.length === 0 && (
-                     <tr><td colSpan={7} className="px-6 py-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลพนักงาน</td></tr>
+                     <tr><td colSpan={11} className="px-6 py-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลพนักงาน</td></tr>
                    )}
                  </tbody>
                </table>
@@ -1411,7 +1335,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                     
                     <div className="pt-4 flex gap-2">
                        {isEditingEmployee && (
-                          <button type="button" onClick={() => { setIsEditingEmployee(false); setEmployeeForm({ id: null, name: '', phone: '', branch: 'เฉวง', baseSalary: '', commissionRate: '', productCommissionRate: '', weeklyDaysOff: [], employmentStatus: 'probation', employmentStartDate: new Date().toISOString().split('T')[0], probationDays: 119 }); }} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors">
+                          <button type="button" onClick={() => { setIsEditingEmployee(false); setEmployeeForm({ id: null, name: '', phone: '', branch: 'เฉวง', baseSalary: '', commissionRate: '', productCommissionRate: '', foodAllowanceRate: 50, diligenceAllowance: 500, vipProductLimit: 2000, vipUniformAllowance: 1500, vipAnnualLeaveDays: 10, vipBirthdayBonus: 1000, vipProductDiscountRate: 30, weeklyDaysOff: [], employmentStatus: 'probation', employmentStartDate: getLocalYYYYMMDD(), probationDays: 119 }); }} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors">
                             ยกเลิก
                           </button>
                        )}
@@ -1652,7 +1576,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                                    const isWeeklyOff = emp.weeklyDaysOff?.includes(dayOfWeek);
                                    
                                    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-                                   const customLeave = leaves.find(l => l.employeeId === emp.id && l.startDate <= dateStr && l.endDate >= dateStr);
+                                   const customLeave = leaves.find(l => l.employeeId === emp.id && l.status !== 'ไม่อนุมัติ' && l.status !== 'rejected' && l.startDate <= dateStr && l.endDate >= dateStr);
                                    
                                    const isOff = isWeeklyOff || !!customLeave;
                                    
@@ -1710,6 +1634,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
            attendance={attendance}
            leaves={leaves}
            advancePayments={advancePayments}
+           requisitions={requisitions}
            histories={histories}
            branches={branches}
            dailySales={dailySales}
@@ -1720,6 +1645,17 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
            onClockIn={(emp) => handleClockIn(emp.id, emp.name)}
            onClockOut={(att) => handleClockOut(att.id, att.branch, selectedEmployeeForPortal.branch)}
            onGoToPOS={onGoToPOS}
+           onChangePin={async (newPin) => {
+             try {
+               await updateDoc(doc(db, 'employees', selectedEmployeeForPortal.id), {
+                 pin: String(newPin).trim(),
+                 updatedAt: new Date().toISOString()
+               });
+               return { ok: true };
+             } catch (err) {
+               return { ok: false, error: err.message };
+             }
+           }}
            isAdmin={true}
            onDeleteServiceLog={handleDeleteServiceLog}
          />

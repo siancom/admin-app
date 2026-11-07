@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Gift, Ticket, Save, Plus, Edit2, Trash2, X, AlertCircle } from 'lucide-react';
-import { addDoc, updateDoc, deleteDoc, onSnapshot, getDocs, doc, setDoc } from 'firebase/firestore';
+import { addDoc, updateDoc, deleteDoc, onSnapshot, doc, setDoc } from 'firebase/firestore';
 import { getCol, getDocRef } from '../config/firebase';
+import { getFuzzyKey } from '../utils/fuzzy';
 
-export default function GamificationManager({ showToast, customers }) {
-  const [activeTab, setActiveTab] = useState('lucky_spin'); // lucky_spin, golden_ticket
+export default function GamificationManager({ showToast, customers = [] }) {
+  const [activeTab, setActiveTab] = useState('lucky_spin'); // lucky_spin, golden_ticket, redeem_tiers
   
   // Spin Settings
   const [spinSettings, setSpinSettings] = useState({
@@ -120,14 +121,16 @@ export default function GamificationManager({ showToast, customers }) {
   };
 
   // Golden Tickets
-  const allGoldenTickets = customers.flatMap(c => 
-    (c.goldenTickets || []).map(t => ({ ticket: t, customerName: c.name, customerTel: c.tel }))
-  );
+  const allGoldenTickets = (customers || []).flatMap(c => {
+    const customerName = c.computedName || getFuzzyKey(c, ['ชื่อ', 'ชื่อลูกค้า', 'name', 'customerName', 'col_1']) || 'ไม่ระบุชื่อ';
+    const customerTel = c.computedPhone || getFuzzyKey(c, ['เบอร์โทร', 'tel', 'phone', 'cleanPhone', 'col_3']) || '-';
+    return (c.goldenTickets || []).map(t => ({ ticket: t, customerName, customerTel }));
+  });
 
   const [randomWinner, setRandomWinner] = useState(null);
   const [isSpinning, setIsSpinning] = useState(false);
 
-  const pickRandomWinner = () => {
+  const handleDrawLuckyDraw = () => {
     if (allGoldenTickets.length === 0) return showToast('ยังไม่มีตั๋วชิงโชคในระบบ');
     setIsSpinning(true);
     setRandomWinner(null);
@@ -145,6 +148,7 @@ export default function GamificationManager({ showToast, customers }) {
       }
     }, 100);
   };
+  const pickRandomWinner = handleDrawLuckyDraw;
 
   return (
     <div className="p-4 sm:p-6 min-h-screen bg-slate-50">
@@ -153,9 +157,10 @@ export default function GamificationManager({ showToast, customers }) {
           <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
             <Gift className="text-purple-600" /> จัดการกิจกรรมแจกรางวัล
           </h1>
-          <div className="flex bg-white rounded-xl shadow-sm p-1 border border-slate-200">
+          <div className="flex flex-wrap bg-white rounded-xl shadow-sm p-1 border border-slate-200">
             <button onClick={() => setActiveTab('lucky_spin')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'lucky_spin' ? 'bg-purple-100 text-purple-700' : 'text-slate-500 hover:bg-slate-50'}`}>วงล้อเสี่ยงโชค (Lucky Spin)</button>
             <button onClick={() => setActiveTab('golden_ticket')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'golden_ticket' ? 'bg-amber-100 text-amber-700' : 'text-slate-500 hover:bg-slate-50'}`}>ตั๋วทองชิงโชค (Golden Ticket)</button>
+            <button onClick={() => setActiveTab('redeem_tiers')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'redeem_tiers' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}>แลกแต้มรับคูปอง</button>
           </div>
         </div>
 
@@ -275,6 +280,37 @@ export default function GamificationManager({ showToast, customers }) {
           </div>
         )}
 
+        {activeTab === 'redeem_tiers' && (
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-xl font-black text-slate-800 flex items-center"><Ticket size={20} className="mr-2 text-indigo-500"/> เมนูแลกแต้มรับคูปอง</h2>
+              <button onClick={addTier} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all">
+                <Plus size={14}/> เพิ่มรายการ
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 mb-4">รายการที่ลูกค้าเห็นในแท็บแลกรางวัล (แลกแต้มรับคูปอง) — แก้แล้วลูกค้าเห็นทันทีไม่ต้องอัพเดทแอป · ปิดใช้งานรายการไหนให้กดสวิตช์</p>
+            <div className="space-y-2.5">
+              {redeemTiers.length === 0 && <p className="text-xs text-slate-300 text-center py-6">ยังไม่มีรายการ — กด "เพิ่มรายการ"</p>}
+              {redeemTiers.map((t, idx) => (
+                <div key={t.id || idx} className="flex flex-wrap items-center gap-2 bg-slate-50 border border-slate-100 rounded-2xl p-3">
+                  <input type="text" value={t.emoji || ''} onChange={(e) => setTier(idx, 'emoji', e.target.value)} className="w-12 text-center text-xl bg-white border border-slate-200 rounded-xl py-2" title="อีโมจิ"/>
+                  <input type="number" value={t.points} onChange={(e) => setTier(idx, 'points', e.target.value)} className="w-20 bg-white border border-slate-200 rounded-xl px-2 py-2 text-sm font-bold text-slate-700" title="แต้มที่ใช้แลก"/>
+                  <span className="text-[10px] font-black text-slate-400">แต้ม</span>
+                  <input type="text" value={t.name || ''} onChange={(e) => setTier(idx, 'name', e.target.value)} className="flex-1 min-w-[140px] bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700" placeholder="ชื่อรายการ เช่น คูปองส่วนลด ฿100"/>
+                  <input type="text" value={t.desc || ''} onChange={(e) => setTier(idx, 'desc', e.target.value)} className="flex-1 min-w-[140px] bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-500" placeholder="เงื่อนไข เช่น ขั้นต่ำ ฿300"/>
+                  <button onClick={() => setTier(idx, 'isActive', t.isActive === false)} className={`px-3 py-2 rounded-xl text-[10px] font-black shrink-0 transition-all ${t.isActive === false ? 'bg-gray-200 text-gray-400' : 'bg-emerald-500 text-white shadow-sm'}`}>
+                    {t.isActive === false ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
+                  </button>
+                  <button onClick={() => removeTier(idx)} className="p-2 text-slate-300 hover:text-rose-500 rounded-lg transition-colors shrink-0" title="ลบรายการ"><Trash2 size={16}/></button>
+                </div>
+              ))}
+            </div>
+            <button onClick={saveTiers} className="mt-4 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm flex items-center gap-2 shadow-md active:scale-95 transition-all">
+              <Save size={16}/> บันทึกเมนูแลกแต้ม
+            </button>
+          </div>
+        )}
+
       </div>
 
       {/* Prize Modal */}
@@ -323,35 +359,6 @@ export default function GamificationManager({ showToast, customers }) {
           </div>
         </div>
       )}
-      {/* 🎯 เมนูแลกแต้มรับคูปอง — ควบคุมแคตตาล็อกในแอปลูกค้า */}
-      <div className="mt-8 bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="text-xl font-black text-slate-800 flex items-center"><Ticket size={20} className="mr-2 text-indigo-500"/> เมนูแลกแต้มรับคูปอง</h2>
-          <button onClick={addTier} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all">
-            <Plus size={14}/> เพิ่มรายการ
-          </button>
-        </div>
-        <p className="text-xs text-slate-400 mb-4">รายการที่ลูกค้าเห็นในแท็บแลกรางวัล (แลกแต้มรับคูปอง) — แก้แล้วลูกค้าเห็นทันทีไม่ต้องอัพเดทแอป · ปิดใช้งานรายการไหนให้กดสวิตช์</p>
-        <div className="space-y-2.5">
-          {redeemTiers.length === 0 && <p className="text-xs text-slate-300 text-center py-6">ยังไม่มีรายการ — กด "เพิ่มรายการ"</p>}
-          {redeemTiers.map((t, idx) => (
-            <div key={t.id || idx} className="flex flex-wrap items-center gap-2 bg-slate-50 border border-slate-100 rounded-2xl p-3">
-              <input type="text" value={t.emoji || ''} onChange={(e) => setTier(idx, 'emoji', e.target.value)} className="w-12 text-center text-xl bg-white border border-slate-200 rounded-xl py-2" title="อีโมจิ"/>
-              <input type="number" value={t.points} onChange={(e) => setTier(idx, 'points', e.target.value)} className="w-20 bg-white border border-slate-200 rounded-xl px-2 py-2 text-sm font-bold text-slate-700" title="แต้มที่ใช้แลก"/>
-              <span className="text-[10px] font-black text-slate-400">แต้ม</span>
-              <input type="text" value={t.name || ''} onChange={(e) => setTier(idx, 'name', e.target.value)} className="flex-1 min-w-[140px] bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700" placeholder="ชื่อรายการ เช่น คูปองส่วนลด ฿100"/>
-              <input type="text" value={t.desc || ''} onChange={(e) => setTier(idx, 'desc', e.target.value)} className="flex-1 min-w-[140px] bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-500" placeholder="เงื่อนไข เช่น ขั้นต่ำ ฿300"/>
-              <button onClick={() => setTier(idx, 'isActive', t.isActive === false)} className={`px-3 py-2 rounded-xl text-[10px] font-black shrink-0 transition-all ${t.isActive === false ? 'bg-gray-200 text-gray-400' : 'bg-emerald-500 text-white shadow-sm'}`}>
-                {t.isActive === false ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}
-              </button>
-              <button onClick={() => removeTier(idx)} className="p-2 text-slate-300 hover:text-rose-500 rounded-lg transition-colors shrink-0" title="ลบรายการ"><Trash2 size={16}/></button>
-            </div>
-          ))}
-        </div>
-        <button onClick={saveTiers} className="mt-4 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm flex items-center gap-2 shadow-md active:scale-95 transition-all">
-          <Save size={16}/> บันทึกเมนูแลกแต้ม
-        </button>
-      </div>
     </div>
   );
 }

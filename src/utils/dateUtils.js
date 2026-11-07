@@ -9,16 +9,22 @@ import { parseThaiDate, getLocalYYYYMMDD } from './parse';
  * Get safe date-time string for bookings
  */
 export function getSafeDateTime(b) {
+  if (!b) return null;
+  const dateVal = getFuzzyKey(b, ["วันที่", "date", "bookingDate"]);
+  const timeVal = getFuzzyKey(b, ["เวลา", "time", "bookingTime"]);
+
   if (b.dateTime && typeof b.dateTime === 'string' && b.dateTime.includes('T')) {
     const d = new Date(b.dateTime);
     if (!isNaN(d.getTime())) {
-      return `${getLocalYYYYMMDD(d)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      // หากมีการเลื่อนวันใน b.date โดยไม่ได้อัปเดต b.dateTime ให้ใช้วันที่จาก b.date เป็นหลัก
+      let dStr = getLocalYYYYMMDD(d);
+      if (dateVal) {
+        const explicitDate = parseThaiDate(dateVal);
+        if (explicitDate) dStr = getLocalYYYYMMDD(explicitDate);
+      }
+      return `${dStr}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     }
-    return b.dateTime;
   }
-
-  const dateVal = getFuzzyKey(b, ["วันที่", "date", "bookingDate"]);
-  const timeVal = getFuzzyKey(b, ["เวลา", "time", "bookingTime"]);
 
   if (dateVal) {
     const parsedDate = parseThaiDate(dateVal);
@@ -26,11 +32,21 @@ export function getSafeDateTime(b) {
       const dStr = getLocalYYYYMMDD(parsedDate);
       let tStr = '00:00';
       if (timeVal) {
-        const cleanTime = String(timeVal).replace(new RegExp('[^0-9:]', 'g'), '');
-        if (cleanTime.includes(':')) {
-          tStr = cleanTime.substring(0, 5);
-        } else if (cleanTime.length >= 4) {
-          tStr = `${cleanTime.substring(0, 2)}:${cleanTime.substring(2, 4)}`;
+        const normalizedTime = String(timeVal).trim().replace(/\./g, ':');
+        const timeMatch = normalizedTime.match(/(\d{1,2}):(\d{1,2})/);
+        if (timeMatch) {
+          const hh = String(Math.min(23, parseInt(timeMatch[1], 10) || 0)).padStart(2, '0');
+          const mm = String(Math.min(59, parseInt(timeMatch[2], 10) || 0)).padStart(2, '0');
+          tStr = `${hh}:${mm}`;
+        } else {
+          const digits = normalizedTime.replace(/\D/g, '');
+          if (digits.length >= 4) {
+            tStr = `${digits.slice(0, 2).padStart(2, '0')}:${digits.slice(2, 4).padStart(2, '0')}`;
+          } else if (digits.length === 3) {
+            tStr = `0${digits[0]}:${digits.slice(1, 3)}`;
+          } else if (digits.length >= 1 && digits.length <= 2) {
+            tStr = `${digits.padStart(2, '0')}:00`;
+          }
         }
       }
       return `${dStr}T${tStr}`;
@@ -47,8 +63,8 @@ export function getBookingStatus(b) {
   if (!st || st.toLowerCase() === 'pending') return 'รอการยืนยัน';
   if (st.toLowerCase() === 'confirmed') return 'ยืนยันแล้ว';
   if (st.toLowerCase() === 'กำลังใช้บริการ' || st.toLowerCase() === 'in_progress') return 'กำลังใช้บริการ';
-  if (st.toLowerCase() === 'completed') return 'เสร็จสิ้น';
-  if (st.toLowerCase() === 'cancelled' || st.toLowerCase() === 'canceled') return 'ยกเลิก';
+  if (st.toLowerCase() === 'completed' || st === 'รอชำระเงิน') return 'เสร็จสิ้น';
+  if (st.toLowerCase() === 'cancelled' || st.toLowerCase() === 'canceled' || st.includes('ยกเลิก')) return 'ยกเลิก';
 
   if (!['รอการยืนยัน', 'ยืนยันแล้ว', 'กำลังใช้บริการ', 'เสร็จสิ้น', 'ยกเลิก'].includes(st)) {
     return 'รอการยืนยัน';
@@ -76,23 +92,23 @@ export function getOrderStatus(o) {
  * Check if a record (history, service log, attendance, etc) is within a specific YYYY-MM month prefix
  */
 export function isInPayrollMonth(item, monthPrefix) {
-  if (!item) return false;
-  if (item.createdAt && item.createdAt.includes('T')) return item.createdAt.startsWith(monthPrefix);
-  
-  const dStr1 = String(item.date || '');
-  const dStr2 = String(item.วันที่ || '');
-  
-  if (dStr1.startsWith(monthPrefix) || dStr2.startsWith(monthPrefix)) return true;
+  if (!item || !monthPrefix) return false;
 
-  for (const dStr of [dStr1, dStr2]) {
-      if (dStr && dStr.includes('/')) {
-          const parts = dStr.split('/');
-          if (parts.length === 3) {
-              let year = parseInt(parts[2], 10);
-              if (year > 2500) year -= 543;
-              if (`${year}-${parts[1].padStart(2, '0')}` === monthPrefix) return true;
-          }
-      }
+  // 1) ให้ความสำคัญกับวันที่ระบุตรงๆ (date / วันที่) ก่อนเสมอ รองรับรายการย้อนหลัง
+  for (const raw of [item.date, item.วันที่]) {
+    if (!raw) continue;
+    const dStr = String(raw).trim();
+    if (!dStr) continue;
+    if (dStr.startsWith(monthPrefix)) return true;
+    const parsed = parseThaiDate(dStr);
+    if (parsed && getLocalYYYYMMDD(parsed).startsWith(monthPrefix)) return true;
   }
+
+  // 2) Fallback ไปยัง createdAt โดยแปลงเป็นเวลาท้องถิ่นไทย (UTC+7)
+  if (item.createdAt) {
+    const localIso = getLocalYYYYMMDD(item.createdAt);
+    if (localIso && localIso.startsWith(monthPrefix)) return true;
+  }
+
   return false;
 }

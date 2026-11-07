@@ -230,12 +230,23 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
 
     setIsProcessing(skipStockDeduct ? 'skipDeduct' : 'deduct');
     try {
-      const batch = writeBatch(db);
-      const targetBranch = globalBranch || 'สำนักงานใหญ่';
+      let batch = writeBatch(db);
+      let opCount = 0;
+      const commitIfNeeded = async () => {
+        if (opCount >= 400) {
+          await batch.commit();
+          batch = writeBatch(db);
+          opCount = 0;
+        }
+      };
+
+      const targetBranch = globalBranch || 'เฉวง';
+      const pendingStockMap = new Map(); // productId -> updated stock_by_branch object
       let processedCount = 0;
 
       for (const order of parsedOrders) {
-        
+        await commitIfNeeded();
+
         // MATCHED FLOW
         if (order.posMatched && order.posOrderId) {
             const orderRef = doc(getCol('orders'), order.posOrderId);
@@ -244,6 +255,7 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
                 shopeeFees: order.totalFees || 0,
                 shopeeMatchStatus: 'matched',
             });
+            opCount++;
             
             // Log history for matching
             const historyRef = doc(getCol('histories'));
@@ -258,6 +270,7 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
                 "ยอดเงิน": String(order.netReceived),
                 "สาขา": targetBranch
             });
+            opCount++;
             processedCount++;
             continue; // Do not deduct stock or loop items for matched orders!
         }
@@ -269,6 +282,7 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
         for (const item of order.items) {
           // If we are deducting stock, we MUST have a matched product. Otherwise skip.
           if (!skipStockDeduct && !item.matchedProduct) continue;
+          await commitIfNeeded();
           
           orderHasItemsProcessed = true;
           cartItems.push({
@@ -281,13 +295,13 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
           });
           
           if (!skipStockDeduct && item.matchedProduct) {
-            const pRef = doc(db, 'products', item.matchedProduct.id);
-            const currentStockByBranch = item.matchedProduct?.stock_by_branch || {};
+            const pid = item.matchedProduct.id;
+            const currentStockByBranch = pendingStockMap.has(pid)
+              ? pendingStockMap.get(pid)
+              : { ...(item.matchedProduct?.stock_by_branch || {}) };
             const oldStock = Number(currentStockByBranch[targetBranch]) || 0;
             const newStock = Math.max(0, oldStock - item.qty);
-            
-            const newStockByBranch = { ...currentStockByBranch, [targetBranch]: newStock };
-            batch.set(pRef, { stock_by_branch: newStockByBranch }, { merge: true });
+            pendingStockMap.set(pid, { ...currentStockByBranch, [targetBranch]: newStock });
           }
           
           // History log
@@ -307,10 +321,12 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
             "จำนวน": String(item.qty),
             "สาขา": targetBranch
           });
+          opCount++;
         }
         
         // Create an order document if unmatched
         if (orderHasItemsProcessed) {
+           await commitIfNeeded();
            const newOrderRef = doc(getCol('orders'));
            const courseName = cartItems.map(i => `${i.name} x${i.qty}`).join(', ');
            let totalCost = 0;
@@ -339,12 +355,21 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
               totalCost: String(totalCost),
               cartItems: cartItems
            });
+           opCount++;
            processedCount++;
         }
       }
 
+      // Apply accumulated stock updates once per product (preventing same-SKU overwrites)
+      for (const [pid, newStockByBranch] of pendingStockMap.entries()) {
+        await commitIfNeeded();
+        const pRef = doc(db, 'products', pid);
+        batch.set(pRef, { stock_by_branch: newStockByBranch }, { merge: true });
+        opCount++;
+      }
+
       if (processedCount > 0) {
-        await batch.commit();
+        if (opCount > 0) await batch.commit();
         showToast(`บันทึกสำเร็จ ${processedCount} คำสั่งซื้อ!`, 'success');
         onClose();
       } else {

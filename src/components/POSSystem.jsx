@@ -8,7 +8,7 @@ import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, getDocs, query, where, writeBatch, orderBy, limit, collection } from 'firebase/firestore';
 import { getFuzzyKey } from '../utils/fuzzy';
 import imageCompression from 'browser-image-compression';
-import { parseNumber, parseQty, getTotalStock, getBranchStock, getLocalYYYYMMDD } from '../utils/parse';
+import { parseNumber, parseQty, getTotalStock, getBranchStock, getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
 import { getProfilePicData, handleProfileImgError } from '../utils/imageUtils';
 import { getVipDiscountRate, computeFinalPrice, getOwnerDiscountRate, computeOwnerCostPrice } from '../utils/priceUtils';
 import { fetchWithProxy, fetch17Track } from '../utils/wooProxy';
@@ -212,6 +212,9 @@ export default function POSSystem({
   React.useEffect(() => {
     if (posParkedOrderToResume && posParkedOrderToResume.cartItems) {
       setCart(posParkedOrderToResume.cartItems);
+      if (posParkedOrderToResume.discount) {
+        setGlobalDiscount(parseNumber(posParkedOrderToResume.discount));
+      }
       setActiveCustomerAppOrderIds(prev => [...new Set([...prev, posParkedOrderToResume.id])]);
       
       if (posParkedOrderToResume.customerPhone) {
@@ -805,7 +808,7 @@ export default function POSSystem({
       const status = String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '');
       const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '');
       
-      if (hDate === today && !h.isCancelled && status !== 'ยกเลิก' && (!globalBranch || hBranch === globalBranch)) {
+      if (hDate === today && !h.isCancelled && status !== 'ยกเลิก' && (!globalBranch || normalizeBranchName(hBranch) === normalizeBranchName(globalBranch))) {
         const amt = parseNumber(getFuzzyKey(h, ["ยอดเงิน", "ยอดจัดซื้อ", "ยอดสินค้า", "ยอด", "col_19"]));
         if ((type.includes('ซื้อสินค้า') || type.includes('ซื้อคอร์ส')) && !type.includes('PO')) {
             return sum + amt;
@@ -834,13 +837,25 @@ export default function POSSystem({
     const pendingDetails = [];
     const allSalesDetails = [];
 
+    const UNPAID_ORDER_STATUSES = ['รอชำระเงิน', 'รอตรวจสอบ', 'รอตรวจสอบยอดโอน', 'รอดำเนินการ', 'รอประเมินราคา', 'ยกเลิก'];
+    const normGlobalBranch = normalizeBranchName(globalBranch);
+
     orders.forEach(o => {
       const isOldPO = (o.courseName || '').includes('[ซื้อเข้า') || (o.courseName || '').includes('[เบิกจาก');
-      if (o.transactionType === 'owner_purchase' || o.transactionType === 'branch_requisition' || isOldPO || o.status === 'ยกเลิก') return;
+      const oStatus = String(o.status || '').trim();
+      if (
+        o.transactionType === 'owner_purchase' ||
+        o.transactionType === 'branch_requisition' ||
+        isOldPO ||
+        o.source === 'POS_Parked' ||
+        o.mergedIntoPosOrderNo ||
+        UNPAID_ORDER_STATUSES.includes(oStatus)
+      ) return;
+      if (!o.createdAt) return;
       const oDate = new Date(o.createdAt).toLocaleDateString('th-TH');
-      const oBranch = String(o.branch || '');
+      const oBranch = normalizeBranchName(o.branch || '');
       
-      if (oDate === today && (!globalBranch || oBranch === globalBranch)) {
+      if (oDate === today && (!normGlobalBranch || oBranch === normGlobalBranch)) {
          const paymentStr = String(o.paymentMethod || '');
          let tAmt = 0;
          let tItems = [];
@@ -923,7 +938,7 @@ export default function POSSystem({
              } else if (rawPSum > 0) {
                  pSum = orderTotal;
              }
-             cSum = orderTotal - pSum;
+             cSum = Math.max(0, orderTotal - pSum - mSum);
          } else if (o.courseName) {
              cSum = orderTotal;
          } else {
@@ -946,9 +961,11 @@ export default function POSSystem({
     });
 
     histories.forEach(h => {
+      const hStatus = String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '').trim();
+      if (h.isCancelled || hStatus === 'ยกเลิก') return;
       const hDate = String(getFuzzyKey(h, ["วันที่", "col_1"]) || '').trim();
-      const hBranch = String(h["สาขา"] || "สำนักงานใหญ่");
-      if (hDate === today && (!globalBranch || hBranch === globalBranch)) {
+      const hBranch = normalizeBranchName(h["สาขา"] || "เฉวง");
+      if (hDate === today && (!normGlobalBranch || hBranch === normGlobalBranch)) {
          const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '');
          if (type === "เบิกสินค้า" || type === "เบิกใช้เครดิต") {
             const amt = parseNumber(getFuzzyKey(h, ["ยอดเบิก", "ยอดเงิน", "ยอดจัดซื้อ", "ยอด", "col_19"]));
@@ -1005,13 +1022,23 @@ export default function POSSystem({
     const currentMonth = posFilterDateObj.getMonth();
     const currentYear = posFilterDateObj.getFullYear();
     
+    const UNPAID_ORDER_STATUSES = ['รอชำระเงิน', 'รอตรวจสอบ', 'รอตรวจสอบยอดโอน', 'รอดำเนินการ', 'รอประเมินราคา', 'ยกเลิก'];
+    const normGlobalBranch = normalizeBranchName(globalBranch);
     return orders.reduce((sum, o) => {
       const isOldPO = (o.courseName || '').includes('[ซื้อเข้า') || (o.courseName || '').includes('[เบิกจาก');
-      if (o.transactionType === 'owner_purchase' || o.transactionType === 'branch_requisition' || isOldPO || o.status === 'ยกเลิก') return sum;
+      const oStatus = String(o.status || '').trim();
+      if (
+        o.transactionType === 'owner_purchase' ||
+        o.transactionType === 'branch_requisition' ||
+        isOldPO ||
+        o.source === 'POS_Parked' ||
+        o.mergedIntoPosOrderNo ||
+        UNPAID_ORDER_STATUSES.includes(oStatus)
+      ) return sum;
       if (!o.createdAt) return sum;
       const oDate = new Date(o.createdAt);
       if (oDate.getMonth() === currentMonth && oDate.getFullYear() === currentYear) {
-         if (!globalBranch || o.branch === globalBranch) {
+         if (!normGlobalBranch || normalizeBranchName(o.branch) === normGlobalBranch) {
             return sum + parseNumber(o.price);
          }
       }
@@ -1475,7 +1502,12 @@ export default function POSSystem({
          }
       }
       
-      if (voucher.isPersonal && voucher.isUsed) {
+      if (appliedVoucherCode && appliedVoucherCode.toUpperCase() === String(code).trim().toUpperCase()) {
+        showToast(`คูปอง ${code} ถูกเลือกใช้ในบิลนี้อยู่แล้ว`, 'error');
+        return;
+      }
+
+      if (voucher.isUsed) {
         showToast(`Voucher ${code} ถูกใช้งานไปแล้ว`, 'error');
         return;
       }
@@ -1548,15 +1580,29 @@ export default function POSSystem({
               // Mark as used directly without cart
               const batch = writeBatch(db);
               
-              if (voucher.isPersonal) {
+              if (voucher.isPersonal || voucher.isBatch) {
                   batch.update(doc(db, 'coupons', voucherDocId), { 
                       isUsed: true, 
                       usedAt: new Date().toISOString() 
                   });
               }
 
+              if (voucher.type === 'gamification_spins' && selectedCustomer?.id) {
+                  const addSpins = Math.max(1, Number(voucher.value) || 1);
+                  batch.update(doc(db, 'customers', selectedCustomer.id), {
+                      spinTickets: (Number(selectedCustomer.spinTickets) || 0) + addSpins
+                  });
+              }
+
               // Create history record
               const historyRef = doc(getCol('histories'));
+              const itemDesc = voucher.type === 'pos_item'
+                  ? `แลกรับ ${voucher.posItemName || 'สินค้า/บริการ'}`
+                  : voucher.type === 'free_item'
+                  ? `แลกรับฟรี ${voucher.freeItemName || ''}`.trim()
+                  : voucher.type === 'gamification_spins'
+                  ? `รับตั๋วหมุนวงล้อ ${voucher.value || 1} สิทธิ์`
+                  : (voucher.type === 'percent' ? `ส่วนลด ${voucher.value}%` : `ส่วนลด ฿${voucher.value}`);
               batch.set(historyRef, {
                   "วันที่": new Date().toLocaleDateString('th-TH'),
                   "เวลา": new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
@@ -1564,8 +1610,8 @@ export default function POSSystem({
                   "เบอร์โทร": scanPhone || (selectedCustomer ? String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3", "phone"]) || '') : ''),
                   "ประเภท": "ใช้สิทธิ์คูปอง",
                   "สถานะ": "เรียบร้อย",
-                  "รายการ": `ใช้คูปอง: ${code} (${voucher.type === 'free_item' ? 'แลกรับฟรี' : (voucher.type === 'percent' ? 'ส่วนลด ' + voucher.value + '%' : 'ส่วนลด ฿' + voucher.value)})`,
-                  "สาขา": String(globalBranch || "สำนักงานใหญ่")
+                  "รายการ": `ใช้คูปอง: ${code} (${itemDesc})`,
+                  "สาขา": String(globalBranch || "เฉวง")
               });
 
               await batch.commit();
@@ -1573,15 +1619,25 @@ export default function POSSystem({
               
           } else if (actionType === 'apply_cart') {
               // Apply to Cart
-              if (voucher.type === 'free_item') {
-                  addToCart({
-                      id: `free-item-${Date.now()}`,
-                      name: `แลกรับฟรี (Voucher: ${code})`,
+              if (voucher.type === 'gamification_spins') {
+                  showToast('คูปองตั๋วหมุนวงล้อ กรุณาสแกนใหม่แล้วกด "ใช้สิทธิ์ทันที" เพื่อเพิ่มสิทธิ์ให้ลูกค้า', 'error');
+                  return;
+              }
+              if (voucher.type === 'free_item' || voucher.type === 'pos_item') {
+                  const matchedProd = voucher.posItemId ? products.find(p => p.id === voucher.posItemId) : null;
+                  const itemLabel = voucher.posItemName || voucher.freeItemName || voucher.description || `แลกรับฟรี`;
+                  setCart(prev => [...prev, {
+                      id: matchedProd ? matchedProd.id : `free-item-${Date.now()}`,
+                      name: `${itemLabel} (Voucher: ${code})`,
                       price: 0,
                       originalPrice: 0,
-                      type: 'product'
-                  }, 'product');
-                  showToast(`เพิ่มสิทธิ์แลกรับฟรีลงในบิล`, 'success');
+                      qty: 1,
+                      type: voucher.posItemType === 'course' ? 'service' : 'product',
+                      originalItem: matchedProd || null,
+                      skipStockUpdate: !matchedProd,
+                      isManualPrice: true
+                  }]);
+                  showToast(`เพิ่มสิทธิ์ "${itemLabel}" ลงในบิลแล้ว`, 'success');
               } else {
                   const discountVal = Number(voucher.value) || 0;
                   let actualDiscount = discountVal;
@@ -1595,17 +1651,17 @@ export default function POSSystem({
               setAppliedVoucherCode(code);
               setAppliedVoucherData(voucher);
 
-              if (voucher.isPersonal) {
+              if (voucher.isPersonal || voucher.isBatch) {
                   setAppliedVoucherId(voucherDocId);
-                  if (!selectedCustomer && (voucher.customerPhone || scanPhone)) {
-                      const phoneToSearch = voucher.customerPhone || scanPhone;
-                      const foundCustomer = customers.find(c => {
-                          const phoneRaw = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || '');
-                          return phoneRaw.replace(/[^0-9]/g, '') === phoneToSearch;
-                      });
-                      if (foundCustomer) {
-                          setSelectedCustomer(foundCustomer);
-                      }
+              }
+              if (voucher.isPersonal && !selectedCustomer && (voucher.customerPhone || scanPhone)) {
+                  const phoneToSearch = voucher.customerPhone || scanPhone;
+                  const foundCustomer = customers.find(c => {
+                      const phoneRaw = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || '');
+                      return phoneRaw.replace(/[^0-9]/g, '') === phoneToSearch;
+                  });
+                  if (foundCustomer) {
+                      setSelectedCustomer(foundCustomer);
                   }
               }
           }
@@ -1674,6 +1730,7 @@ export default function POSSystem({
                     
                     setSplitPayment(prev => ({ 
                         ...prev, 
+                        transfer: (prev.transfer || 0) + (prev.omise_promptpay || 0),
                         omise_promptpay: 0
                     }));
                     setTriggerCheckout(true);
@@ -1715,15 +1772,6 @@ export default function POSSystem({
       showToast(`ยอดชำระเงินไม่ตรงกับยอดสุทธิ (ขาดอีก ฿${(total - totalCovered).toLocaleString()})`);
       return;
     }
-
-    const handleGoshipMock = async () => {
-       showToast('กำลังจำลองสร้างเลขพัสดุ Goship...');
-       await new Promise(r => setTimeout(r, 1000));
-       const mockTrackingNo = 'TH' + Math.floor(100000000 + Math.random() * 900000000);
-       setPosTrackingNo(mockTrackingNo);
-       setGoshipModal({ isOpen: false });
-       showToast(`สร้างเลขพัสดุสำเร็จ: ${mockTrackingNo}`, 'success');
-    };
 
     if (appliedVoucherData && appliedVoucherData.conditionPaymentMethod && appliedVoucherData.conditionPaymentMethod !== 'all') {
        if (appliedVoucherData.conditionPaymentMethod === 'transfer' && splitPayment.transfer < total) {
@@ -1779,11 +1827,13 @@ export default function POSSystem({
             "เบอร์โทร": cPhone,
             "cleanPhone": custCleanPhone,
             "เลขที่ใบคอส": c.courseRefKey || String(getFuzzyKey(c, ["เลขที่ใบคอส", "col_3"])),
+            "หมายเลขคำสั่งซื้อ": orderNo,
             "อ้างอิง": orderNo,
             "ประเภท": "เบิกใช้เครดิต",
+            "สถานะ": "เรียบร้อย",
             "ยอดเงิน": String(deductAmt),
             "รายละเอียด": `ใช้เครดิตชำระสินค้าบิล ${orderNo}`,
-            "สาขา": String(globalBranch || "สำนักงานใหญ่")
+            "สาขา": String(globalBranch || "เฉวง")
           });
           
           remainingToDeduct -= deductAmt;
@@ -1793,33 +1843,70 @@ export default function POSSystem({
       
       let itemsStr = [];
       let courseClaimUpdates = {};
+      const pendingProductStockMap = new Map();
+      const targetPosBranch = normalizeBranchName(globalBranch || 'เฉวง') || 'เฉวง';
 
-      for (const item of cart) {
+      const getWorkingStockObj = (prod) => {
+        if (pendingProductStockMap.has(prod.id)) return pendingProductStockMap.get(prod.id);
+        const rawMap = prod.stock_by_branch || {};
+        const normalizedMap = {};
+        Object.entries(rawMap).forEach(([k, v]) => {
+          const nk = normalizeBranchName(k) || k;
+          normalizedMap[nk] = (Number(normalizedMap[nk]) || 0) + parseQty(v);
+        });
+        if (Object.keys(normalizedMap).length === 0) {
+          normalizedMap['เฉวง'] = parseQty(getFuzzyKey(prod, ["จำนวนคงเหลือ", "col_12"]));
+        }
+        const entry = { prod, stock_by_branch: normalizedMap };
+        pendingProductStockMap.set(prod.id, entry);
+        return entry;
+      };
+
+      const usageItemsInCart = cart.filter(ci => ci.type === 'usage');
+      const totalPaidUsageCount = usedServices.filter(s => {
+        const name = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"])).trim();
+        return !name.includes('ฟรี');
+      }).length || (usedServices.some(s => String(getFuzzyKey(s, ["ชื่อคอส", "col_4"])).includes('ฟรี')) ? 0 : (usedServices.length === 0 ? usageItemsInCart.reduce((acc, u) => acc + (Number(u.qty) || 1), 0) : 1));
+      let remainingUsageToAllocate = totalPaidUsageCount;
+
+      const effectiveCart = cart.map(ci => {
+        if (ci.type !== 'usage') return { ...ci };
+        const maxCourseAvail = Math.max(0, Number(ci.originalItem?.computedRemainQty ?? ci.qty ?? 1));
+        let finalQty = 0;
+        if (usageItemsInCart.length <= 1) {
+          finalQty = Math.min(maxCourseAvail || totalPaidUsageCount, totalPaidUsageCount);
+        } else {
+          finalQty = Math.min(maxCourseAvail, remainingUsageToAllocate);
+          remainingUsageToAllocate = Math.max(0, remainingUsageToAllocate - finalQty);
+        }
+        return { ...ci, qty: finalQty };
+      });
+
+      for (const item of effectiveCart) {
         itemsStr.push(`${item.name} x${item.qty}`);
 
         if (item.type === 'product') {
-          if (!item.skipStockUpdate) {
-              const productRef = doc(db, 'products', item.id);
-              
-              // Re-calculate stock based on action type
-              let newStockByBranch = { ...(item.originalItem?.stock_by_branch || {}) };
-              
-              if (item.actionType === 'owner_purchase') {
-                const chawengStock = parseQty(newStockByBranch['เฉวง'] || 0);
-                newStockByBranch['เฉวง'] = chawengStock + item.qty;
-              } else if (item.actionType === 'branch_requisition') {
-                const chawengStock = parseQty(newStockByBranch['เฉวง'] || 0);
-                const myStock = parseQty(newStockByBranch[globalBranch || 'เฉวง'] || 0);
-                newStockByBranch['เฉวง'] = Math.max(0, chawengStock - item.qty);
-                if (globalBranch && globalBranch !== 'เฉวง') {
-                   newStockByBranch[globalBranch] = myStock + item.qty;
+          if (!item.skipStockUpdate && !String(item.id || '').startsWith('free-item-')) {
+              const matchedProd = item.originalItem || products.find(p => p.id === item.id);
+              if (matchedProd) {
+                const stateEntry = getWorkingStockObj(matchedProd);
+                const newStockByBranch = stateEntry.stock_by_branch;
+                
+                if (item.actionType === 'owner_purchase') {
+                  const chawengStock = parseQty(newStockByBranch['เฉวง'] || 0);
+                  newStockByBranch['เฉวง'] = chawengStock + item.qty;
+                } else if (item.actionType === 'branch_requisition') {
+                  const chawengStock = parseQty(newStockByBranch['เฉวง'] || 0);
+                  const myStock = parseQty(newStockByBranch[targetPosBranch] || 0);
+                  newStockByBranch['เฉวง'] = Math.max(0, chawengStock - item.qty);
+                  if (targetPosBranch !== 'เฉวง') {
+                     newStockByBranch[targetPosBranch] = myStock + item.qty;
+                  }
+                } else {
+                  const myStock = parseQty(newStockByBranch[targetPosBranch] || 0);
+                  newStockByBranch[targetPosBranch] = Math.max(0, myStock - item.qty);
                 }
-              } else {
-                const myStock = parseQty(newStockByBranch[globalBranch || 'เฉวง'] || 0);
-                newStockByBranch[globalBranch || 'เฉวง'] = Math.max(0, myStock - item.qty);
               }
-    
-              batch.set(productRef, { stock_by_branch: newStockByBranch }, { merge: true });
           }
 
           // History for product
@@ -1869,13 +1956,13 @@ export default function POSSystem({
              if (emp) {
                 const serviceLogRef = doc(getCol('service_logs'));
                 batch.set(serviceLogRef, {
-                  date: customDateObj.toISOString().split('T')[0],
+                  date: getLocalYYYYMMDD(customDateObj),
                   type: item.name,
                   amount: item.price * item.qty,
                   note: `POS: ${orderNo}`,
                   employeeId: emp.id,
                   employeeName: emp.name,
-                  branch: String(globalBranch || "สำนักงานใหญ่"),
+                  branch: String(globalBranch || "เฉวง"),
                   createdAt: customDateObj.toISOString()
                 });
              }
@@ -1886,13 +1973,7 @@ export default function POSSystem({
           const historyRef = doc(getCol('histories'));
           const custSignatureUrl = custSigRef.current?.toDataURL() || null;
           const staffSignatureUrl = staffSigRef.current?.toDataURL() || null;
-
-          const deductedQty = usedServices.filter(s => {
-            const name = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"])).trim();
-            return !name.includes('ฟรี');
-          }).length || (usedServices.some(s => String(getFuzzyKey(s, ["ชื่อคอส", "col_4"])).includes('ฟรี')) ? 0 : 1);
-          const finalQty = deductedQty > 0 ? deductedQty : (usedServices.length === 0 ? item.qty : 0);
-          item.qty = finalQty;
+          const finalQty = item.qty;
 
           batch.set(historyRef, {
             "วันที่": customDateObj.toLocaleDateString('th-TH'),
@@ -2018,14 +2099,17 @@ export default function POSSystem({
              courseClaimUpdates[item.courseId].push(item.itemName);
           }
 
-          // Try to deduct stock if it's a product
-          const product = products.find(p => String(getFuzzyKey(p, ["ชื่อสินค้า", "col_4"])) === item.itemName || item.itemName.includes(String(getFuzzyKey(p, ["ชื่อสินค้า", "col_4"]))));
+          // Try to deduct stock if it's a product (match exact name first, using col_2 NOT col_4 brand)
+          const cleanClaimName = String(item.itemName || '').trim();
+          const product = products.find(p => String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim() === cleanClaimName) ||
+            products.find(p => {
+              const pName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim();
+              return pName.length >= 3 && cleanClaimName.includes(pName);
+            });
           if (product) {
-             const productRef = doc(db, 'products', product.id);
-             let newStockByBranch = { ...(product.stock_by_branch || {}) };
-             const myStock = parseQty(newStockByBranch[globalBranch || 'เฉวง'] || 0);
-             newStockByBranch[globalBranch || 'เฉวง'] = Math.max(0, myStock - item.qty);
-             batch.set(productRef, { stock_by_branch: newStockByBranch }, { merge: true });
+             const stateEntry = getWorkingStockObj(product);
+             const myStock = parseQty(stateEntry.stock_by_branch[targetPosBranch] || 0);
+             stateEntry.stock_by_branch[targetPosBranch] = Math.max(0, myStock - item.qty);
           }
 
           // Add History
@@ -2108,6 +2192,15 @@ export default function POSSystem({
         }
       }
 
+      // Apply accumulated product stock updates (single write per product ID)
+      pendingProductStockMap.forEach(({ stock_by_branch }, prodId) => {
+        const nextTotal = Object.values(stock_by_branch).reduce((sum, v) => sum + (Number(v) || 0), 0);
+        batch.set(doc(db, 'products', prodId), {
+          stock_by_branch,
+          "จำนวนคงเหลือ": String(nextTotal)
+        }, { merge: true });
+      });
+
       // Apply accumulated claim updates for courses
       for (const [cId, updatedItems] of Object.entries(courseClaimUpdates)) {
         batch.update(doc(db, 'courses', cId), {
@@ -2148,8 +2241,8 @@ export default function POSSystem({
         discount: String(globalDiscount),
         promotionId: selectedPromotion || null,
         promoDiscount: String(promoDiscount),
-        qty: String(cart.reduce((sum, item) => sum + item.qty, 0)),
-        branch: String(globalBranch || "สำนักงานใหญ่"),
+        qty: String(effectiveCart.reduce((sum, item) => sum + item.qty, 0)),
+        branch: String(globalBranch || "เฉวง"),
         status: posTrackingNo.trim() ? "กำลังจัดส่ง" : "สำเร็จ",
         paymentMethod: paymentMethodStr,
         source: "POS",
@@ -2165,13 +2258,17 @@ export default function POSSystem({
         totalCost: String(totalCost),
         courseCost: String(courseCost),
         productCost: String(productCost),
-        cartItems: cart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price, type: i.type }))
+        cartItems: effectiveCart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price, type: i.type }))
       });
 
       if (activeCustomerAppOrderIds.length > 0) {
         activeCustomerAppOrderIds.forEach(id => {
           const custAppOrderRef = doc(getCol('orders'), id);
-          batch.update(custAppOrderRef, { status: "ชำระเงินแล้ว", updatedAt: customDateObj.toISOString() });
+          batch.update(custAppOrderRef, {
+            status: "ชำระเงินแล้ว",
+            mergedIntoPosOrderNo: orderNo,
+            updatedAt: customDateObj.toISOString()
+          });
           
           // Send LINE Notification
           const relatedOrder = orders.find(o => o.id === id);
@@ -2278,9 +2375,10 @@ export default function POSSystem({
       setSelectedBed('');
 
       // Save data for receipt modal instead of clearing everything immediately
-      const todayStr = customDateObj.toISOString().split('T')[0];
+      const todayStr = getLocalYYYYMMDD(customDateObj);
+      const normCurrentBranch = normalizeBranchName(globalBranch || "เฉวง");
       const todayBranchOrders = orders.filter(o => 
-         o.createdAt && o.createdAt.startsWith(todayStr) && String(o.branch || "สำนักงานใหญ่") === String(globalBranch || "สำนักงานใหญ่")
+         o.createdAt && getLocalYYYYMMDD(o.createdAt) === todayStr && normalizeBranchName(o.branch || "เฉวง") === normCurrentBranch
       );
       // Include this current order in the count by adding 1
       const queueNo = String(todayBranchOrders.length + 1).padStart(3, '0');
@@ -2289,12 +2387,23 @@ export default function POSSystem({
       const custSignatureUrl = custSigRef.current?.toDataURL() || null;
       const staffSignatureUrl = staffSigRef.current?.toDataURL() || null;
 
+      if (custSigRef.current) {
+        const ctx = custSigRef.current.getContext('2d');
+        ctx?.clearRect(0, 0, custSigRef.current.width, custSigRef.current.height);
+        delete custSigRef.current.dataset.isSigned;
+      }
+      if (staffSigRef.current) {
+        const ctx = staffSigRef.current.getContext('2d');
+        ctx?.clearRect(0, 0, staffSigRef.current.width, staffSigRef.current.height);
+        delete staffSigRef.current.dataset.isSigned;
+      }
+
       setReceiptData({
         orderNo,
         queueNo,
         customerName: cName,
         customerPhone: cPhone,
-        items: [...cart],
+        items: effectiveCart,
         subtotal,
         total,
         globalDiscount,
@@ -2315,6 +2424,15 @@ export default function POSSystem({
         usedServices: usedServices.map(s => getFuzzyKey(s, ["ชื่อคอส", "col_4"]))
       });
       setCart([]);
+      setUsedServices([]);
+      setPaymentPhotos({ before: [], after: [] });
+      setOmiseChargeData(null);
+      setIsPollingOmise(false);
+      setShowOmiseQrModal(false);
+      setPosTrackingNo('');
+      setShippingAddress('');
+      setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0, omise_promptpay: 0 });
+      setCheckoutStep(1);
       setAppCreditPaidAmount(0);
       setGlobalDiscount(0);
       setAppliedVoucherId(null);
@@ -2323,7 +2441,6 @@ export default function POSSystem({
       setSelectedCustomer(null);
       setActiveWcOrderId(null);
       setActiveCustomerAppOrderIds([]);
-      setAppliedVoucherId(null);
       setIsMobileCartOpen(false); // Close cart immediately so receipt shows properly
 
       // If autoPrint is enabled — open preview immediately so print fires without user action
@@ -2558,7 +2675,7 @@ export default function POSSystem({
     );
     let appPaidTotal = appCreditPaidAmount;
     if (creditPaidOrders.length > 0) {
-      const addedAmt = creditPaidOrders.reduce((s, o) => s + (Number(o.itemPrice) || 0), 0);
+      const addedAmt = creditPaidOrders.reduce((s, o) => s + parseNumber(o.itemPrice ?? o.totalPrice ?? o.price ?? 0), 0);
       appPaidTotal += addedAmt;
       setAppCreditPaidAmount(appPaidTotal);
       // ล้างการเลือกเครดิต (ถ้ามี) กันพนักงานเผลอกดชำระด้วยเครดิตซ้ำ
@@ -2566,19 +2683,29 @@ export default function POSSystem({
     }
 
     if (totalDiscountAmt > 0) {
-        setDiscountType('amount');
-        setDiscountVal(totalDiscountAmt);
+      setDiscountType('amount');
+      setDiscountVal(totalDiscountAmt);
+      setGlobalDiscount(prev => prev + totalDiscountAmt);
     }
 
+    const addedSubtotal = ordersToProcess.reduce((sum, o) => {
+      const itemsSum = (o.cartItems || []).reduce((s, it) => s + (Number(it.price || 0) * Number(it.qty || 1)), 0);
+      return sum + (itemsSum || parseNumber(o.price ?? o.totalPrice ?? o.itemPrice ?? 0));
+    }, 0);
+    const remainingToCollect = Math.max(0, addedSubtotal - totalDiscountAmt - (creditPaidOrders.length > 0 ? creditPaidOrders.reduce((s, o) => s + parseNumber(o.itemPrice ?? o.totalPrice ?? o.price ?? 0), 0) : 0));
+
     if (hasTransfer) {
-       setPaymentMethodStr('โอนเงิน');
-       setOrderChannel('ทางเว็บ');
+      setOrderChannel('web');
+      if (remainingToCollect > 0) {
+        setSplitPayment(prev => ({ ...prev, transfer: (prev.transfer || 0) + remainingToCollect }));
+      }
     } else if (creditPaidOrders.length > 0) {
-       setPaymentMethodStr('จ่ายแล้วผ่านแอป');
-       setOrderChannel('หน้าร้าน');
+      setOrderChannel('instore');
     } else {
-       setPaymentMethodStr('เงินสด');
-       setOrderChannel('หน้าร้าน');
+      setOrderChannel('instore');
+      if (remainingToCollect > 0) {
+        setSplitPayment(prev => ({ ...prev, cash: (prev.cash || 0) + remainingToCollect }));
+      }
     }
 
     showToast(creditPaidOrders.length > 0
@@ -4397,11 +4524,13 @@ export default function POSSystem({
                   // Merge cart items with existing order
                   const updatedCartItems = [...(existingParkedOrder.cartItems || []), ...orderItems];
                   const updatedPrice = Number(existingParkedOrder.price) + total;
+                  const updatedDiscount = (Number(existingParkedOrder.discount) || 0) + (Number(globalDiscount) || 0);
                   const updatedCourseName = updatedCartItems.map(i => `${i.name} x${i.qty}`).join(', ');
                   
                   await updateDoc(doc(db, 'orders', existingParkedOrder.id), {
                     cartItems: updatedCartItems,
                     price: updatedPrice,
+                    discount: updatedDiscount,
                     courseName: updatedCourseName,
                     updatedAt: new Date().toISOString()
                   });
@@ -4417,6 +4546,7 @@ export default function POSSystem({
                     source: 'POS_Parked',
                     status: 'รอชำระเงิน',
                     price: total,
+                    discount: Number(globalDiscount) || 0,
                     totalCost: 0,
                     paymentMethod: 'โอนเงิน',
                     cartItems: orderItems,
@@ -4429,6 +4559,7 @@ export default function POSSystem({
                 }
                 
                 setCart([]);
+                setGlobalDiscount(0);
                 setAppCreditPaidAmount(0);
                 setShowParkBedModal(false);
               } catch (err) {
@@ -5023,8 +5154,8 @@ export default function POSSystem({
                         handleCheckout();
                     }
                 }}
-                disabled={isProcessing || (!isRequisitionMode && totalPaid !== total)}
-                className={`flex-1 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${(isProcessing || (!isRequisitionMode && totalPaid !== total)) ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : (isRequisitionMode ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' : (cart.some(i => i.type === 'usage') ? 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200'))}`}
+                disabled={isProcessing || (!isRequisitionMode && totalCovered !== total)}
+                className={`flex-1 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${(isProcessing || (!isRequisitionMode && totalCovered !== total)) ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : (isRequisitionMode ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' : (cart.some(i => i.type === 'usage') ? 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200'))}`}
               >
                 {isProcessing ? (
                   <><span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span> กำลังประมวลผล...</>
@@ -6282,7 +6413,14 @@ export default function POSSystem({
              
              <div className="flex justify-between mb-8 text-base">
                <div>
-                 <p><span className="font-bold">วันที่:</span> {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                 <p><span className="font-bold">วันที่:</span> {(() => {
+                   const dObj = new Date();
+                   if (posFilterDate) {
+                     const [yy, mm, dd] = posFilterDate.split('-');
+                     dObj.setFullYear(Number(yy), Number(mm) - 1, Number(dd));
+                   }
+                   return dObj.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+                 })()}</p>
                </div>
              </div>
 
@@ -6297,7 +6435,7 @@ export default function POSSystem({
                        </tr>
                        <tr>
                          <td className="border border-slate-300 p-3">ยอดขายคอร์ส/บริการ</td>
-                         <td className="border border-slate-300 p-3 text-right font-bold">฿{eodBreakdown.courseSalesAmt.toLocaleString()}</td>
+                         <td className="border border-slate-300 p-3 text-right font-bold">฿{(eodBreakdown.courseSalesAmt + (eodBreakdown.manualSalesAmt || 0)).toLocaleString()}</td>
                        </tr>
                        <tr>
                          <td className="border border-slate-300 p-3">ยอดใช้เครดิต/ตัดคอร์ส</td>
@@ -6328,7 +6466,6 @@ export default function POSSystem({
                          <td className="border border-slate-300 p-3 text-right font-bold text-emerald-600">+ ฿{eodBreakdown.cash.toLocaleString()}</td>
                        </tr>
                        <tr className="bg-slate-50 font-bold text-lg">
-                         <td className="border border-slate-300 p-3 text-right">ยอดรวมเงินสดที่ควรมี</td>
                          <td className="border border-slate-300 p-3 w-2/3">ยอดรวมเงินสดในลิ้นชัก (รวมเงินทอน)</td>
                          <td className="border border-slate-300 p-3 text-right font-bold text-emerald-600">฿{(() => {
                             const expected = eodBreakdown.cash + (parseNumber(eodData.floatCash) || 0);
@@ -6523,14 +6660,29 @@ export default function POSSystem({
                             <X size={20} />
                         </button>
                     </div>
-                    <div className="p-4">
+                    <div className="p-4 space-y-3">
                         <SignaturePad 
-                            onSave={(dataUrl) => {
+                            label="ลายเซ็นลูกค้า"
+                            onSigned={(dataUrl) => {
                                 setCustomerSignature(dataUrl);
-                                setShowSignaturePad(false);
                             }}
-                            onCancel={() => setShowSignaturePad(false)}
                         />
+                        <div className="flex gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowSignaturePad(false)}
+                                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-sm transition-colors"
+                            >
+                                ยกเลิก
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowSignaturePad(false)}
+                                className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold text-sm transition-colors"
+                            >
+                                บันทึกลายเซ็น
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -6565,7 +6717,7 @@ export default function POSSystem({
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && stockInputModal.inputVal !== '') {
                   const newStock = Number(stockInputModal.inputVal);
-                  const oldStock = parseNumber(getBranchStock(stockInputModal.item, globalBranch || 'สำนักงานใหญ่'));
+                  const oldStock = parseNumber(getBranchStock(stockInputModal.item, normalizeBranchName(globalBranch || 'เฉวง') || 'เฉวง'));
                   setStockAdjustments(prev => {
                     const existing = prev.filter(a => a.id !== stockInputModal.item.id);
                     return [...existing, { 
@@ -6587,7 +6739,7 @@ export default function POSSystem({
             onClick={() => {
               if (stockInputModal.inputVal === '') return;
               const newStock = Number(stockInputModal.inputVal);
-              const oldStock = parseNumber(getBranchStock(stockInputModal.item, globalBranch || 'สำนักงานใหญ่'));
+              const oldStock = parseNumber(getBranchStock(stockInputModal.item, normalizeBranchName(globalBranch || 'เฉวง') || 'เฉวง'));
               setStockAdjustments(prev => {
                 const existing = prev.filter(a => a.id !== stockInputModal.item.id);
                 return [...existing, { 
@@ -6664,10 +6816,19 @@ export default function POSSystem({
                   
                   for (const adj of stockAdjustments) {
                     const pRef = doc(db, 'products', adj.id);
-                    const targetBranch = globalBranch || 'เฉวง';
-                    const currentStockByBranch = adj.originalItem?.stock_by_branch || {};
-                    const newStockByBranch = { ...currentStockByBranch, [targetBranch]: adj.newStock };
-                    batch.set(pRef, { stock_by_branch: newStockByBranch }, { merge: true });
+                    const targetBranch = normalizeBranchName(globalBranch || 'เฉวง') || 'เฉวง';
+                    const rawStockByBranch = adj.originalItem?.stock_by_branch || {};
+                    const normalizedMap = {};
+                    Object.entries(rawStockByBranch).forEach(([k, v]) => {
+                      const nk = normalizeBranchName(k) || k;
+                      normalizedMap[nk] = (Number(normalizedMap[nk]) || 0) + parseQty(v);
+                    });
+                    normalizedMap[targetBranch] = adj.newStock;
+                    const nextTotal = Object.values(normalizedMap).reduce((sum, v) => sum + (Number(v) || 0), 0);
+                    batch.set(pRef, {
+                      stock_by_branch: normalizedMap,
+                      "จำนวนคงเหลือ": String(nextTotal)
+                    }, { merge: true });
                   }
                   
                   await batch.commit();
@@ -7429,10 +7590,12 @@ export default function POSSystem({
                     const bedNum = window.prompt("ระบุหมายเลขเตียง (1-4) หรือชื่อห้อง:", "1");
                     if (bedNum === null) return; // User cancelled
 
+                    const nowIso = new Date().toISOString();
                     await updateDoc(doc(getCol('bookings'), pendingCheckInBooking.id), {
                        status: 'กำลังใช้บริการ',
                        bedNumber: bedNum,
-                       updatedAt: new Date().toISOString()
+                       serviceStartTime: nowIso,
+                       updatedAt: nowIso
                     });
                     showToast('เช็คอินคิวสำเร็จ!', 'success');
                     setPendingCheckInBooking(null);
@@ -7459,6 +7622,9 @@ export default function POSSystem({
         onRetrieveParkedOrder={(order) => {
            if (order && order.cartItems) {
                setCart(order.cartItems);
+               if (order.discount) {
+                  setGlobalDiscount(parseNumber(order.discount));
+               }
                setActiveCustomerAppOrderIds(prev => [...new Set([...prev, order.id])]);
                if (order.customerPhone) {
                   const cleanPhone = order.customerPhone.replace(/[^0-9]/g, '');
@@ -7480,6 +7646,106 @@ export default function POSSystem({
         booking={printingJobSlipBooking}
         appSettings={{}} // POSSystem doesn't have appSettings directly, but we can pass an empty object or retrieve it. Wait, appSettings is not loaded in POSSystem? Yes it is not in the scope directly, but it falls back to 'IRIS CLINIC'
     />
+    {/* Quick Custom Price Service Modal (บริการอื่นๆ / จี้ไฝ / ประเมินราคา) */}
+    {quickPriceModalItem && (
+      <div className="fixed inset-0 z-[105] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-black text-slate-800">ระบุราคาบริการ</h2>
+            <button onClick={() => setQuickPriceModalItem(null)} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-1.5 rounded-full"><X size={18} /></button>
+          </div>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">ชื่อรายการ / รายละเอียด</label>
+              <input
+                type="text"
+                value={quickPriceModalItem.customName !== undefined ? quickPriceModalItem.customName : (quickPriceModalItem.name || '')}
+                onChange={(e) => setQuickPriceModalItem(prev => ({ ...prev, customName: e.target.value }))}
+                placeholder="เช่น จี้ไฝ 3 จุด, ประเมินราคา..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2">
+                <label className="block text-xs font-bold text-slate-500 mb-1">ราคา (บาท) <span className="text-red-500">*</span></label>
+                <div className="relative">
+                  <span className="absolute left-3 top-3 text-slate-400 font-bold">฿</span>
+                  <input
+                    type="number"
+                    min="0"
+                    autoFocus
+                    value={quickPriceModalItem.priceInput !== undefined ? quickPriceModalItem.priceInput : ''}
+                    onChange={(e) => setQuickPriceModalItem(prev => ({ ...prev, priceInput: e.target.value }))}
+                    placeholder="0"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-2.5 text-lg font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const finalName = String(quickPriceModalItem.customName ?? quickPriceModalItem.name ?? 'บริการทั่วไป').trim() || 'บริการทั่วไป';
+                        const finalPrice = Math.max(0, Number(quickPriceModalItem.priceInput) || 0);
+                        const finalQty = Math.max(1, Number(quickPriceModalItem.qtyInput) || 1);
+                        setCart(prev => [...prev, {
+                          id: `${quickPriceModalItem.id || 'srv'}_${Date.now()}`,
+                          name: finalName,
+                          price: finalPrice,
+                          originalPrice: finalPrice,
+                          qty: finalQty,
+                          type: quickPriceModalItem.type || 'service',
+                          isManualPrice: true
+                        }]);
+                        showToast(`เพิ่ม "${finalName}" (฿${finalPrice.toLocaleString()}) ลงตะกร้าแล้ว`, 'success');
+                        setQuickPriceModalItem(null);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">จำนวน</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={quickPriceModalItem.qtyInput !== undefined ? quickPriceModalItem.qtyInput : 1}
+                  onChange={(e) => setQuickPriceModalItem(prev => ({ ...prev, qtyInput: Math.max(1, parseInt(e.target.value) || 1) }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-lg font-black text-center text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setQuickPriceModalItem(null)}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const finalName = String(quickPriceModalItem.customName ?? quickPriceModalItem.name ?? 'บริการทั่วไป').trim() || 'บริการทั่วไป';
+                  const finalPrice = Math.max(0, Number(quickPriceModalItem.priceInput) || 0);
+                  const finalQty = Math.max(1, Number(quickPriceModalItem.qtyInput) || 1);
+                  setCart(prev => [...prev, {
+                    id: `${quickPriceModalItem.id || 'srv'}_${Date.now()}`,
+                    name: finalName,
+                    price: finalPrice,
+                    originalPrice: finalPrice,
+                    qty: finalQty,
+                    type: quickPriceModalItem.type || 'service',
+                    isManualPrice: true
+                  }]);
+                  showToast(`เพิ่ม "${finalName}" (฿${finalPrice.toLocaleString()}) ลงตะกร้าแล้ว`, 'success');
+                  setQuickPriceModalItem(null);
+                }}
+                className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold shadow-md shadow-orange-200 transition-colors"
+              >
+                เพิ่มลงตะกร้า
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
     {/* Edit Course Price Modal */}
     {editingCoursePrice && (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">

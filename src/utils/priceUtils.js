@@ -27,6 +27,9 @@ export const computeFinalPrice = (product, isVipCustomer) => {
     const fullPrice = parseNumber(getFuzzyKey(product, ["ราคาขายเต็ม", "ราคา", "col_6"]));
     if (!isVipCustomer) return fullPrice;
     
+    const unit = String(getFuzzyKey(product, ["หน่วยนับ", "col_7", "col_5"]) || '').trim().toLowerCase();
+    if (unit.includes('ซอง')) return fullPrice;
+
     const discountRate = getVipDiscountRate(product);
     if (discountRate > 0) {
         return Math.ceil(fullPrice * (1 - discountRate));

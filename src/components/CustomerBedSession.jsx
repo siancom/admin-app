@@ -1,26 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ShoppingCart, CheckCircle, CreditCard, Camera, User, Check } from 'lucide-react';
-import { doc, updateDoc, addDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, addDoc, collection } from 'firebase/firestore';
 import { db, storage } from '../config/firebase';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import imageCompression from 'browser-image-compression';
+import generatePayload from 'promptpay-qr';
+import { QRCodeSVG } from 'qrcode.react';
 import { getFuzzyKey } from '../utils/fuzzy';
-import { parseNumber } from '../utils/parse';
+import { parseNumber, getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
+import { getSafeDateTime } from '../utils/dateUtils';
 
 export default function CustomerBedSession({ 
   bedNumber, 
   branch, 
-  products, 
-  masterCourses, 
-  bookings, 
-  orders,
+  products = [], 
+  masterCourses = [], 
+  bookings = [], 
+  orders = [],
   showToast 
 }) {
-  const [activeBooking, setActiveBooking] = useState(null);
-  const [pendingOrder, setPendingOrder] = useState(null);
   const [slipImage, setSlipImage] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [promptPayId, setPromptPayId] = useState('0815093284');
+  const [promptPayName, setPromptPayName] = useState('นายอิทธิชัย สังคะโห');
   
   // Self-Service Shopping States
   const [customerCart, setCustomerCart] = useState([]);
@@ -31,33 +34,76 @@ export default function CustomerBedSession({
   const [viewItemDetails, setViewItemDetails] = useState(null);
   const [viewItemType, setViewItemType] = useState('');
 
-  const getProductImage = (p, productName) => {
-    return getFuzzyKey(p, ["รูปภาพ", "ภาพ", "img", "image"]);
+  const getProductImage = (p) => {
+    const raw = getFuzzyKey(p, ["รูปภาพ", "ภาพ", "img", "image"]);
+    return raw ? String(raw).split(',')[0].trim() : '';
   };
 
   useEffect(() => {
-    // Find active booking for this bed
-    const bedStr = String(bedNumber).trim();
-    const branchStr = String(branch).trim();
-    const active = bookings.find(b => 
-      String(b.branch).trim() === branchStr && 
-      (String(b.bedNumber).trim() === bedStr || String(b.assignedBed).trim() === bedStr) &&
-      (String(b.status).trim() === 'กำลังใช้บริการ' || String(b.status).trim() === 'รอการยืนยัน')
-    );
-    setActiveBooking(active);
+    let cancelled = false;
+    const loadPaymentConfig = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'app_settings', 'payment'));
+        if (!cancelled && snap.exists()) {
+          const data = snap.data() || {};
+          const cfgId = String(data.promptPayId || data.promptpayId || data.promptPay || '').trim();
+          const cfgName = String(data.promptPayName || data.accountName || '').trim();
+          if (cfgId) {
+            setPromptPayId(cfgId);
+            if (cfgName) setPromptPayName(cfgName);
+            return;
+          }
+        }
+      } catch {
+        // Fallback to config/payment or default PromptPay ID
+      }
+      try {
+        const pubSnap = await getDoc(doc(db, 'config', 'payment'));
+        if (!cancelled && pubSnap.exists()) {
+          const pubData = pubSnap.data() || {};
+          const cfgId = String(pubData.promptPayId || pubData.promptpayId || pubData.promptPay || '').trim();
+          const cfgName = String(pubData.promptPayName || pubData.accountName || '').trim();
+          if (cfgId) setPromptPayId(cfgId);
+          if (cfgName) setPromptPayName(cfgName);
+        }
+      } catch {
+        // Keep default '0815093284'
+      }
+    };
+    loadPaymentConfig();
+    return () => { cancelled = true; };
+  }, []);
+
+  const activeBooking = useMemo(() => {
+    // Find today's active booking for this bed in normalized branch
+    const bedStr = String(bedNumber || '').trim();
+    const normBranch = normalizeBranchName(branch);
+    const todayIso = getLocalYYYYMMDD();
+    return (bookings || []).find(b => {
+      if (!b || !normBranch || normalizeBranchName(b.branch) !== normBranch) return false;
+      const matchBed = String(b.bedNumber || '').trim() === bedStr || String(b.assignedBed || '').trim() === bedStr;
+      if (!matchBed) return false;
+      const st = String(b.status || '').trim();
+      if (st !== 'กำลังใช้บริการ' && st !== 'รอการยืนยัน') return false;
+      return getSafeDateTime(b)?.startsWith(todayIso);
+    }) || null;
   }, [bedNumber, branch, bookings]);
 
-  useEffect(() => {
-    // Find parked order for this bed
-    const bedStr = String(bedNumber).trim();
-    const branchStr = String(branch).trim();
-    const pending = orders.find(o => 
-      String(o.bedNumber).trim() === bedStr && 
-      (!o.branch || String(o.branch).trim() === branchStr || String(o.branch).trim() === 'เฉวง') &&
-      String(o.status).trim() === 'รอชำระเงิน' && 
-      String(o.source).trim() === 'POS_Parked'
-    );
-    setPendingOrder(pending);
+  const pendingOrder = useMemo(() => {
+    // Find parked order for this bed (strictly matching normalized branch; never match missing branch across branches)
+    const bedStr = String(bedNumber || '').trim();
+    const normBranch = normalizeBranchName(branch);
+    return [...(orders || [])]
+      .sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))
+      .find(o =>
+        o &&
+        Boolean(o.branch) &&
+        Boolean(normBranch) &&
+        normalizeBranchName(o.branch) === normBranch &&
+        String(o.bedNumber || '').trim() === bedStr &&
+        String(o.status || '').trim() === 'รอชำระเงิน' &&
+        String(o.source || '').trim() === 'POS_Parked'
+      ) || null;
   }, [bedNumber, branch, orders]);
 
   const handleSlipUpload = (e) => {
@@ -74,34 +120,40 @@ export default function CustomerBedSession({
     const totalAmount = isPayingParkedOrder ? Number(pendingOrder.price) : customerCart.reduce((sum, item) => sum + (Number(item.price) * item.qty), 0);
     
     if (cartToProcess?.length === 0) return showToast('ไม่มีสินค้าในตะกร้า', 'error');
-    if (!slipImage) return showToast('กรุณาแนบสลิปโอนเงิน', 'error');
 
     setIsUploading(true);
     try {
-      // Compress slip image
-      const options = { maxSizeMB: 0.5, maxWidthOrHeight: 1024, useWebWorker: true };
-      let compressedFile = slipImage;
-      try {
-        compressedFile = await imageCompression(slipImage, options);
-      } catch (error) {
-        console.error("Image compression failed", error);
+      let slipUrl = '';
+      if (slipImage) {
+        // Compress slip image
+        const options = { maxSizeMB: 0.5, maxWidthOrHeight: 1024, useWebWorker: true };
+        let compressedFile = slipImage;
+        try {
+          compressedFile = await imageCompression(slipImage, options);
+        } catch (error) {
+          console.error("Image compression failed", error);
+        }
+
+        // Upload slip
+        const timestamp = Date.now();
+        const storageRef = ref(storage, `slips/bed_self_service_${timestamp}`);
+        const uploadTask = await uploadBytesResumable(storageRef, compressedFile);
+        slipUrl = await getDownloadURL(uploadTask.ref);
       }
 
-      // Upload slip
-      const timestamp = Date.now();
-      const storageRef = ref(storage, `slips/bed_self_service_${timestamp}`);
-      const uploadTask = await uploadBytesResumable(storageRef, compressedFile);
-      const slipUrl = await getDownloadURL(uploadTask.ref);
+      const notifiedAt = new Date().toISOString();
 
       if (isPayingParkedOrder) {
-        // Update existing parked order
+        // Update existing parked order — always set 'รอตรวจสอบ' so staff verify transfer before closing bill
         await updateDoc(doc(db, 'orders', pendingOrder.id), {
           status: 'รอตรวจสอบ',
-          slipUrl,
-          updatedAt: new Date().toISOString()
+          "สถานะ": 'รอตรวจสอบ',
+          ...(slipUrl ? { slipUrl } : {}),
+          customerNotifiedPaidAt: notifiedAt,
+          updatedAt: notifiedAt
         });
       } else {
-        // Create NEW order from Self-Service Cart
+        // Create NEW order from Self-Service Cart — always set 'รอตรวจสอบ'
         const orderNo = `OD${Date.now().toString().slice(-6)}`;
         const orderItems = customerCart.map(item => ({
           id: item.id,
@@ -119,17 +171,19 @@ export default function CustomerBedSession({
           branch: branch || 'เฉวง',
           source: 'Customer_Self_Service',
           status: 'รอตรวจสอบ',
+          "สถานะ": 'รอตรวจสอบ',
           price: totalAmount,
           totalCost: 0,
           paymentMethod: 'โอนเงิน',
           slipUrl,
+          customerNotifiedPaidAt: notifiedAt,
           cartItems: orderItems,
-          createdAt: new Date().toISOString(),
+          createdAt: notifiedAt,
           courseName: orderItems.map(i => `${i.name} x${i.qty}`).join(', ')
         });
       }
       
-      showToast('ชำระเงินสำเร็จ! รอพนักงานตรวจสอบสักครู่ครับ', 'success');
+      showToast('แจ้งชำระเงินเรียบร้อย! รอพนักงานตรวจสอบยอดโอนสักครู่ครับ', 'success');
       setSlipImage(null);
       setCustomerCart([]);
       setIsCartOpen(false);
@@ -139,6 +193,11 @@ export default function CustomerBedSession({
       showToast('เกิดข้อผิดพลาดในการบันทึกข้อมูล', 'error');
     }
     setIsUploading(false);
+  };
+
+  const setSelectedItemDetail = (c) => {
+    setViewItemDetails(c);
+    setViewItemType('course');
   };
   
   const handleAddToCart = (item, type) => {
@@ -291,17 +350,17 @@ export default function CustomerBedSession({
                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                      {filteredProducts.map((p, idx) => {
                        const name = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2", "name", "ชื่อ"]) || '-');
-                       const price = parseNumber(getFuzzyKey(p, ["ราคาขาย"]) || 0);
-                       const image = getFuzzyKey(p, ["รูปภาพ", "ภาพ", "img", "image"]);
+                       const price = parseNumber(getFuzzyKey(p, ['ราคาขาย', 'ราคาขายเต็ม', 'ราคา', 'price', 'col_6']));
+                       const image = getProductImage(p);
                        return (
-                         <div key={`p-${idx}`} className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden flex flex-col relative transition-transform hover:-translate-y-1 hover:shadow-md">
-                           <div className="relative aspect-[4/3] bg-slate-50/50 p-2 border-b border-slate-50 cursor-pointer" onClick={() => { setViewItemDetails(p); setViewItemType('product'); }}>
+                         <div key={`p-${idx}`} onClick={() => { setViewItemDetails(p); setViewItemType('product'); }} className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden flex flex-col relative transition-transform hover:-translate-y-1 hover:shadow-md cursor-pointer">
+                           <div className="relative aspect-[4/3] bg-slate-50/50 p-2 border-b border-slate-50">
                               {image ? <img src={image} className="w-full h-full object-contain mix-blend-multiply" alt={name}/> : <div className="w-full h-full flex items-center justify-center text-slate-300 text-[10px] font-bold">ไม่มีรูป</div>}
                            </div>
                            <div className="p-3 flex flex-col flex-1">
                              <h4 className="font-bold text-slate-700 text-[11px] sm:text-xs line-clamp-2 leading-tight mb-2 flex-1 text-center h-8">{name}</h4>
                              <div className="font-black text-indigo-600 text-center mb-3 text-sm">฿{price.toLocaleString()}</div>
-                             <button onClick={() => handleAddToCart({ id: p.id, name, price, image }, 'product')} className="w-10 h-10 mx-auto rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center hover:bg-indigo-600 hover:text-white active:scale-95 transition-colors absolute -bottom-1 -right-1 rounded-tl-2xl rounded-br-none rounded-tr-none rounded-bl-none shadow-sm">
+                             <button onClick={(e) => { e.stopPropagation(); handleAddToCart({ id: p.id, name, price, image }, 'product'); }} className="w-10 h-10 mx-auto rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center hover:bg-indigo-600 hover:text-white active:scale-95 transition-colors absolute -bottom-1 -right-1 rounded-tl-2xl rounded-br-none rounded-tr-none rounded-bl-none shadow-sm">
                                <ShoppingCart size={16} />
                              </button>
                            </div>
@@ -315,17 +374,17 @@ export default function CustomerBedSession({
                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                    {filteredCourses.map((c, idx) => {
                      const name = String(getFuzzyKey(c, ["ชื่อคอส", "ชื่อคอร์ส", "col_4", "name"]) || '-');
-                     const price = parseNumber(getFuzzyKey(c, ["ราคาขาย"]) || 0);
-                     const image = getFuzzyKey(c, ["รูปภาพ", "ภาพ", "img", "image"]);
+                     const price = parseNumber(getFuzzyKey(c, ['ราคาขาย', 'ราคาขายเต็ม', 'ราคา', 'price', 'col_5']));
+                     const image = getProductImage(c);
                      return (
-                       <div key={`c-${idx}`} className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden flex flex-col relative transition-transform hover:-translate-y-1 hover:shadow-md">
+                       <div key={`c-${idx}`} onClick={() => setSelectedItemDetail(c)} className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden flex flex-col relative transition-transform hover:-translate-y-1 hover:shadow-md cursor-pointer">
                          <div className="relative aspect-[4/3] bg-slate-50/50 p-2 border-b border-slate-50">
                             {image ? <img src={image} className="w-full h-full object-contain mix-blend-multiply" alt={name}/> : <div className="w-full h-full flex items-center justify-center text-slate-300 text-[10px] font-bold">ไม่มีรูป</div>}
                          </div>
                          <div className="p-3 flex flex-col flex-1">
                            <h4 className="font-bold text-slate-700 text-[11px] sm:text-xs line-clamp-2 leading-tight mb-2 flex-1 text-center h-8">{name}</h4>
                            <div className="font-black text-indigo-600 text-center mb-3 text-sm">฿{price.toLocaleString()}</div>
-                           <button onClick={() => handleAddToCart({ id: c.id, name, price, image }, 'course')} className="w-full py-1.5 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center hover:bg-indigo-600 hover:text-white active:scale-95 transition-colors text-xs font-bold gap-1 shadow-sm">
+                           <button onClick={(e) => { e.stopPropagation(); handleAddToCart({ id: c.id, name, price, image }, 'course'); }} className="w-full py-1.5 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center hover:bg-indigo-600 hover:text-white active:scale-95 transition-colors text-xs font-bold gap-1 shadow-sm">
                              <ShoppingCart size={14} /> เพิ่ม
                            </button>
                          </div>
@@ -368,9 +427,16 @@ export default function CustomerBedSession({
             </div>
 
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 text-center mb-8">
-              <h2 className="font-bold text-lg mb-2 text-slate-800">แสกน QR Code เพื่อโอนเงิน</h2>
-              <img src="https://promptpay.io/0812345678.png" alt="PromptPay" className="w-48 h-48 mx-auto mb-3 opacity-50 border border-slate-100 rounded-xl p-2" />
-              <p className="text-xs text-slate-500 mb-4">*จำลองภาพ QR Code</p>
+              <h2 className="font-bold text-lg mb-2 text-slate-800">สแกน QR Code เพื่อโอนเงิน</h2>
+              <div className="inline-flex flex-col items-center justify-center bg-white border border-slate-200 rounded-2xl p-4 mb-4 shadow-sm">
+                <QRCodeSVG
+                  value={generatePayload(promptPayId, { amount: Number(pendingOrder.price) || 0 })}
+                  size={180}
+                  level="M"
+                />
+                <div className="text-xs font-bold text-slate-700 mt-2">{promptPayName}</div>
+                <div className="text-[11px] text-slate-500">พร้อมเพย์: {promptPayId} • ยอด ฿{(Number(pendingOrder.price) || 0).toLocaleString()}</div>
+              </div>
               
               <label className={`block w-full cursor-pointer border-2 border-dashed rounded-xl p-6 transition-all ${slipImage ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 hover:bg-slate-100 border-indigo-200 hover:border-indigo-400'}`}>
                 <input type="file" accept="image/*" className="hidden" onChange={handleSlipUpload} />
@@ -382,7 +448,7 @@ export default function CustomerBedSession({
                 ) : (
                   <div className="flex flex-col items-center text-indigo-600">
                     <Camera size={32} className="mb-2" />
-                    <span className="font-bold text-sm">อัปโหลดสลิปโอนเงิน</span>
+                    <span className="font-bold text-sm">อัปโหลดสลิปโอนเงิน (แนะนำ)</span>
                   </div>
                 )}
               </label>
@@ -395,11 +461,11 @@ export default function CustomerBedSession({
         <div className="p-4 bg-white border-t border-slate-100 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] sticky bottom-0">
           <button 
             onClick={handleCheckout} 
-            disabled={isUploading || !slipImage}
+            disabled={isUploading}
             className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 shadow-lg hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100"
           >
             {isUploading ? <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span> : <CreditCard size={20} />}
-            {isUploading ? 'กำลังบันทึก...' : 'ยืนยันการชำระเงิน'}
+            {isUploading ? 'กำลังบันทึก...' : 'แจ้งชำระเงินเรียบร้อย'}
           </button>
         </div>
       )}
@@ -463,8 +529,16 @@ export default function CustomerBedSession({
               </div>
               
               <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 text-center mb-4">
-                <h2 className="font-bold text-slate-800 mb-2 text-sm">แสกน QR Code เพื่อโอนเงิน</h2>
-                <img src="https://promptpay.io/0812345678.png" alt="PromptPay" className="w-32 h-32 mx-auto mb-3 opacity-50 border border-slate-100 rounded-xl p-2" />
+                <h2 className="font-bold text-slate-800 mb-2 text-sm">สแกน QR Code เพื่อโอนเงิน</h2>
+                <div className="inline-flex flex-col items-center justify-center bg-white border border-slate-200 rounded-2xl p-4 mb-3 shadow-sm">
+                  <QRCodeSVG
+                    value={generatePayload(promptPayId, { amount: Number(cartTotal) || 0 })}
+                    size={180}
+                    level="M"
+                  />
+                  <div className="text-xs font-bold text-slate-700 mt-2">{promptPayName}</div>
+                  <div className="text-[11px] text-slate-500">พร้อมเพย์: {promptPayId} • ยอด ฿{(Number(cartTotal) || 0).toLocaleString()}</div>
+                </div>
                 
                 <label className={`block w-full cursor-pointer border-2 border-dashed rounded-xl p-4 transition-all ${slipImage ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 hover:bg-slate-100 border-indigo-200 hover:border-indigo-400'}`}>
                   <input type="file" accept="image/*" className="hidden" onChange={handleSlipUpload} />
@@ -476,7 +550,7 @@ export default function CustomerBedSession({
                   ) : (
                     <div className="flex flex-col items-center text-indigo-600">
                       <Camera size={24} className="mb-1" />
-                      <span className="font-bold text-xs">อัปโหลดสลิปโอนเงิน</span>
+                      <span className="font-bold text-xs">อัปโหลดสลิปโอนเงิน (แนะนำ)</span>
                     </div>
                   )}
                 </label>
@@ -486,11 +560,11 @@ export default function CustomerBedSession({
             <div className="p-4 border-t border-slate-100 bg-white shrink-0">
                <button 
                  onClick={handleCheckout} 
-                 disabled={isUploading || !slipImage || customerCart.length === 0}
+                 disabled={isUploading || customerCart.length === 0}
                  className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 shadow-lg hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100"
                >
                  {isUploading ? <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span> : <CreditCard size={20} />}
-                 {isUploading ? 'กำลังบันทึก...' : `ชำระเงิน ฿${cartTotal.toLocaleString()}`}
+                 {isUploading ? 'กำลังบันทึก...' : `แจ้งชำระเงินเรียบร้อย (฿${cartTotal.toLocaleString()})`}
                </button>
             </div>
           </div>
@@ -506,8 +580,8 @@ export default function CustomerBedSession({
             <div className="flex-1 overflow-y-auto hide-scrollbar">
               {viewItemType === 'product' ? (() => {
                 const name = String(getFuzzyKey(viewItemDetails, ["ชื่อสินค้า", "col_2", "name", "ชื่อ"]) || '-');
-                const price = parseNumber(getFuzzyKey(viewItemDetails, ["ราคาขาย"]) || 0);
-                const image = getFuzzyKey(viewItemDetails, ["รูปภาพ", "ภาพ", "img", "image"]);
+                const price = parseNumber(getFuzzyKey(viewItemDetails, ['ราคาขาย', 'ราคาขายเต็ม', 'ราคา', 'price', 'col_6']));
+                const image = getProductImage(viewItemDetails);
                 const desc = getFuzzyKey(viewItemDetails, ["รายละเอียด", "col_8", "desc"]);
                 const cat = getFuzzyKey(viewItemDetails, ["หมวดหมู่", "ประเภท", "category"]) || '-';
                 return (
@@ -531,7 +605,7 @@ export default function CustomerBedSession({
               })() : (() => {
                 const code = String(getFuzzyKey(viewItemDetails, ["รหัสคอส", "col_1"]) || '');
                 const courseName = String(getFuzzyKey(viewItemDetails, ["ชื่อคอส", "ชื่อคอร์ส", "col_4", "name"]) || '-');
-                const price = parseNumber(getFuzzyKey(viewItemDetails, ["ราคาขายเต็ม", "ราคา", "col_5"]) || 0);
+                const price = parseNumber(getFuzzyKey(viewItemDetails, ['ราคาขาย', 'ราคาขายเต็ม', 'ราคา', 'price', 'col_5']));
                 const credit = Number(getFuzzyKey(viewItemDetails, ["เครดิตที่ได้รับ", "เครดิต", "col_8"]) || 0);
                 const subItems = String(getFuzzyKey(viewItemDetails, ["รายการที่ได้รับ", "col_11"]) || '').trim();
                 const sessionCount = Number(getFuzzyKey(viewItemDetails, ["จำนวนครั้ง", "ครั้ง", "col_6"]) || 0);

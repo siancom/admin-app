@@ -38,9 +38,10 @@ import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, deleteField,
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject, uploadString } from 'firebase/storage';
 import { auth, db, getCol, getDocRef, storage } from './config/firebase';
 import html2canvas from 'html2canvas';
+import * as XLSX from 'xlsx';
 
 // --- UTILS & PARSERS ---
-import { getLocalYYYYMMDD, formatDateTimeStr, parseNumber, parseQty, parseHistoryTime, parseCSVRow, parseThaiDate } from './utils/parse';
+import { getLocalYYYYMMDD, normalizeBranchName, getTotalStock, getBranchStock, formatDateTimeStr, parseNumber, parseQty, parseHistoryTime, parseCSVRow, parseThaiDate } from './utils/parse';
 import { getFuzzyKey } from './utils/fuzzy';
 import { 
   isUsageType, isAddType, isFreeUsageApp as isFreeUsage, extractHistoryQty, 
@@ -201,6 +202,7 @@ export default function App() {
   const [selectedHolidayDate, setSelectedHolidayDate] = useState(null);
   const [expenses, setExpenses] = useState([]);
   const [serviceLogs, setServiceLogs] = useState([]);
+  const [inventoryLogs, setInventoryLogs] = useState([]);
   const [appSettings, setAppSettings] = useState({ monthlyTarget: 0 });
   const [branchPasscodeModal, setBranchPasscodeModal] = useState({ isOpen: false, branch: null, passcode: '' });
   const [masterCourseUsagesModal, setMasterCourseUsagesModal] = useState({ isOpen: false, mc: null });
@@ -453,13 +455,25 @@ export default function App() {
   }, []);
 
   const triggerToast = (title, message, type = 'info') => {
-      setNotifToast({ show: true, title, message, type });
+      // รองรับกรณีคอมโพเนนต์ลูกเรียก showToast(msg, 'success' | 'error' | 'warning' | 'info') แบบ 2 อาร์กิวเมนต์
+      let resolvedTitle = title;
+      let resolvedMessage = message;
+      let resolvedType = type;
+      if (['success', 'error', 'warning', 'info', 'alert'].includes(message) && type === 'info') {
+          resolvedType = message;
+          resolvedTitle = message === 'error' ? 'เกิดข้อผิดพลาด' : message === 'warning' ? 'แจ้งเตือน' : 'สำเร็จ';
+          resolvedMessage = title;
+      } else if (message === undefined) {
+          resolvedMessage = title;
+          resolvedTitle = 'แจ้งเตือน';
+      }
+      setNotifToast({ show: true, title: resolvedTitle, message: resolvedMessage, type: resolvedType });
       if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
       notifTimerRef.current = setTimeout(() => {
           setNotifToast(prev => ({ ...prev, show: false }));
       }, 6000);
       
-      if (type === 'alert') {
+      if (resolvedType === 'alert') {
           try {
               const alertAudio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
               alertAudio.play().catch(e => console.log(e));
@@ -751,9 +765,19 @@ export default function App() {
     const unsub14 = onSnapshot(getCol('advance_payments'), (s) => { setAdvancePayments(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsub15 = onSnapshot(getCol('expenses'), (s) => { setExpenses(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsub16 = onSnapshot(getCol('service_logs'), (s) => { setServiceLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
+    const unsubInvLogs = onSnapshot(getCol('inventory_logs'), (s) => { setInventoryLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
 
-    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsubPromo(); unsub8(); unsub9(); unsub10(); unsub11(); unsub12(); unsub13(); unsub14(); unsub15(); unsub16(); };
+    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsubPromo(); unsub8(); unsub9(); unsubHolidays(); unsub10(); unsub11(); unsub12(); unsub13(); unsubReqs(); unsubJobs(); unsub14(); unsub15(); unsub16(); unsubInvLogs(); };
   }, [user]);
+
+  // 🌟 ตัวตนพนักงานปัจจุบัน (ย้ายขึ้นมาอยู่ก่อน early returns เพื่อไม่ให้ผิดกฎ React Hooks เวลาสั่งพิมพ์ใบคอร์ส)
+  useEffect(() => {
+    const id = localStorage.getItem('personalEmployeeId');
+    if (id && employees.length > 0) {
+      const emp = employees.find(e => e.id === id);
+      setActiveStaff(emp || null);
+    }
+  }, [employees]);
 
   // ซิงค์เป้ายอดขายที่เคยถูกบันทึกไว้ใต้คีย์ 'สำนักงานใหญ่' (จากบั๊กค่าเริ่มต้น dropdown) ไปยังสาขาแรกจริง (เช่น 'เฉวง' / 'สาขาเฉวง')
   useEffect(() => {
@@ -1116,6 +1140,7 @@ export default function App() {
 
       let totalAmountLinkedToCourse = 0; 
       myHistories.forEach(h => {
+          if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '').trim() === 'ยกเลิก') return;
           const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '').trim();
           if (type.match(/(เบิก|หัก|จ่าย)/)) { 
               const amt = parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดรวม", "ยอดเบิก", "ยอดหัก", "จำนวนเงิน", "ราคา", "ยอดหักเครดิต", "col_19"]));
@@ -1138,23 +1163,20 @@ export default function App() {
       let newSystemUsed = 0;
       let newSystemAdded = 0;
       myHistories.forEach(h => {
+          if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '').trim() === 'ยกเลิก') return;
           if (!isMoleHistoryRecord(h)) {
               const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '');
               
               if (isUsageType(type)) {
                   if (!isFreeUsage(h)) {
                       const isLegacy = !h.courseId;
-                      const hasValidSigs = h.customerSignature?.length > 2000 && h.staffSignature?.length > 2000;
+                      const hasValidSigs = (h.customerSignature?.length > 200 && h.staffSignature?.length > 200) || h.courseUpdatedDirectly === true;
                       
                       if (isLegacy || hasValidSigs) {
                           const rawQty = getFuzzyKey(h, ["จำนวน", "จำนวนที่ใช้", "ตัดคอร์ส", "col_15"]);
                           const qty = extractHistoryQty(h); 
                           if (!(type.includes('เบิก') && (rawQty === undefined || rawQty === ''))) {
-                              if (isPosCourse) {
-                                  if (!h.courseUpdatedDirectly) {
-                                      newSystemUsed += qty;
-                                  }
-                              } else {
+                              if (!h.courseUpdatedDirectly) {
                                   newSystemUsed += qty;
                               }
                           }
@@ -1497,7 +1519,7 @@ export default function App() {
     };
   }, [bookings]);
 
-  const productStats = useMemo(() => ({ outOfStock: products.filter(p => parseQty(getFuzzyKey(p, ["จำนวนคงเหลือ", "col_12"])) <= 0).length }), [products]);
+  const productStats = useMemo(() => ({ outOfStock: products.filter(p => !p.isStoreUseOnly && getTotalStock(p, branches) <= 0).length }), [products, branches]);
 
   const sortedHistories = useMemo(() => {
     return histories.filter(h => {
@@ -1744,7 +1766,8 @@ export default function App() {
     const outOfStock = [];
     const lowStock = [];
     products.forEach(p => {
-      const qty = parseQty(getFuzzyKey(p, ["จำนวนคงเหลือ", "col_12"]));
+      if (p.isStoreUseOnly) return;
+      const qty = getTotalStock(p, branches);
       if (qty <= 0) outOfStock.push(p);
       else if (qty <= stockThreshold) lowStock.push(p);
     });
@@ -1797,7 +1820,7 @@ export default function App() {
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-    XLSX.writeFile(wb, `${filename}_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(wb, `${filename}_${getLocalYYYYMMDD()}.xlsx`);
   };
 
   const handleClearTestData = async () => {
@@ -1853,7 +1876,10 @@ export default function App() {
       if (d.updatedAt) { const t = fromIso(d.updatedAt); if (t != null) return t; }
       // fallback: วันที่ไทย "D/M/BBBB (พ.ศ.)" เช่น 23/8/2569
       const m = String(d['วันที่'] || '').trim().match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-      if (m) return new Date(parseInt(m[3]) - 543, parseInt(m[2]) - 1, parseInt(m[1])).getTime();
+      if (m) {
+          const yr = parseInt(m[3], 10);
+          return new Date(yr > 2400 ? yr - 543 : yr, parseInt(m[2], 10) - 1, parseInt(m[1], 10)).getTime();
+      }
       return null;
   };
   const monthStartTs = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); };
@@ -2154,7 +2180,7 @@ export default function App() {
 
   const clockedInEmployees = useMemo(() => {
      if (!globalBranch) return [];
-     const today = new Date().toISOString().split('T')[0];
+     const today = getLocalYYYYMMDD();
      
      return employees.filter(emp => {
          const att = employeeAttendance.find(a => a.employeeId === emp.id && a.date === today && !a.clockOut);
@@ -2743,8 +2769,35 @@ const flexMessage = {
     try {
         const custSignatureUrl = custSigRef.current?.toDataURL() || null; 
         const staffSignatureUrl = staffSigRef.current?.toDataURL() || null;
-        const batch = writeBatch(db); 
         const activeCourses = getCustomerCourses(customer.computedPhone); 
+        const linkedCourseId = useCourseModal.targetCourseId || (activeCourses.length > 0 ? activeCourses[0].id : '');
+        const linkedCourse = activeCourses.find(c => c.id === linkedCourseId);
+        const isVip = customer?.isApproved === true;
+        const targetBranch = normalizeBranchName(useCourseData.branch || globalBranch || 'เฉวง') || 'เฉวง';
+
+        // ตรวจสอบวงเงินเครดิตและคำนวณยอดเบิกสินค้าล่วงหน้าก่อนตัดจริง
+        const productItems = [];
+        let totalProductQty = 0;
+        let totalProductValue = 0;
+        const productQtyById = new Map();
+
+        validProducts.forEach(pSelect => {
+            const prod = products.find(p => p.id === pSelect.productId);
+            if (!prod) return;
+            const finalPrice = computeFinalPrice(prod, isVip);
+            const lineValue = finalPrice * pSelect.qty;
+            const prodName = String(getFuzzyKey(prod, ["ชื่อสินค้า", "col_2"]));
+            productItems.push(`${prodName} x${pSelect.qty}`);
+            totalProductQty += pSelect.qty;
+            totalProductValue += lineValue;
+            productQtyById.set(prod.id, (productQtyById.get(prod.id) || 0) + Number(pSelect.qty || 0));
+        });
+
+        if (totalProductValue > 0 && (!linkedCourse || totalProductValue > (linkedCourse.computedRemainCredit || 0))) {
+            return showToast(`เครดิตคงเหลือไม่เพียงพอสำหรับการเบิกสินค้า (ต้องการ ฿${totalProductValue.toLocaleString()})`);
+        }
+
+        const batch = writeBatch(db); 
         const orderRefNo = `Use${Date.now().toString().slice(-6)}`;
         
         // 1. บันทึกประวัติการตัดคอร์ส
@@ -2764,6 +2817,7 @@ const flexMessage = {
                 "รายการ": "ตัดคอร์สผ่านระบบ", 
                 "จำนวน": String(qty), 
                 "สาขา": String(useCourseData.branch || 'เฉวง'), 
+                "ผู้ให้บริการ": String(useCourseData.staffName || ''),
                 "courseId": course.id,
                 "customerPhoto": useCourseData.photoUrl, 
                 "customerSignature": custSignatureUrl, 
@@ -2771,33 +2825,21 @@ const flexMessage = {
             });
         });
 
-        // 2. บันทึกประวัติการเบิกสินค้า (หักเครดิต) พร้อมตัดสต็อก — รวมเป็นรายการเดียว
-        const productItems = [];
-        let totalProductQty = 0;
-        let totalProductValue = 0;
-        const linkedCourseId = useCourseModal.targetCourseId || (activeCourses.length > 0 ? activeCourses[0].id : '');
-        const linkedCourse = activeCourses.find(c => c.id === linkedCourseId);
-
-        validProducts.forEach(pSelect => {
-            const prod = products.find(p => p.id === pSelect.productId);
-            if (!prod) return;
-            
-            // 🔥 คำนวณราคาสุทธิ (ไม่ลดซ้ำซ้อน)
-            const isVip = customer?.isApproved === true;
-            const finalPrice = computeFinalPrice(prod, isVip);
-            const lineValue = finalPrice * pSelect.qty;
-            const currentStock = parseQty(getFuzzyKey(prod, ["จำนวนคงเหลือ", "col_12"]));
-            
-            // ตัดสต็อกสินค้า (แยกทีละสินค้า)
+        // 2. ตัดสต็อกสินค้าแยกตามสาขา (รวมยอดต่อสินค้าป้องกันเขียนทับ)
+        productQtyById.forEach((deductQty, prodId) => {
+            const prod = products.find(p => p.id === prodId);
+            if (!prod || deductQty <= 0) return;
+            const nextStockByBranch = { ...(prod.stock_by_branch || {}) };
+            const currentBrStock = getBranchStock(prod, targetBranch);
+            nextStockByBranch[targetBranch] = Math.max(0, currentBrStock - deductQty);
+            const currentTotal = getTotalStock(prod, branches);
+            const nextTotal = prod.stock_by_branch && Object.keys(prod.stock_by_branch).length > 0
+                ? Object.values(nextStockByBranch).reduce((sum, v) => sum + (Number(v) || 0), 0)
+                : Math.max(0, currentTotal - deductQty);
             batch.update(doc(db, 'products', prod.id), {
-                "จำนวนคงเหลือ": String(Math.max(0, currentStock - pSelect.qty))
+                stock_by_branch: nextStockByBranch,
+                "จำนวนคงเหลือ": String(nextTotal)
             });
-
-            // เก็บข้อมูลสำหรับรวมเป็นรายการเดียว
-            const prodName = String(getFuzzyKey(prod, ["ชื่อสินค้า", "col_2"]));
-            productItems.push(`${prodName} x${pSelect.qty}`);
-            totalProductQty += pSelect.qty;
-            totalProductValue += lineValue;
         });
 
         // สร้าง history record เดียวรวมทุกสินค้า
@@ -2813,6 +2855,7 @@ const flexMessage = {
                 "รายการ": productItems.join(', '),
                 "จำนวนเบิก": String(totalProductQty),
                 "ยอดเบิก": String(totalProductValue),
+                "ผู้ให้บริการ": String(useCourseData.staffName || ''),
                 "courseId": linkedCourseId,
                 "เลขที่ใบคอส": linkedCourse ? String(getFuzzyKey(linkedCourse, ["เลขที่ใบคอส", "col_2"])) : '',
                 "สาขา": String(useCourseData.branch || 'เฉวง'),
@@ -2880,13 +2923,104 @@ const flexMessage = {
             showToast('⚠️ นี่คือคำสั่งซื้อ "เติมเครดิต" — อย่าอนุมัติผ่านปุ่มนี้ ให้ใช้หน้าเติมวงเงินเครดิต (Wallet) เพื่อเพิ่มเครดิตให้ลูกค้าแทน');
             return;
         }
-        const cName = customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(order.customerPhone || '')) ? String(getFuzzyKey(customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(order.customerPhone || '')), ["ชื่อ", "col_1"])) : String(order.customerName || 'ลูกค้าทั่วไป');
-        const courseNo = `IC${Date.now().toString().slice(-6)}`;
-        await addDoc(getCol('courses'), { "เบอร์โทร": String(order.customerPhone || ''), "เลขที่ใบคอส": courseNo, "วันที่ซื้อ": new Date().toLocaleDateString('th-TH'), "ผู้ซื้อคอส": cName, "ชื่อคอส": String(order.courseName || ''), "สาขาที่ซื้อ": String(order.branch || "เฉวง"), "ราคา": String(order.price || "0"), "เครดิตที่ได้รับ": String(order.credit || order.price || "0"), "จำนวนครั้งที่ได้": String(order.qty || "1"), "ยอดค้างชำระ": "0", "ยอดชำระแล้วทั้งหมด": String(order.price || "0"), "ครั้งที่ใช้": "0", "ครั้งที่เหลือดิบ": String(order.qty || "1"), "สถานะ": "ยังคงเหลือ", "ประเภทการชำระ": "จ่ายเต็ม" });
-        await addDoc(getCol('histories'), { "วันที่": new Date().toLocaleDateString('th-TH'), "ชื่อลูกค้า": cName, "เบอร์โทร": String(order.customerPhone || ''), "หมายเลขคำสั่งซื้อ": String(order.orderNo || ''), "ประเภท": "ซื้อคอร์ส", "สถานะ": "เรียบร้อย", "สินค้า": String(order.courseName || ''), "ยอดเงิน": String(order.price || "0"), "สาขา": String(order.branch || "เฉวง"), "อ้างอิง": courseNo });
-        await updateDoc(getDocRef('orders', order.id), { status: 'ชำระเงินแล้ว', updatedAt: new Date().toISOString() });
-        showToast('อนุมัติคำสั่งซื้อ สร้างคอร์ส และเพิ่มยอดสะสมสำเร็จ!');
-        const targetCustomer = customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(order.customerPhone || ''));
+        const matchedCustomer = customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(order.customerPhone || ''));
+        const cName = matchedCustomer ? String(getFuzzyKey(matchedCustomer, ["ชื่อ", "col_1"])) : String(order.customerName || 'ลูกค้าทั่วไป');
+        const resolvedPrice = parseNumber(order.price ?? order.totalPrice ?? order.itemPrice ?? 0);
+        const targetBranch = normalizeBranchName(order.branch || globalBranch || 'เฉวง') || 'เฉวง';
+        const isProductOrder = order.itemType === 'product' || (Array.isArray(order.cartItems) && order.cartItems.length > 0 && order.cartItems.every(i => i.type === 'product' || i.type === 'simple' || !i.type));
+
+        if (isProductOrder) {
+            const batch = writeBatch(db);
+            if (!order.stockDeducted && Array.isArray(order.cartItems) && order.cartItems.length > 0) {
+                const deductMap = new Map();
+                order.cartItems.forEach(item => {
+                    const qty = Number(item.qty) || 1;
+                    const prod = products.find(p =>
+                        (item.productId && p.id === item.productId) ||
+                        (item.id && p.id === item.id) ||
+                        (item.sku && String(getFuzzyKey(p, ["รหัส", "รหัสสินค้า", "col_1"]) || '').trim() === String(item.sku).trim()) ||
+                        (item.name && String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim() === String(item.name).trim())
+                    );
+                    if (prod) {
+                        deductMap.set(prod.id, (deductMap.get(prod.id) || 0) + qty);
+                    }
+                });
+                deductMap.forEach((deductQty, prodId) => {
+                    const prod = products.find(p => p.id === prodId);
+                    if (!prod) return;
+                    const nextStockByBranch = { ...(prod.stock_by_branch || {}) };
+                    const curBr = getBranchStock(prod, targetBranch);
+                    nextStockByBranch[targetBranch] = Math.max(0, curBr - deductQty);
+                    const curTotal = getTotalStock(prod, branches);
+                    const nextTotal = prod.stock_by_branch && Object.keys(prod.stock_by_branch).length > 0
+                        ? Object.values(nextStockByBranch).reduce((sum, v) => sum + (Number(v) || 0), 0)
+                        : Math.max(0, curTotal - deductQty);
+                    batch.update(getDocRef('products', prod.id), {
+                        stock_by_branch: nextStockByBranch,
+                        "จำนวนคงเหลือ": String(nextTotal)
+                    });
+                });
+            }
+            const itemSummary = Array.isArray(order.cartItems) && order.cartItems.length > 0
+                ? order.cartItems.map(i => `${i.name || i.itemName || 'สินค้า'} x${i.qty || 1}`).join(', ')
+                : String(order.itemName || order.courseName || 'สินค้า');
+            batch.set(doc(getCol('histories')), {
+                "วันที่": new Date().toLocaleDateString('th-TH'),
+                "เวลา": new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+                "ชื่อลูกค้า": cName,
+                "เบอร์โทร": String(order.customerPhone || ''),
+                "หมายเลขคำสั่งซื้อ": String(order.orderNo || ''),
+                "ประเภท": "ซื้อสินค้า",
+                "สถานะ": "เรียบร้อย",
+                "สินค้า": itemSummary,
+                "รายการ": itemSummary,
+                "ยอดเงิน": String(resolvedPrice),
+                "สาขา": String(order.branch || "เฉวง")
+            });
+            batch.update(getDocRef('orders', order.id), {
+                status: 'ชำระเงินแล้ว',
+                stockDeducted: true,
+                updatedAt: new Date().toISOString()
+            });
+            await batch.commit();
+            showToast('อนุมัติคำสั่งซื้อสินค้าและตัดสต็อกสำเร็จ!');
+        } else {
+            const resolvedCourseName = String(order.courseName || order.itemName || (Array.isArray(order.cartItems) && order.cartItems[0]?.name) || 'คอร์สบริการ');
+            const resolvedCredit = order.credit !== undefined && order.credit !== '' ? String(order.credit) : "0";
+            const courseNo = `IC${Date.now().toString().slice(-6)}`;
+            await addDoc(getCol('courses'), {
+                "เบอร์โทร": String(order.customerPhone || ''),
+                "เลขที่ใบคอส": courseNo,
+                "วันที่ซื้อ": new Date().toLocaleDateString('th-TH'),
+                "ผู้ซื้อคอส": cName,
+                "ชื่อคอส": resolvedCourseName,
+                "สาขาที่ซื้อ": String(order.branch || "เฉวง"),
+                "ราคา": String(resolvedPrice),
+                "เครดิตที่ได้รับ": resolvedCredit,
+                "จำนวนครั้งที่ได้": String(order.qty || "1"),
+                "ยอดค้างชำระ": "0",
+                "ยอดชำระแล้วทั้งหมด": String(resolvedPrice),
+                "ครั้งที่ใช้": "0",
+                "ครั้งที่เหลือดิบ": String(order.qty || "1"),
+                "สถานะ": "ยังคงเหลือ",
+                "ประเภทการชำระ": "จ่ายเต็ม"
+            });
+            await addDoc(getCol('histories'), {
+                "วันที่": new Date().toLocaleDateString('th-TH'),
+                "ชื่อลูกค้า": cName,
+                "เบอร์โทร": String(order.customerPhone || ''),
+                "หมายเลขคำสั่งซื้อ": String(order.orderNo || ''),
+                "ประเภท": "ซื้อคอร์ส",
+                "สถานะ": "เรียบร้อย",
+                "สินค้า": resolvedCourseName,
+                "ยอดเงิน": String(resolvedPrice),
+                "สาขา": String(order.branch || "เฉวง"),
+                "อ้างอิง": courseNo
+            });
+            await updateDoc(getDocRef('orders', order.id), { status: 'ชำระเงินแล้ว', updatedAt: new Date().toISOString() });
+            showToast('อนุมัติคำสั่งซื้อ สร้างคอร์ส และเพิ่มยอดสะสมสำเร็จ!');
+        }
+        const targetCustomer = matchedCustomer;
         
         // --- Gamification Logic ---
         if (targetCustomer) {
@@ -2896,7 +3030,7 @@ const flexMessage = {
                 gamificationSnap.forEach(d => { if (d.id === 'gamification') gamiConfig = d.data(); });
                 
                 if (gamiConfig && gamiConfig.spinSettings && gamiConfig.spinSettings.isActive) {
-                    const price = Number(order.price || 0);
+                    const price = resolvedPrice;
                     const bahtPerSpin = gamiConfig.spinSettings.bahtPerSpin || 5000;
                     const bahtPerGolden = 1000; // Hardcoded or dynamic
                     
@@ -3340,7 +3474,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
   };
 
 
-  const handleCreateCourse = async (e) => { e.preventDefault(); try { await addDoc(getCol('courses'), { "เบอร์โทร": String(newCourseForm.phone), "เลขที่ใบคอส": `IC${Date.now().toString().slice(-6)}`, "วันที่ซื้อ": new Date().toLocaleDateString('th-TH'), "ผู้ซื้อคอส": customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(newCourseForm.phone || '')) ? String(getFuzzyKey(customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(newCourseForm.phone || '')), ["ชื่อ", "col_1"])) : 'ลูกค้าทั่วไป', "ชื่อคอส": String(newCourseForm.name), "สาขาที่ซื้อ": String(newCourseForm.branch), "ราคา": String(newCourseForm.price || "0"), "เครดิตที่ได้รับ": String(newCourseForm.credit || newCourseForm.price || "0"), "จำนวนครั้งที่ได้": String(newCourseForm.qty || "1"), "ยอดค้างชำระ": String(newCourseForm.pending || "0"), "ยอดชำระแล้วทั้งหมด": String(parseNumber(newCourseForm.price) - parseNumber(newCourseForm.pending)), "ครั้งที่ใช้": "0", "ครั้งที่เหลือดิบ": String(newCourseForm.qty || "1"), "สถานะ": "ยังคงเหลือ", "ประเภทการชำระ": parseNumber(newCourseForm.pending) > 0 ? "ผ่อนชำระ" : "จ่ายเต็ม" }); setIsAddCourseOpen(false); setNewCourseForm({ phone: '', name: '', qty: '1', price: '', credit: '', pending: '0', branch: globalBranch || 'เฉวง' }); showToast(`เปิดใบคอร์สใหม่สำเร็จ!`); } catch (err) { showToast('ข้อผิดพลาด: ' + err.message); } };
+  const handleCreateCourse = async (e) => { e.preventDefault(); try { await addDoc(getCol('courses'), { "เบอร์โทร": String(newCourseForm.phone), "เลขที่ใบคอส": `IC${Date.now().toString().slice(-6)}`, "วันที่ซื้อ": new Date().toLocaleDateString('th-TH'), "ผู้ซื้อคอส": customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(newCourseForm.phone || '')) ? String(getFuzzyKey(customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(newCourseForm.phone || '')), ["ชื่อ", "col_1"])) : 'ลูกค้าทั่วไป', "ชื่อคอส": String(newCourseForm.name), "สาขาที่ซื้อ": String(newCourseForm.branch), "ราคา": String(newCourseForm.price || "0"), "เครดิตที่ได้รับ": String(newCourseForm.credit !== '' && newCourseForm.credit !== undefined ? newCourseForm.credit : "0"), "จำนวนครั้งที่ได้": String(newCourseForm.qty || "1"), "ยอดค้างชำระ": String(newCourseForm.pending || "0"), "ยอดชำระแล้วทั้งหมด": String(parseNumber(newCourseForm.price) - parseNumber(newCourseForm.pending)), "ครั้งที่ใช้": "0", "ครั้งที่เหลือดิบ": String(newCourseForm.qty || "1"), "สถานะ": "ยังคงเหลือ", "ประเภทการชำระ": parseNumber(newCourseForm.pending) > 0 ? "ผ่อนชำระ" : "จ่ายเต็ม" }); setIsAddCourseOpen(false); setNewCourseForm({ phone: '', name: '', qty: '1', price: '', credit: '', pending: '0', branch: globalBranch || 'เฉวง' }); showToast(`เปิดใบคอร์สใหม่สำเร็จ!`); } catch (err) { showToast('ข้อผิดพลาด: ' + err.message); } };
   
   const submitCourseBooking = async (e) => { 
       e.preventDefault(); if (isSlotTaken(bookingDateTime)) return showToast('เวลานี้มีลูกค้าจองคิวไว้แล้ว (คิวเต็ม) กรุณาเลือกเวลาอื่นครับ');
@@ -3414,11 +3548,15 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
           return;
       }
 
-      // เช็ควันที่ - ถ้าเป็นคิววันอื่น ให้เปลี่ยนวันที่เป็นวันนี้เลย
+      // เช็ควันที่ - ถ้าเป็นคิววันอื่น ให้เปลี่ยนวันที่เป็นวันนี้เลย (ทั้ง date และ dateTime)
       const dt = getSafeDateTime(found);
       const isToday = dt?.startsWith(todayStr);
       if (!isToday) {
-          await updateDoc(getDocRef('bookings', found.id), { date: todayStr });
+          const timePart = dt && dt.includes('T') ? dt.split('T')[1] : '10:00';
+          await updateDoc(getDocRef('bookings', found.id), {
+              date: todayStr,
+              dateTime: `${todayStr}T${timePart}`
+          });
       }
 
       // ผ่านทุกเงื่อนไข
@@ -3429,7 +3567,30 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
   };
   
   const submitCreateOrder = async (e) => { e.preventDefault(); try { await addDoc(getCol('orders'), { ...newOrderForm, orderNo: `OD${Date.now().toString().slice(-6)}`, status: 'รอดำเนินการ', createdAt: new Date().toISOString() }); setIsAddOrderOpen(false); setNewOrderForm({ customerPhone: '', customerName: '', courseName: '', price: '', credit: '', qty: '1', branch: globalBranch || 'เฉวง' }); showToast('สร้างคำสั่งซื้อสำเร็จ รออนุมัติ'); } catch (err) { showToast('ข้อผิดพลาด: ' + err.message); } };
-  const handleAddProduct = async (e) => { e.preventDefault(); try { await addDoc(getCol('products'), { "รหัส": String(newProductForm.code), "ชื่อสินค้า": String(newProductForm.name), "หมวดสินค้า": String(newProductForm.category), "หน่วยนับ": String(newProductForm.unit), "ราคาขายเต็ม": String(newProductForm.price), "ราคาสมาชิก": String(newProductForm.memberPrice), "จำนวนคงเหลือ": String(newProductForm.stock), "รายละเอียดสินค้า": String(newProductForm.details || ''), "isStoreUseOnly": Boolean(newProductForm.isStoreUseOnly) }); setIsAddProductOpen(false); setNewProductForm({ code: '', name: '', category: 'IRIS', unit: 'ชิ้น', price: '', memberPrice: '', stock: '0', details: '', isStoreUseOnly: false }); showToast('เพิ่มสินค้าใหม่สำเร็จ'); } catch (err) { showToast('ข้อผิดพลาด: ' + err.message); } };
+  const handleAddProduct = async (e) => {
+    e.preventDefault();
+    try {
+      const targetBr = normalizeBranchName(globalBranch || 'เฉวง') || 'เฉวง';
+      const initialStock = Number(newProductForm.stock) || 0;
+      await addDoc(getCol('products'), {
+        "รหัส": String(newProductForm.code),
+        "ชื่อสินค้า": String(newProductForm.name),
+        "หมวดสินค้า": String(newProductForm.category),
+        "หน่วยนับ": String(newProductForm.unit),
+        "ราคาขายเต็ม": String(newProductForm.price),
+        "ราคาสมาชิก": String(newProductForm.memberPrice),
+        "จำนวนคงเหลือ": String(initialStock),
+        stock_by_branch: { [targetBr]: initialStock },
+        "รายละเอียดสินค้า": String(newProductForm.details || ''),
+        "isStoreUseOnly": Boolean(newProductForm.isStoreUseOnly)
+      });
+      setIsAddProductOpen(false);
+      setNewProductForm({ code: '', name: '', category: 'IRIS', unit: 'ชิ้น', price: '', memberPrice: '', stock: '0', details: '', isStoreUseOnly: false });
+      showToast('เพิ่มสินค้าใหม่สำเร็จ');
+    } catch (err) {
+      showToast('ข้อผิดพลาด: ' + err.message);
+    }
+  };
   
   // --- CREDIT MANAGEMENT HANDLERS ---
   const handleAddCredit = async ({ amount, note }) => {
@@ -3467,18 +3628,20 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
           
           await addDoc(getCol('histories'), {
               courseId: course.id,
+              "เลขที่ใบคอส": String(getFuzzyKey(course, ["เลขที่ใบคอส", "col_2"]) || '').trim(),
               "วันที่": new Date().toLocaleDateString('th-TH'),
               "เวลา": new Date().toLocaleTimeString('th-TH', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+              "ชื่อลูกค้า": selectedCustomer.computedName,
               "เบอร์โทร": selectedCustomer.computedPhone,
               "ประเภท": "ตัดคอร์ส",
+              "สถานะ": "เรียบร้อย",
               "รายการ": `โอนเครดิตไปยัง ${destPhone} ${destName}${note ? ` (${note})` : ''}`,
               "ผู้ให้บริการ": "ระบบ",
               "ยอดเบิก": String(deductAmount),
               "ลายเซ็นพนักงาน": "ระบบ"
           });
           
-          const newUsedCredit = (course.computedUsedCredit || 0) + deductAmount;
-          await updateDoc(getDocRef('courses', course.id), { "ยอดเบิกดิบ": String(newUsedCredit) });
+          // ไม่ต้องแก้ "ยอดเบิกดิบ" ซ้ำ เพราะ processedCourses คำนวณรวมจาก histories ("ยอดเบิก") อยู่แล้ว
           remainingToDeduct -= deductAmount;
         }
       }
@@ -3517,18 +3680,20 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
           
           await addDoc(getCol('histories'), {
               courseId: course.id,
+              "เลขที่ใบคอส": String(getFuzzyKey(course, ["เลขที่ใบคอส", "col_2"]) || '').trim(),
               "วันที่": new Date().toLocaleDateString('th-TH'),
               "เวลา": new Date().toLocaleTimeString('th-TH', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+              "ชื่อลูกค้า": selectedCustomer.computedName,
               "เบอร์โทร": selectedCustomer.computedPhone,
               "ประเภท": "ตัดคอร์ส",
+              "สถานะ": "เรียบร้อย",
               "รายการ": `หักลดเครดิต: ${note}`,
               "ผู้ให้บริการ": "ระบบ",
               "ยอดเบิก": String(deductAmount),
               "ลายเซ็นพนักงาน": "ระบบ"
           });
           
-          const newUsedCredit = (course.computedUsedCredit || 0) + deductAmount;
-          await updateDoc(getDocRef('courses', course.id), { "ยอดเบิกดิบ": String(newUsedCredit) });
+          // ไม่ต้องแก้ "ยอดเบิกดิบ" ซ้ำ เพราะ processedCourses คำนวณรวมจาก histories ("ยอดเบิก") อยู่แล้ว
           remainingToDeduct -= deductAmount;
         }
       }
@@ -3539,7 +3704,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
 
   const handleSearchCustomerForTransfer = (phone) => {
     const cleanPhone = (p) => String(p || '').replace(/\D/g, '');
-    const found = customersRaw.find(c => cleanPhone(c.computedPhone || getFuzzyKey(c, ["เบอร์โทร", "col_3"])) === cleanPhone(phone));
+    const found = customers.find(c => cleanPhone(c.computedPhone || getFuzzyKey(c, ["เบอร์โทร", "col_3"])) === cleanPhone(phone));
     return Promise.resolve(found || null);
   };
 
@@ -3885,15 +4050,6 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
   ];
 
   // Branch Selection Modal for POS
-  // 🌟 ตัวตนพนักงานปัจจุบัน (จาก personalEmployeeId ที่เพิ่งยืนยัน PIN)
-  useEffect(() => {
-    const id = localStorage.getItem('personalEmployeeId');
-    if (id && employees.length > 0) {
-      const emp = employees.find(e => e.id === id);
-      setActiveStaff(emp || null);
-    }
-  }, [employees]);
-
   const handlePosAccess = () => {
     // 🌟 เจ้าของร้าน: เข้า POS ได้เลย (เลือกสาขาก่อนถ้ายังไม่เลือก)
     if (globalRole === 'owner') {
@@ -4232,6 +4388,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
           {activeTab === 'course_deduction' && (
             <CourseDeductionSystem
               customers={customers}
+              courses={processedCourses}
               masterCourses={masterCourses}
               employees={employees}
               clockedInEmployees={clockedInEmployees}
@@ -4404,7 +4561,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                      <div className="space-y-3">
                           {(() => {
                              const todayDateStr = new Date().toLocaleDateString('th-TH');
-                             const todayIsoStr = new Date().toISOString().split('T')[0];
+                             const todayIsoStr = getLocalYYYYMMDD();
                              
                              let rows = [];
                              
@@ -5144,7 +5301,8 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
               globalBranch={globalBranch}
               globalRole={globalRole}
               user={user}
-              inventoryLogs={[]}
+              inventoryLogs={inventoryLogs}
+              wooImagesMap={wooImagesMap}
               triggerToast={triggerToast}
               setActionConfirmModal={setActionConfirmModal}
               wooIdMap={wooIdMap}
@@ -6471,14 +6629,15 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
              const selectedName = e.target.value;
              const selectedMC = masterCourses.find(mc => String(getFuzzyKey(mc, ["ชื่อคอส", "col_4"]) || '') === selectedName);
              if (selectedMC) {
-               const mcPrice = parseNumber(getFuzzyKey(mc, ["ราคา", "col_5"]));
-               const mcQty = parseQty(getFuzzyKey(mc, ["จำนวนครั้งที่ได้", "col_13"]));
+               const mcPrice = parseNumber(getFuzzyKey(selectedMC, ["ราคา", "ราคาขาย", "col_5"]));
+               const mcQty = parseQty(getFuzzyKey(selectedMC, ["จำนวนครั้งที่ได้", "จำนวนครั้ง", "col_7", "col_13"]));
+               const mcCredit = parseNumber(getFuzzyKey(selectedMC, ["เครดิตที่ได้รับ", "เครดิต", "วงเงิน", "col_8", "col_14"]));
                setNewCourseForm({
                  ...newCourseForm,
                  name: selectedName,
                  price: String(mcPrice || ''),
                  qty: String(mcQty || '1'),
-                 credit: String(mcPrice || '')
+                 credit: String(mcCredit || '0')
                });
              } else {
                setNewCourseForm({...newCourseForm, name: selectedName});
@@ -7161,6 +7320,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
           branches={branches}
           leaves={employeeLeaves}
           advancePayments={advancePayments}
+          requisitions={employeeRequisitions}
           histories={histories}
           dailySales={dailySales}
           appSettings={appSettings}

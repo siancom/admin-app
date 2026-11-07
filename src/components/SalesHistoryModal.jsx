@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Search, FileText, AlertCircle, Trash2, Clock, CheckCircle, DollarSign, Banknote, Smartphone, CreditCard, Package, Truck, Wallet, Camera } from 'lucide-react';
 import { query, where, orderBy, getDocs, doc, writeBatch, getDoc, limit } from 'firebase/firestore';
 import { db, getCol } from '../config/firebase';
-import { getBranchStock } from '../utils/parse';
+import { getBranchStock, getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
 import BarcodeScannerModal from './BarcodeScannerModal';
 import { sendOrderLineNotification } from '../utils/lineUtils';
 
@@ -33,10 +33,10 @@ export default function SalesHistoryModal({
         const snapshot = await getDocs(q);
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         
-        let filtered = data.filter(o => o.source === 'POS');
+        let filtered = data.filter(o => o.source === 'POS' || o.source === 'SHOPEE');
         
-        if (globalBranch && globalBranch !== 'สำนักงานใหญ่') {
-          filtered = filtered.filter(o => o.branch === globalBranch);
+        if (globalBranch && normalizeBranchName(globalBranch) !== 'สำนักงานใหญ่') {
+          filtered = filtered.filter(o => normalizeBranchName(o.branch) === normalizeBranchName(globalBranch));
         }
           
         if (isMounted) setOrders(filtered);
@@ -65,10 +65,10 @@ export default function SalesHistoryModal({
         const snapshot = await getDocs(q);
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         
-        let filtered = data.filter(o => o.source === 'POS');
+        let filtered = data.filter(o => o.source === 'POS' || o.source === 'SHOPEE');
         
-        if (globalBranch && globalBranch !== 'สำนักงานใหญ่') {
-          filtered = filtered.filter(o => o.branch === globalBranch);
+        if (globalBranch && normalizeBranchName(globalBranch) !== 'สำนักงานใหญ่') {
+          filtered = filtered.filter(o => normalizeBranchName(o.branch) === normalizeBranchName(globalBranch));
         }
           
         setOrders(filtered);
@@ -80,56 +80,99 @@ export default function SalesHistoryModal({
   };
 
   const handleCancelBill = async (order) => {
-    if (!window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการยกเลิกบิล ${order.orderNo}?\n(การกระทำนี้จะคืนสต๊อกและสิทธิ์คอร์สที่ถูกหักไป)`)) return;
+    if (!window.confirm(`คุณแน่ใจหรือไม่ว่าต้องการยกเลิกบิล ${order.orderNo}?\n(การกระทำนี้จะคืนสต๊อก เครดิต และสิทธิ์คอร์สที่ถูกหักไป)`)) return;
     
     setCancellingId(order.id);
     try {
       const batch = writeBatch(db);
       
       const orderRef = doc(getCol('orders'), order.id);
-      batch.update(orderRef, { status: 'ยกเลิก' });
-      
+      batch.update(orderRef, { status: 'ยกเลิก', 'สถานะ': 'ยกเลิก' });
+
+      const isOwnerPurchase = order.transactionType === 'owner_purchase' || (order.courseName || '').includes('[ซื้อเข้า');
+      const isBranchReq = order.transactionType === 'branch_requisition' || (order.courseName || '').includes('[เบิกจาก');
+      const targetBranch = normalizeBranchName(order.branch || globalBranch || 'เฉวง') || 'เฉวง';
+
       if (order.cartItems && Array.isArray(order.cartItems)) {
+        const prodStockCache = new Map(); // pid -> { ref, stock_by_branch }
+        const courseDeltaMap = new Map(); // courseId -> totalQtyToRestore
+
         for (const item of order.cartItems) {
-          if (item.type === 'product' && item.id) {
-            const prodRef = doc(getCol('products'), item.id);
-            const prodSnap = await getDoc(prodRef);
-            if (prodSnap.exists()) {
-              const prodData = prodSnap.data();
-              const targetBranch = order.branch || globalBranch || 'เฉวง';
-              const currentBranchStock = getBranchStock(prodData, targetBranch);
-              const newStock = currentBranchStock + item.qty;
-              
-              const currentStockByBranch = prodData?.stock_by_branch || {};
-              const newStockByBranch = { ...currentStockByBranch, [targetBranch]: newStock };
-              
-              batch.set(prodRef, { stock_by_branch: newStockByBranch }, { merge: true });
+          const itemId = String(item.id || '');
+          const isRealProduct = (item.type === 'product' || item.type === 'claim_item') && itemId && !itemId.startsWith('free-item-') && !itemId.startsWith('unmapped_');
+          if (isRealProduct) {
+            let entry = prodStockCache.get(itemId);
+            if (!entry) {
+              const prodRef = doc(getCol('products'), itemId);
+              const prodSnap = await getDoc(prodRef);
+              if (prodSnap.exists()) {
+                const prodData = prodSnap.data();
+                entry = {
+                  ref: prodRef,
+                  prodData,
+                  stockByBranch: { ...(prodData?.stock_by_branch || {}) }
+                };
+                prodStockCache.set(itemId, entry);
+              }
+            }
+            if (entry) {
+              const qty = Number(item.qty) || 1;
+              const curTarget = entry.stockByBranch[targetBranch] !== undefined
+                ? Number(entry.stockByBranch[targetBranch]) || 0
+                : getBranchStock(entry.prodData, targetBranch);
+
+              if (isOwnerPurchase) {
+                // ยกเลิกบิลสั่งซื้อเข้าคลังหลัก -> หักสต๊อกที่เพิ่มเข้าไปออก
+                entry.stockByBranch[targetBranch] = Math.max(0, curTarget - qty);
+              } else if (isBranchReq) {
+                // ยกเลิกบิลเบิกโอนสาขา -> หักจากสาขาปลายทาง และคืนเข้าสาขาเฉวง
+                entry.stockByBranch[targetBranch] = Math.max(0, curTarget - qty);
+                const curMain = entry.stockByBranch['เฉวง'] !== undefined
+                  ? Number(entry.stockByBranch['เฉวง']) || 0
+                  : getBranchStock(entry.prodData, 'เฉวง');
+                entry.stockByBranch['เฉวง'] = curMain + qty;
+              } else {
+                // ยกเลิกบิลขายปกติ -> คืนสต๊อกเข้าสาขา
+                entry.stockByBranch[targetBranch] = curTarget + qty;
+              }
             }
           } else if (item.type === 'usage' && item.id) {
-             const courseRef = doc(getCol('courses'), item.id);
-             const courseSnap = await getDoc(courseRef);
-             if (courseSnap.exists()) {
-                const cData = courseSnap.data();
-                const currentUsed = Number(cData['ครั้งที่ใช้'] || 0);
-                const currentRemain = Number(cData['ครั้งที่เหลือดิบ'] || 0);
-                
-                const newUsed = Math.max(0, currentUsed - item.qty);
-                const newRemain = currentRemain + item.qty;
-                
-                batch.update(courseRef, {
-                  "ครั้งที่ใช้": String(newUsed),
-                  "ครั้งที่เหลือดิบ": String(newRemain)
-                });
-             }
+            courseDeltaMap.set(item.id, (courseDeltaMap.get(item.id) || 0) + (Number(item.qty) || 1));
+          }
+        }
+
+        for (const [, entry] of prodStockCache.entries()) {
+          batch.set(entry.ref, { stock_by_branch: entry.stockByBranch }, { merge: true });
+        }
+
+        for (const [courseId, restoreQty] of courseDeltaMap.entries()) {
+          const courseRef = doc(getCol('courses'), courseId);
+          const courseSnap = await getDoc(courseRef);
+          if (courseSnap.exists()) {
+            const cData = courseSnap.data();
+            const currentUsed = Number(cData['ครั้งที่ใช้'] || 0);
+            const currentRemain = Number(cData['ครั้งที่เหลือดิบ'] || 0);
+            batch.update(courseRef, {
+              "ครั้งที่ใช้": String(Math.max(0, currentUsed - restoreQty)),
+              "ครั้งที่เหลือดิบ": String(currentRemain + restoreQty)
+            });
           }
         }
       }
 
+      if (order.appliedVoucherId) {
+        batch.set(doc(getCol('coupons'), order.appliedVoucherId), { isUsed: false, usedAt: null }, { merge: true });
+      }
+
       if (order.orderNo) {
-        const histQuery = query(getCol('histories'), where('หมายเลขคำสั่งซื้อ', '==', order.orderNo));
-        const histSnap = await getDocs(histQuery);
-        histSnap.docs.forEach(docSnap => {
-           batch.update(doc(getCol('histories'), docSnap.id), { "สถานะ": "ยกเลิก" });
+        const histQuery1 = query(getCol('histories'), where('หมายเลขคำสั่งซื้อ', '==', order.orderNo));
+        const histQuery2 = query(getCol('histories'), where('อ้างอิง', '==', order.orderNo));
+        const [histSnap1, histSnap2] = await Promise.all([getDocs(histQuery1), getDocs(histQuery2)]);
+        const seenHistIds = new Set();
+        [...histSnap1.docs, ...histSnap2.docs].forEach(docSnap => {
+          if (seenHistIds.has(docSnap.id)) return;
+          seenHistIds.add(docSnap.id);
+          batch.update(doc(getCol('histories'), docSnap.id), { "สถานะ": "ยกเลิก", isCancelled: true });
         });
 
         const coursesQuery = query(getCol('courses'), where('หมายเลขคำสั่งซื้อ', '==', order.orderNo));
@@ -180,6 +223,12 @@ export default function SalesHistoryModal({
     
     if (viewMode === 'sales' && isPO) return false;
     if (viewMode === 'po' && !isPO) return false;
+
+    // กรองตามวันที่ที่เลือกเมื่อไม่ได้พิมพ์คำค้นหา (เฉพาะกรณีเลือกวันย้อนหลัง)
+    if (!searchTerm && posFilterDate && globalRole === 'owner') {
+      const orderDateIso = getLocalYYYYMMDD(o.createdAt);
+      if (orderDateIso && orderDateIso !== posFilterDate) return false;
+    }
 
     // 2. Filter by search term
     if (!searchTerm) return true;

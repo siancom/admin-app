@@ -13,9 +13,9 @@ export default function EmploymentContractModal({ employee, onClose }) {
   };
 
   // Convert date format
-  const getThaiDate = (dateString) => {
-    if (!dateString) return { day: '____', month: '______________', year: '_______' };
-    const date = new Date(dateString);
+  const getThaiDate = (dateInput) => {
+    if (!dateInput) return { day: '____', month: '______________', year: '_______' };
+    const date = typeof dateInput?.toDate === 'function' ? dateInput.toDate() : new Date(dateInput);
     if (isNaN(date.getTime())) return { day: '____', month: '______________', year: '_______' };
     
     const months = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
@@ -26,11 +26,11 @@ export default function EmploymentContractModal({ employee, onClose }) {
     };
   };
 
-  const today = getThaiDate(new Date().toISOString());
-  const startDate = getThaiDate(employee.employmentStartDate || (employee.createdAt && typeof employee.createdAt === 'string' ? employee.createdAt : null));
+  const today = getThaiDate(new Date());
+  const startDate = getThaiDate(employee.employmentStartDate || employee.hiredAt || employee.createdAt || null);
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto font-sans">
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[240] flex items-center justify-center p-4 sm:p-6 overflow-y-auto font-sans">
       <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 print-section print:max-h-none print:overflow-visible print:shadow-none print:rounded-none print:block">
         
         {/* Header */}
@@ -90,7 +90,7 @@ export default function EmploymentContractModal({ employee, onClose }) {
                     เดือน <span className="inline-block w-24 text-center border-b border-black font-medium">{startDate.month}</span> 
                     พ.ศ. <span className="inline-block w-16 text-center border-b border-black font-medium">{startDate.year}</span>
                   </p>
-                  <p>1.3 ระยะเวลาทดลองงาน: กำหนด <strong>{employee.probationDays || 90}</strong> วัน หากลูกจ้างมีผลการประเมินผ่านเกณฑ์ นายจ้างจะบรรจุเป็นพนักงานประจำ และปรับสวัสดิการตามที่ตกลงไว้ในข้อ 3.2</p>
+                  <p>1.3 ระยะเวลาทดลองงาน: กำหนด <strong>{employee.probationDays || 119}</strong> วัน หากลูกจ้างมีผลการประเมินผ่านเกณฑ์ นายจ้างจะบรรจุเป็นพนักงานประจำ และปรับสวัสดิการตามที่ตกลงไว้ในข้อ 3.2</p>
                 </div>
               </div>
 
@@ -115,7 +115,7 @@ export default function EmploymentContractModal({ employee, onClose }) {
                     <ul className="list-disc pl-8 space-y-1">
                       <li>ฐานเงินเดือน: <span className="border-b border-black font-bold px-2">{employee.baseSalary ? employee.baseSalary.toLocaleString() : '12,000 - 15,000'}</span> บาท/เดือน (พิจารณาตามประสบการณ์)</li>
                       <li>ค่ามือ นวดหน้า / ทรีทเม้นท์ Active Skin / เลเซอร์ IPL รักแร้: <strong>50 บาท/เคส</strong></li>
-                      <li>ค่ามือ กดสิว: <strong>20 บาท/เคส</strong></li>
+                      <li>ค่ามือ กดสิว: <strong>30 บาท/เคส</strong></li>
                       <li>ค่ามือ สปาขัดตัว: <strong>100 บาท/เคส</strong></li>
                       <li>ค่ามือ จี้ไฝ/กระ/ติ่งเนื้อ (ยอดบิลไม่เกิน 1,000 บาท): รับค่ามือ <strong>10%</strong> ของยอดบิล</li>
                       <li>ค่ามือ จี้ไฝ/กระ/ติ่งเนื้อ (ยอดบิล 1,000 บาท ขึ้นไป): รับค่ามือ <strong>20%</strong> ของยอดบิล (ยิ่งเชียร์จี้เยอะ ยิ่งได้เยอะ!)</li>

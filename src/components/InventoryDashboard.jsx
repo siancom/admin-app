@@ -1,45 +1,82 @@
 import React, { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, Plus, Package, ArrowRightLeft, Download, Check, X, Clock, AlertCircle, ScanLine, Printer, QrCode, Trash2 } from 'lucide-react';
-import { collection, addDoc, updateDoc, doc, deleteDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db, storage } from '../config/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { parseNumber, parseQty, getTotalStock, getBranchStock } from '../utils/parse';
+import { parseNumber, parseQty, getTotalStock, getBranchStock, getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
 import { getFuzzyKey } from '../utils/fuzzy';
 import { fetchWithProxy, WOO_CFG } from '../utils/wooProxy';
-import { getOwnerDiscountRate, computeOwnerCostPrice } from '../utils/priceUtils';
+import { computeOwnerCostPrice } from '../utils/priceUtils';
 import { RefreshCw } from 'lucide-react';
 import BarcodeScannerModal from './BarcodeScannerModal';
 import { QRCodeSVG } from 'qrcode.react';
 
 export default function InventoryDashboard({ 
-  products, 
-  branches, 
+  products = [], 
+  branches = [], 
   globalBranch,
   globalRole, 
   user, 
-  inventoryLogs,
+  inventoryLogs = [],
   triggerToast,
   setActionConfirmModal,
   wooIdMap,
+  wooImagesMap,
   onAddProduct
 }) {
+  const resolveBranchOption = (target) => {
+    if (!target) return '';
+    const norm = normalizeBranchName(target);
+    const matched = (branches || []).find(b => normalizeBranchName(b?.name || b) === norm);
+    return matched ? (matched.name || matched) : target;
+  };
+
+  const isMainBranch = normalizeBranchName(globalBranch) === 'เฉวง' || normalizeBranchName(globalBranch) === 'สำนักงานใหญ่';
+
   const [activeTab, setActiveTab] = useState('inventory'); // inventory, stock_in, transfers
   const [searchInput, setSearchInput] = useState('');
-  const [selectedBranch, setSelectedBranch] = useState(globalBranch || 'เฉวง');
+  const [selectedBranch, setSelectedBranch] = useState(() => resolveBranchOption(globalBranch) || branches?.[0]?.name || 'เฉวง');
   
   // Modals & Forms
   const [isAdjustOpen, setIsAdjustOpen] = useState(false);
   const [adjustData, setAdjustData] = useState({ product: null, branch: '', qty: 0, reason: '' });
   const [isEditProductOpen, setIsEditProductOpen] = useState(false);
   const [editProductForm, setEditProductForm] = useState(null);
-  const [stockInForm, setStockInForm] = useState({ productId: '', branch: globalBranch || 'เฉวง', qty: '', supplier: '', note: '' });
-  const [transferForm, setTransferForm] = useState({ 
+  const [stockInForm, setStockInForm] = useState(() => ({
+    productId: '',
+    branch: resolveBranchOption(globalBranch) || branches?.[0]?.name || '',
+    qty: '',
+    supplier: '',
+    note: ''
+  }));
+  const [transferForm, setTransferForm] = useState(() => ({ 
     productId: '', 
-    fromBranch: 'เฉวง', 
-    toBranch: (globalBranch && globalBranch !== 'เฉวง') ? globalBranch : '', 
+    fromBranch: resolveBranchOption('เฉวง') || branches?.[0]?.name || 'เฉวง', 
+    toBranch: (globalBranch && normalizeBranchName(globalBranch) !== 'เฉวง') ? resolveBranchOption(globalBranch) : '', 
     qty: '', 
     note: '' 
-  });
+  }));
+
+  const getProductImageUrl = (p) => {
+    const rawImg = getFuzzyKey(p, ["รูปภาพ", "รูป", "image", "img", "col_13"]);
+    const code = String(getFuzzyKey(p, ["รหัส", "col_1"]) || '').trim();
+    const name = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim();
+    let candidate = rawImg;
+    if (!candidate && wooImagesMap instanceof Map) {
+      candidate = (code ? wooImagesMap.get(code.toUpperCase()) : null) || (name ? wooImagesMap.get(name.toLowerCase()) : null);
+    }
+    if (!candidate && wooIdMap instanceof Map && code) {
+      const mapped = wooIdMap.get(code.toUpperCase());
+      if (typeof mapped === 'string' && (mapped.startsWith('http://') || mapped.startsWith('https://') || mapped.startsWith('data:'))) {
+        candidate = mapped;
+      }
+    }
+    if (!candidate || typeof candidate === 'number') return '';
+    const firstUrl = String(candidate).split(',')[0].trim();
+    if (!firstUrl || /^\d+$/.test(firstUrl)) return '';
+    return firstUrl;
+  };
   
   // Internal Requisition State
   const [isRequisitionOpen, setIsRequisitionOpen] = useState(false);
@@ -137,7 +174,7 @@ export default function InventoryDashboard({
       let newCount = 0;
       let updateCount = 0;
       
-      const batch = writeBatch(db);
+      let batch = writeBatch(db);
       let batchCount = 0;
 
       for (const wp of allWooProducts) {
@@ -239,6 +276,7 @@ export default function InventoryDashboard({
         // Firestore batch limit is 500
         if (batchCount >= 490) {
           await batch.commit();
+          batch = writeBatch(db);
           batchCount = 0;
         }
       }
@@ -359,7 +397,7 @@ export default function InventoryDashboard({
 
       await batch.commit();
       triggerToast('รับสินค้าเข้าสำเร็จ', 'success');
-      setStockInForm({ productId: '', branch: globalBranch || '', qty: '', supplier: '', note: '' });
+      setStockInForm({ productId: '', branch: resolveBranchOption(globalBranch) || branches?.[0]?.name || '', qty: '', supplier: '', note: '' });
       syncToWoo(product, Object.values(newStockByBranch).reduce((sum, val) => sum + (Number(val) || 0), 0));
     } catch (error) {
       console.error(error);
@@ -563,19 +601,16 @@ export default function InventoryDashboard({
     try {
       const { productId, fromBranch, toBranch, qty, note } = transferForm;
       if (!productId || !fromBranch || !toBranch || !qty) return triggerToast('กรุณากรอกข้อมูลให้ครบถ้วน', 'error');
-      if (fromBranch === toBranch) return triggerToast('สาขาต้นทางและปลายทางต้องไม่ซ้ำกัน', 'error');
+      if (normalizeBranchName(fromBranch) === normalizeBranchName(toBranch)) return triggerToast('สาขาต้นทางและปลายทางต้องไม่ซ้ำกัน', 'error');
 
       const product = products.find(p => p.id === productId);
       if (!product) return triggerToast('ไม่พบสินค้า', 'error');
 
       const transferQty = Number(qty);
       if (transferQty <= 0) return triggerToast('จำนวนต้องมากกว่า 0', 'error');
-
-      const isMainBranch = globalRole === 'owner';
-      const isTransferingFromMain = fromBranch === 'เฉวง';
       
-      // If a sub-branch is requesting from Main Branch (and they are not Main Branch admin)
-      if (!isMainBranch && isTransferingFromMain) {
+      // Require Owner approval whenever a sub-branch (non-main branch & non-owner) initiates a transfer/requisition regardless of fromBranch
+      if (!isMainBranch && globalRole !== 'owner') {
         // Create REQUEST log
         await addDoc(collection(db, 'inventory_logs'), {
           productId: product.id,
@@ -589,9 +624,9 @@ export default function InventoryDashboard({
           createdBy: user?.name || 'พนักงาน',
           createdAt: serverTimestamp()
         });
-        triggerToast('ส่งคำขอเบิกสินค้าสำเร็จ รอการอนุมัติจากเฉวง', 'success');
+        triggerToast('ส่งคำขอเบิกสินค้าสำเร็จ รอการอนุมัติจากเจ้าของร้าน', 'success');
       } else {
-        // Direct Transfer (Main Branch to Sub Branch, or authorized transfer)
+        // Direct Transfer (Main Branch or Owner authorized transfer)
         const oldFromStock = getBranchStock(product, fromBranch);
         if (oldFromStock < transferQty) return triggerToast(`สต๊อกสาขา ${fromBranch} ไม่เพียงพอ (มี ${oldFromStock})`, 'error');
 
@@ -625,7 +660,7 @@ export default function InventoryDashboard({
         const totalCost = costPrice * transferQty;
         if (totalCost > 0) {
           batch.set(doc(collection(db, 'expenses')), {
-            date: new Date().toISOString().split('T')[0],
+            date: getLocalYYYYMMDD(),
             branch: toBranch,
             category: 'สั่งซื้อสินค้าจากศูนย์ใหญ่',
             amount: totalCost,
@@ -684,7 +719,7 @@ export default function InventoryDashboard({
       const totalCost = costPrice * log.qty;
       if (totalCost > 0) {
         batch.set(doc(collection(db, 'expenses')), {
-          date: new Date().toISOString().split('T')[0],
+          date: getLocalYYYYMMDD(),
           branch: log.toBranch,
           category: 'สั่งซื้อสินค้าจากศูนย์ใหญ่',
           amount: totalCost,
@@ -731,6 +766,7 @@ export default function InventoryDashboard({
   };
 
   return (
+    <>
     <div className={`flex flex-col h-full space-y-4 max-w-7xl mx-auto ${isQrPrinting ? 'print:hidden' : ''}`}>
       {/* Sub-navigation */}
       <div className="flex space-x-2 bg-white p-2 rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
@@ -855,7 +891,7 @@ export default function InventoryDashboard({
                   }).map(p => {
                     const total = getTotalStock(p, branches);
                     const branchStock = getBranchStock(p, selectedBranch);
-                    const imgSrc = getFuzzyKey(p, ["รูปภาพ", "รูป", "image", "img", "col_13"]) || (wooIdMap && String(getFuzzyKey(p, ["รหัส", "col_1"])).trim() ? wooIdMap.get(String(getFuzzyKey(p, ["รหัส", "col_1"])).trim().toUpperCase()) : null);
+                    const imgSrc = getProductImageUrl(p);
                     
                     return (
                       <tr key={p.id} className="hover:bg-gray-50 transition-colors">
@@ -992,6 +1028,7 @@ export default function InventoryDashboard({
                     className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-teal-500 font-bold"
                     required
                   >
+                    <option value="">-- เลือกสาขา --</option>
                     {branches.map(b => (
                       <option key={b.id} value={b.name}>{b.name}</option>
                     ))}
@@ -1086,6 +1123,7 @@ export default function InventoryDashboard({
                       className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-sm"
                       required
                     >
+                      <option value="">-- เลือกสาขาปลายทาง --</option>
                       {branches.map(b => (
                         <option key={b.id} value={b.name}>{b.name}</option>
                       ))}
@@ -1114,7 +1152,7 @@ export default function InventoryDashboard({
                   </div>
 
                   <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black shadow-lg shadow-indigo-600/30 transition-all text-sm">
-                    {globalBranch && globalBranch !== 'เฉวง' ? 'ส่งคำขอเบิกสินค้า' : 'ยืนยันการโอนย้าย'}
+                    {(!isMainBranch && globalRole !== 'owner') ? 'ส่งคำขอเบิกสินค้า' : 'ยืนยันการโอนย้าย'}
                   </button>
                 </form>
               </div>
@@ -1380,20 +1418,6 @@ export default function InventoryDashboard({
         </div>
       )}
 
-      {/* QR Code Print View (PeriPage A6 57x30mm) */}
-      {isQrPrinting && qrPrintData.product && (
-        <div className="hidden print:flex flex-col items-center justify-start bg-white fixed inset-0 z-[999999] print:overflow-visible">
-          {Array.from({ length: qrPrintData.copies }).map((_, i) => (
-            <div key={i} className="flex flex-col items-center justify-center w-[57mm] h-[30mm] break-after-page overflow-hidden" style={{ margin: 0, padding: 0 }}>
-               <p className="text-[9px] font-bold text-black mb-0.5 text-center leading-tight max-w-[54mm] truncate">{String(getFuzzyKey(qrPrintData.product, ["ชื่อสินค้า", "col_2"]) || '')}</p>
-               <QRCodeSVG value={String(getFuzzyKey(qrPrintData.product, ["รหัส", "col_1"]) || '')} size={55} />
-               <p className="text-[10px] font-black text-black mt-0.5 leading-none">฿{parseNumber(getFuzzyKey(qrPrintData.product, ["ราคาขายเต็ม", "ราคา", "col_6"])).toLocaleString()}</p>
-               <p className="text-[7px] font-mono text-black leading-none mt-0.5">{String(getFuzzyKey(qrPrintData.product, ["รหัส", "col_1"]) || '')}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Barcode Scanner Modal for Stock In */}
       <BarcodeScannerModal 
         isOpen={isScannerOpen} 
@@ -1401,5 +1425,22 @@ export default function InventoryDashboard({
         onScan={handleScanResult} 
       />
     </div>
+
+    {/* QR Code Print View (PeriPage A6 57x30mm) - rendered outside print:hidden container */}
+    {isQrPrinting && qrPrintData.product && typeof document !== 'undefined' && createPortal(
+      <div className="hidden print:flex flex-col items-center justify-start bg-white fixed inset-0 z-[999999] print:overflow-visible">
+        <style>{`@media print { #root { display: none !important; } }`}</style>
+        {Array.from({ length: qrPrintData.copies }).map((_, i) => (
+          <div key={i} className="flex flex-col items-center justify-center w-[57mm] h-[30mm] break-after-page overflow-hidden" style={{ margin: 0, padding: 0 }}>
+             <p className="text-[9px] font-bold text-black mb-0.5 text-center leading-tight max-w-[54mm] truncate">{String(getFuzzyKey(qrPrintData.product, ["ชื่อสินค้า", "col_2"]) || '')}</p>
+             <QRCodeSVG value={String(getFuzzyKey(qrPrintData.product, ["รหัส", "col_1"]) || '')} size={55} />
+             <p className="text-[10px] font-black text-black mt-0.5 leading-none">฿{parseNumber(getFuzzyKey(qrPrintData.product, ["ราคาขายเต็ม", "ราคา", "col_6"])).toLocaleString()}</p>
+             <p className="text-[7px] font-mono text-black leading-none mt-0.5">{String(getFuzzyKey(qrPrintData.product, ["รหัส", "col_1"]) || '')}</p>
+          </div>
+        ))}
+      </div>,
+      document.body
+    )}
+    </>
   );
 }

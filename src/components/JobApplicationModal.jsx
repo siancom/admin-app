@@ -2,6 +2,7 @@ import React from 'react';
 import { X, User, MapPin, Briefcase, Phone, Mail, GraduationCap, HeartPulse, ExternalLink, Calendar, CheckCircle, FileText } from 'lucide-react';
 import { doc, updateDoc, collection, addDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { parseNumber, getLocalYYYYMMDD } from '../utils/parse';
 import EmploymentContractModal from './EmploymentContractModal';
 
 export default function JobApplicationModal({ application, onClose }) {
@@ -10,24 +11,30 @@ export default function JobApplicationModal({ application, onClose }) {
 
   const handleStatusChange = async (newStatus) => {
     try {
+      const nowIso = new Date().toISOString();
       await updateDoc(doc(db, 'jobApplications', application.id), {
-        status: newStatus
+        status: newStatus,
+        updatedAt: nowIso,
+        ...(newStatus === 'hired' ? { hiredAt: application.hiredAt || nowIso } : {})
       });
       
       if (newStatus === 'hired' && window.confirm('ต้องการเพิ่มผู้สมัครรายนี้เข้าสู่ระบบรายชื่อพนักงานอัตโนมัติหรือไม่?')) {
         const empData = {
-          name: `${application.firstName} ${application.lastName}`.trim(),
+          name: `${application.firstName || ''} ${application.lastName || ''}`.trim(),
           phone: application.phone || '',
           branch: application.preferredBranch || 'เฉวง',
-          baseSalary: parseInt(application.expectedSalary) || 0,
+          position: application.position || '',
+          idCard: application.idCardNumber || '',
+          address: application.currentAddress || application.address || '',
+          baseSalary: parseNumber(application.expectedSalary) || 0,
           commissionRate: 0,
           weeklyDaysOff: [],
           profileImage: application.photoUrl || '',
           employmentStatus: 'probation',
-          employmentStartDate: new Date().toISOString().split('T')[0],
-          probationDays: 119,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          employmentStartDate: getLocalYYYYMMDD(),
+          probationDays: application.probationDays || 119,
+          createdAt: nowIso,
+          updatedAt: nowIso,
           jobApplicationId: application.id
         };
         await addDoc(collection(db, 'employees'), empData);
@@ -332,10 +339,10 @@ export default function JobApplicationModal({ application, onClose }) {
               branch: application.preferredBranch || 'เกาะสมุย',
               position: application.position || 'พนักงานทรีทเม้นท์ผิวหน้า (Facial Therapist)',
               idCard: application.idCardNumber,
-              address: application.address,
-              baseSalary: parseInt(application.expectedSalary) || null,
-              employmentStartDate: new Date().toISOString(),
-              probationDays: 119
+              address: application.currentAddress || application.address || '',
+              baseSalary: parseNumber(application.expectedSalary) || null,
+              employmentStartDate: application.hiredAt || application.createdAt || application.appliedAt || new Date().toISOString(),
+              probationDays: application.probationDays || 119
            }}
            onClose={() => setShowContract(false)}
         />

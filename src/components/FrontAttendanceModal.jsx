@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Users, User, UserCheck, UserMinus, X, Clock, LogOut, ArrowRight as ArrowRightIcon } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc } from 'firebase/firestore';
+import { getLocalYYYYMMDD, normalizeBranchName, parseThaiDate } from '../utils/parse';
 import EmployeePortal from './EmployeePortal';
 import PinModal from './PinModal';
 
@@ -25,7 +26,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
   };
 
   const getTodayAttendance = (empId) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalYYYYMMDD();
     return attendance.find(a => a.employeeId === empId && a.date === today);
   };
 
@@ -44,7 +45,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
   }, [branches]);
 
   const isSingleBranchMode = useMemo(() => {
-    const empBranchCount = new Set(employees.map(e => String(e.branch || '').replace('สาขา', '').trim()).filter(Boolean)).size;
+    const empBranchCount = new Set(employees.map(e => normalizeBranchName(e.branch)).filter(Boolean)).size;
     const branchesWithGps = activeBranches.filter(b => b.lat && b.lng);
     return activeBranches.length <= 1 || branchesWithGps.length <= 1 || empBranchCount <= 1;
   }, [activeBranches, employees]);
@@ -107,9 +108,8 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
         let shouldClockOut = false;
         let clockOutTime = null;
 
-        // Create date in local timezone
         // Use Thailand local string for current date comparison
-        const todayStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD
+        const todayStr = getLocalYYYYMMDD(now); // YYYY-MM-DD
         const currentHour = now.getHours();
 
         if (att.date < todayStr) {
@@ -151,42 +151,39 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
   // 🌟 หลังยืนยัน PIN สำเร็จ (หรือ PIN ยังเชื่อถืออยู่) — action: 'identity' | 'profile' | 'pos' | 'clockout'
   const handlePinVerified = async (emp, action) => {
     if (!emp) return;
-    localStorage.setItem('personalEmployeeId', emp.id);
-
-    if (action === 'identity') {
-      // เลือกตัวตนเริ่มงาน: ลงเวลาให้อัตโนมัติ (GPS) → แจ้งแอป → เปิดพื้นที่ทำงานของตัวเอง
-      const todayAtt = getTodayAttendance(emp.id);
-      if (!todayAtt || todayAtt.clockOut) {
-        handleClockIn(emp.id, emp.name, emp.branch, null, true);
-      }
-      if (onStaffIdentity) onStaffIdentity(emp);
-      setSelectedEmployeeForPortal(emp);
-      return;
-    }
-
-    if (action === 'profile') {
-      const todayAtt = getTodayAttendance(emp.id);
-      if (!todayAtt || todayAtt.clockOut) {
-        handleClockIn(emp.id, emp.name, emp.branch, null, true);
-      }
-      if (onStaffIdentity) onStaffIdentity(emp);
-      setSelectedEmployeeForPortal(emp);
-      return;
-    }
 
     const todayAtt = getTodayAttendance(emp.id);
     if (action === 'clockout') {
-      if (todayAtt && !todayAtt.clockOut) handleClockOut(todayAtt.id, emp.name, todayAtt.branch, emp.branch);
+      if (todayAtt && !todayAtt.clockOut) {
+        await handleClockOut(todayAtt.id, emp.name, todayAtt.branch, emp.branch);
+      }
       return;
     }
 
-    // action 'pos': ต้องลงเวลาก่อนแล้วจึงเข้า POS
-    if (!todayAtt || todayAtt.clockOut) {
+    if (action === 'identity' || action === 'profile') {
+      // เลือกตัวตนเริ่มงาน / เปิดแดชบอร์ดพนักงาน: ลงเวลาให้อัตโนมัติ (ตรวจสอบ GPS ก่อน) หากวันนี้ยังไม่เคยเข้างาน
+      if (!todayAtt) {
+        const branchToClockIn = selectedBranches[emp.id] || (branchFilter !== 'ทั้งหมด' ? branchFilter : emp.branch);
+        const success = await handleClockIn(emp.id, emp.name, branchToClockIn, null, true);
+        if (!success) return;
+      }
+      localStorage.setItem('personalEmployeeId', emp.id);
+      if (onStaffIdentity) onStaffIdentity(emp);
+      setSelectedEmployeeForPortal(emp);
+      return;
+    }
+
+    // action 'pos': หากออกงานไปแล้วห้ามเปิดกะซ้ำ; หากยังไม่เข้างานต้องลงเวลา (GPS) ให้ผ่านก่อนจึงเข้า POS
+    if (todayAtt?.clockOut) {
+      return;
+    }
+    if (!todayAtt) {
       const branchToClockIn = selectedBranches[emp.id] || (branchFilter !== 'ทั้งหมด' ? branchFilter : emp.branch);
       const success = await handleClockIn(emp.id, emp.name, branchToClockIn, null, true);
       if (!success) return;
     }
 
+    localStorage.setItem('personalEmployeeId', emp.id);
     if (onStaffIdentity) onStaffIdentity(emp);
     if (onGoToPOS) onGoToPOS();
   };
@@ -206,7 +203,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
   };
 
   const filteredEmployees = useMemo(() => {
-    return employees.filter(e => branchFilter === 'ทั้งหมด' || e.branch === branchFilter);
+    return employees.filter(e => branchFilter === 'ทั้งหมด' || normalizeBranchName(e.branch) === normalizeBranchName(branchFilter));
   }, [employees, branchFilter]);
 
   const verifyLocation = (branchName) => {
@@ -214,7 +211,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
        if (featureFlags?.requireGpsForAttendance === false || isSingleBranchMode) {
            return resolve(true);
        }
-       const branch = branches.find(b => b.name === branchName);
+       const branch = branches.find(b => normalizeBranchName(b.name) === normalizeBranchName(branchName));
        if (!branch || !branch.lat || !branch.lng) {
           // แจ้งเตือนถ้าสาขายังไม่ได้ตั้งพิกัด
           if(window.confirm(`สาขา ${branchName} ยังไม่ได้ตั้งค่าพิกัด GPS บนระบบหลังบ้าน\nต้องการให้ข้ามการตรวจสอบไปก่อนหรือไม่?`)) {
@@ -274,7 +271,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
       const isVerified = await verifyLocation(selectedBranch);
       if (!isVerified) return false;
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalYYYYMMDD();
       const time = new Date().toISOString();
       await addDoc(getCol('employee_attendance'), {
         employeeId: empId,
@@ -299,9 +296,13 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
   const handleClockOut = async (attendanceId, empName, attBranch, empBranch) => {
     const branchToCheck = attBranch || empBranch;
     // Check if EOD is submitted for this branch
-    if (branchToCheck !== 'เฉวง') {
-        const todayStr = new Date().toLocaleDateString('th-TH');
-        const hasSubmittedEOD = dailySales.some(d => d.date === todayStr && d.branch === branchToCheck);
+    if (normalizeBranchName(branchToCheck) !== 'เฉวง') {
+        const today = getLocalYYYYMMDD();
+        const todayThaiStr = new Date().toLocaleDateString('th-TH');
+        const hasSubmittedEOD = dailySales.some(d =>
+          normalizeBranchName(d.branch) === normalizeBranchName(branchToCheck) &&
+          (d.date === today || d.date === todayThaiStr || getLocalYYYYMMDD(parseThaiDate(d.date)) === today)
+        );
         
         if (!hasSubmittedEOD) {
             alert(`ไม่สามารถลงเวลาออกงานได้ กรุณาส่งยอดประจำวัน (EOD) ของสาขา ${branchToCheck} ก่อนครับ`);
@@ -422,7 +423,8 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
                        )}
                        <div className="w-full flex gap-2 mt-2">
                          <button 
-                            onClick={(e) => { e.stopPropagation(); openEmployeePinGate(emp, 'pos'); }} 
+                            disabled={!!todayAtt?.clockOut}
+                            onClick={(e) => { e.stopPropagation(); if (todayAtt?.clockOut) return; openEmployeePinGate(emp, 'pos'); }} 
                             className={`flex-1 py-3 rounded-xl font-bold transition-colors ${todayAtt.clockOut ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md active:scale-95'}`}
                          >
                             POS

@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Calendar, CalendarPlus, CheckCircle, Clock, X, Info, AlertCircle } from 'lucide-react';
-import { db, getCol, getDocRef } from '../config/firebase';
-import { addDoc, deleteDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { getDocRef } from '../config/firebase';
+import { deleteDoc, setDoc } from 'firebase/firestore';
+import { getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
+import { getSafeDateTime, getBookingStatus } from '../utils/dateUtils';
 
 export default function CalendarBookingDashboard({ 
     bookings = [], 
@@ -33,10 +35,57 @@ export default function CalendarBookingDashboard({
     const blanks = Array.from({length: firstDayOfWeek}, (_, i) => i);
     const days = Array.from({length: daysInMonth}, (_, i) => i + 1);
 
-    const getLocalDateString = (d) => {
-        const offset = d.getTimezoneOffset();
-        const adjustedDate = new Date(d.getTime() - (offset*60*1000));
-        return adjustedDate.toISOString().split('T')[0];
+    const getLocalDateString = (d) => getLocalYYYYMMDD(d);
+
+    const matchesHolidayDate = (h, dateStr) => {
+        if (!h || !dateStr) return false;
+        return h.date === dateStr || h.id === dateStr || (typeof h.id === 'string' && h.id.startsWith(`${dateStr}_`));
+    };
+
+    const isGlobalHolidayDoc = (h) => {
+        if (!h) return false;
+        if (h.branch === 'all') return true;
+        if (Array.isArray(h.branches) && h.branches.includes('all')) return true;
+        if (!h.branch && (!h.branches || h.branches.length === 0)) return true;
+        return false;
+    };
+
+    const getHolidayBranchList = (h) => {
+        if (!h) return [];
+        if (Array.isArray(h.branches) && h.branches.length > 0) return h.branches;
+        if (h.branch) return [h.branch];
+        return ['all'];
+    };
+
+    const isHoliday = (dateStr) => {
+        return storeHolidays.find(h => {
+            if (!matchesHolidayDate(h, dateStr)) return false;
+            if (isGlobalHolidayDoc(h)) return true;
+            if (selectedBranch === 'all') return false;
+            const normSelected = normalizeBranchName(selectedBranch);
+            return getHolidayBranchList(h).some(br => normalizeBranchName(br) === normSelected);
+        });
+    };
+
+    const getBranchSpecificHolidaysForDate = (dateStr) => {
+        return storeHolidays.filter(h => matchesHolidayDate(h, dateStr) && !isGlobalHolidayDoc(h));
+    };
+
+    const getBookingsForDate = (dateStr) => {
+        return bookings.filter(b => {
+            if (!b) return false;
+            const rawStatus = String(b.status || b['สถานะ'] || '').trim();
+            if (rawStatus === 'ยกเลิก' || rawStatus === 'ยกเลิกโดยลูกค้า' || rawStatus === 'ยกเลิกฉุกเฉิน' || getBookingStatus(b) === 'ยกเลิก') return false;
+            if (selectedBranch !== 'all' && normalizeBranchName(b.branch) !== normalizeBranchName(selectedBranch)) return false;
+            const safeDt = getSafeDateTime(b);
+            if (safeDt) {
+                return safeDt.startsWith(dateStr);
+            }
+            if (b.createdAt) {
+                return getLocalYYYYMMDD(b.createdAt) === dateStr;
+            }
+            return false;
+        });
     };
 
     const toggleHoliday = async (dateStr, existingHoliday) => {
@@ -51,6 +100,7 @@ export default function CalendarBookingDashboard({
                 await setDoc(getDocRef('store_holidays', newId), {
                     date: dateStr,
                     id: newId,
+                    branch: selectedHolidayBranch,
                     branches: holidayBranches,
                     createdAt: new Date().toISOString()
                 });
@@ -100,19 +150,9 @@ export default function CalendarBookingDashboard({
                         const dateObj = new Date(year, month, day);
                         const dateStr = getLocalDateString(dateObj);
                         
-                        const isHoliday = storeHolidays.find(h => {
-                            if (h.date !== dateStr && h.id !== dateStr) return false;
-                            if (!h.branches || h.branches.includes('all')) return true;
-                            if (selectedBranch !== 'all' && !h.branches.includes(selectedBranch)) return false;
-                            return true;
-                        });
-                        const dayBookings = bookings.filter(b => {
-                            if (b.status === 'ยกเลิก' || b.status === 'ยกเลิกโดยลูกค้า' || b.status === 'ยกเลิกฉุกเฉิน') return false;
-                            if (selectedBranch !== 'all' && b.branch !== selectedBranch) return false;
-                            if (b.date === dateStr) return true;
-                            if (b.createdAt && b.createdAt.startsWith(dateStr)) return true;
-                            return false;
-                        });
+                        const holidayDoc = isHoliday(dateStr);
+                        const branchHolidays = selectedBranch === 'all' ? getBranchSpecificHolidaysForDate(dateStr) : [];
+                        const dayBookings = getBookingsForDate(dateStr);
 
                         const isToday = dateStr === getLocalDateString(new Date());
 
@@ -121,7 +161,7 @@ export default function CalendarBookingDashboard({
                                 key={day} 
                                 onClick={() => setSelectedDate(dateStr)}
                                 className={`min-h-[100px] p-2 rounded-xl border-2 cursor-pointer transition-all hover:scale-[1.02] flex flex-col ${
-                                    isHoliday 
+                                    holidayDoc 
                                         ? 'border-red-200 bg-red-50 hover:border-red-400' 
                                         : isToday 
                                             ? 'border-indigo-400 bg-indigo-50 shadow-sm'
@@ -129,26 +169,29 @@ export default function CalendarBookingDashboard({
                                 }`}
                             >
                                 <div className="flex justify-between items-start mb-2">
-                                    <span className={`text-lg font-black ${isHoliday ? 'text-red-500' : isToday ? 'text-indigo-700' : 'text-slate-700'}`}>{day}</span>
-                                    {isHoliday && (
+                                    <span className={`text-lg font-black ${holidayDoc ? 'text-red-500' : isToday ? 'text-indigo-700' : 'text-slate-700'}`}>{day}</span>
+                                    {holidayDoc ? (
                                         <div className="flex flex-col items-end">
                                             <span className="text-[10px] font-bold bg-red-500 text-white px-2 py-0.5 rounded-full mb-1">วันหยุด</span>
-                                            {(!isHoliday.branches || isHoliday.branches.includes('all')) ? null : (
-                                                <span className="text-[8px] font-medium bg-red-100 text-red-700 px-1.5 py-0.5 rounded line-clamp-1 max-w-[60px]" title={isHoliday.branches.join(',')}>
-                                                    {isHoliday.branches.join(',')}
+                                            {isGlobalHolidayDoc(holidayDoc) ? null : (
+                                                <span className="text-[8px] font-medium bg-red-100 text-red-700 px-1.5 py-0.5 rounded line-clamp-1 max-w-[60px]" title={getHolidayBranchList(holidayDoc).join(',')}>
+                                                    {getHolidayBranchList(holidayDoc).join(',')}
                                                 </span>
                                             )}
                                         </div>
-                                    )}
+                                    ) : branchHolidays.length > 0 ? (
+                                        <span className="text-[8px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded line-clamp-1 max-w-[70px]" title={`หยุดเฉพาะสาขา: ${branchHolidays.flatMap(getHolidayBranchList).join(', ')}`}>
+                                            หยุด: {branchHolidays.flatMap(getHolidayBranchList).join(',')}
+                                        </span>
+                                    ) : null}
                                 </div>
                                 
-                                {!isHoliday && dayBookings.length > 0 && (
+                                {!holidayDoc && dayBookings.length > 0 && (
                                     <div className="mt-auto space-y-1">
                                         <div className="text-[10px] font-bold text-slate-500 bg-white px-2 py-1 rounded border border-slate-200 shadow-sm flex items-center justify-between">
                                             <span>ทั้งหมด</span>
                                             <span className="bg-indigo-100 text-indigo-700 px-1.5 rounded">{dayBookings.length}</span>
                                         </div>
-                                        {/* Optional: Break down by branch if you want */}
                                     </div>
                                 )}
                             </div>
@@ -159,19 +202,9 @@ export default function CalendarBookingDashboard({
 
             {/* Modal Detail for Selected Date */}
             {selectedDate && (() => {
-                const isHoliday = storeHolidays.find(h => {
-                    if (h.date !== selectedDate && h.id !== selectedDate) return false;
-                    if (!h.branches || h.branches.includes('all')) return true;
-                    if (selectedBranch !== 'all' && !h.branches.includes(selectedBranch)) return false;
-                    return true;
-                });
-                const dayBookings = bookings.filter(b => {
-                    if (b.status === 'ยกเลิก' || b.status === 'ยกเลิกโดยลูกค้า' || b.status === 'ยกเลิกฉุกเฉิน') return false;
-                    if (selectedBranch !== 'all' && b.branch !== selectedBranch) return false;
-                    if (b.date === selectedDate) return true;
-                    if (b.createdAt && b.createdAt.startsWith(selectedDate)) return true;
-                    return false;
-                });
+                const holidayDoc = isHoliday(selectedDate);
+                const branchHolidays = selectedBranch === 'all' ? getBranchSpecificHolidaysForDate(selectedDate) : [];
+                const selectedDayBookings = getBookingsForDate(selectedDate);
 
                 return (
                     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
@@ -179,7 +212,7 @@ export default function CalendarBookingDashboard({
                             <div className="p-6 border-b flex justify-between items-center bg-slate-50">
                                 <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
                                     <CalendarPlus className="text-indigo-500"/>
-                                    ข้อมูลวันที่ {new Date(selectedDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric'})}
+                                    ข้อมูลวันที่ {new Date(`${selectedDate}T00:00:00`).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric'})}
                                 </h3>
                                 <button onClick={() => setSelectedDate(null)} className="p-2 hover:bg-slate-200 rounded-full text-slate-500"><X size={20}/></button>
                             </div>
@@ -187,16 +220,34 @@ export default function CalendarBookingDashboard({
                             <div className="p-6 overflow-y-auto flex-1">
                                 <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-100 p-4 rounded-2xl gap-4">
                                     <div>
-                                        <h4 className="font-bold text-slate-700 text-sm">การตั้งคาวันหยุด</h4>
+                                        <h4 className="font-bold text-slate-700 text-sm">การตั้งค่าวันหยุด</h4>
                                         <p className="text-xs text-slate-500">หากตั้งเป็นวันหยุด ลูกค้าจะไม่สามารถจองคิวในวันนี้ได้</p>
-                                        {isHoliday && (
+                                        {holidayDoc && (
                                             <div className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full inline-block mt-2 font-bold">
-                                                {isHoliday?.branches?.includes('all') || !isHoliday?.branches ? 'หยุดทุกสาขา' : `หยุดเฉพาะ: ${isHoliday?.branches.join(', ')}`}
+                                                {isGlobalHolidayDoc(holidayDoc) ? 'หยุดทุกสาขา' : `หยุดเฉพาะ: ${getHolidayBranchList(holidayDoc).join(', ')}`}
+                                            </div>
+                                        )}
+                                        {!holidayDoc && branchHolidays.length > 0 && (
+                                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                                {branchHolidays.map(bh => (
+                                                    <span key={bh.id} className="inline-flex items-center gap-1 text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">
+                                                        หยุดเฉพาะ: {getHolidayBranchList(bh).join(', ')}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleHoliday(selectedDate, bh)}
+                                                            disabled={isSaving}
+                                                            className="ml-1 text-red-600 hover:text-red-800"
+                                                            title="ยกเลิกวันหยุดสาขานี้"
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </span>
+                                                ))}
                                             </div>
                                         )}
                                     </div>
                                     <div className="flex flex-col gap-2 w-full sm:w-auto">
-                                        {!isHoliday && (
+                                        {!holidayDoc && (
                                             <select
                                                 value={selectedHolidayBranch}
                                                 onChange={(e) => setSelectedHolidayBranch(e.target.value)}
@@ -209,30 +260,30 @@ export default function CalendarBookingDashboard({
                                             </select>
                                         )}
                                         <button 
-                                            onClick={() => toggleHoliday(selectedDate, isHoliday)}
+                                            onClick={() => toggleHoliday(selectedDate, holidayDoc)}
                                             disabled={isSaving}
                                             className={`px-4 py-2 rounded-xl font-bold text-sm shadow-sm transition-transform active:scale-95 flex items-center justify-center gap-2 ${
-                                                isHoliday ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-red-500 text-white hover:bg-red-600'
+                                                holidayDoc ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-red-500 text-white hover:bg-red-600'
                                             }`}
                                         >
                                             {isSaving && <Clock size={16} className="animate-spin" />}
-                                            {isHoliday ? 'ยกเลิกวันหยุด' : 'ตั้งเป็นวันหยุดร้าน'}
+                                            {holidayDoc ? 'ยกเลิกวันหยุด' : 'ตั้งเป็นวันหยุดร้าน'}
                                         </button>
                                     </div>
                                 </div>
 
                                 <h4 className="font-black text-slate-800 mb-3 flex items-center gap-2">
-                                    <Clock className="text-emerald-500" size={18}/> รายชื่อคิวจอง ({dayBookings.length} คิว)
+                                    <Clock className="text-emerald-500" size={18}/> รายชื่อคิวจอง ({selectedDayBookings.length} คิว)
                                 </h4>
                                 
-                                {dayBookings.length === 0 ? (
+                                {selectedDayBookings.length === 0 ? (
                                     <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                                         <Info size={24} className="mx-auto text-slate-300 mb-2"/>
                                         <p className="text-slate-500 font-bold text-sm">ไม่มีคิวจองในวันนี้</p>
                                     </div>
                                 ) : (
                                     <div className="space-y-3">
-                                        {dayBookings.map(b => (
+                                        {selectedDayBookings.map(b => (
                                             <div key={b.id} className="p-4 border border-slate-200 rounded-2xl bg-white flex justify-between items-center shadow-sm">
                                                 <div>
                                                     <div className="font-black text-slate-800 text-lg">{b.time} น.</div>

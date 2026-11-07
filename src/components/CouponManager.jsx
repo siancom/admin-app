@@ -70,7 +70,7 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
       setFormData({
         code: coupon.code || '',
         type: coupon.type || 'fixed',
-        value: coupon.value || '',
+        value: coupon.value !== undefined && coupon.value !== null ? String(coupon.value) : '',
         desc: coupon.desc || '',
         isPersonal: coupon.isPersonal || false,
         customerPhone: coupon.customerPhone || '',
@@ -81,7 +81,7 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
         conditionPaymentMethod: coupon.conditionPaymentMethod || 'all'
       });
       setCustomerSearch(coupon.customerPhone || '');
-      setItemSearch(coupon.type === 'pos_item' ? coupon.value : '');
+      setItemSearch(coupon.type === 'pos_item' ? String(coupon.value ?? '') : '');
       setEditingCoupon(coupon);
     } else {
       setFormData({
@@ -115,25 +115,54 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (activeTab !== 'batch' && (!formData.code || !formData.value)) {
+
+    const rawVal = formData.value;
+    const hasValidValue = formData.type === 'pos_item'
+      ? Boolean(String(rawVal ?? '').trim())
+      : formData.type === 'free_item'
+        ? (rawVal !== '' && rawVal !== null && rawVal !== undefined && !isNaN(Number(rawVal)) && Number(rawVal) >= 0)
+        : (rawVal !== '' && rawVal !== null && rawVal !== undefined && Number(rawVal) > 0);
+
+    const resolvedValue = formData.type === 'pos_item'
+      ? String(rawVal ?? '').trim()
+      : (Number(rawVal) || 0);
+
+    const isCreatingBatch = !editingCoupon && activeTab === 'batch';
+
+    if (!isCreatingBatch && (!formData.code || !hasValidValue)) {
       showToast('กรุณากรอกข้อมูลให้ครบถ้วน');
       return;
     }
-    if (activeTab === 'batch' && (!formData.prefix || !formData.batchCount || !formData.value)) {
+    if (isCreatingBatch && (!formData.prefix || !formData.batchCount || !hasValidValue)) {
       showToast('กรุณากรอกข้อมูลให้ครบถ้วน');
       return;
     }
 
     try {
-      if (activeTab === 'batch') {
-         const count = parseInt(formData.batchCount) || 50;
+      if (editingCoupon) {
+         const dataToSave = {
+           code: formData.code.toUpperCase(),
+           type: formData.type,
+           value: resolvedValue,
+           desc: formData.desc,
+           isPersonal: formData.isPersonal,
+           customerPhone: formData.isPersonal ? formData.customerPhone.replace(/[^0-9]/g, '') : '',
+           validUntil: formData.validUntil || null,
+           conditionAdvanceDays: Number(formData.conditionAdvanceDays) || 0,
+           conditionPaymentMethod: formData.conditionPaymentMethod || 'all',
+           updatedAt: new Date().toISOString()
+         };
+         await updateDoc(getDocRef('coupons', editingCoupon.id), dataToSave);
+         showToast('อัปเดตคูปองสำเร็จ');
+      } else if (activeTab === 'batch') {
+         const count = parseInt(formData.batchCount, 10) || 50;
          for (let i = 0; i < count; i++) {
              const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
              const uniqueCode = `${formData.prefix.toUpperCase()}${randomStr}`;
              const insertData = {
                 code: uniqueCode,
                 type: formData.type,
-                value: Number(formData.value) || 0,
+                value: resolvedValue,
                 desc: formData.desc,
                 isPersonal: false,
                 isBatch: true, // Special flag for batch
@@ -149,30 +178,25 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
          }
          showToast(`สร้างคูปองแจกกลุ่ม ${count} ใบ สำเร็จ`);
       } else {
-         const dataToSave = {
+         const insertData = {
            code: formData.code.toUpperCase(),
            type: formData.type,
-           value: Number(formData.value) || 0,
+           value: resolvedValue,
            desc: formData.desc,
            isPersonal: formData.isPersonal,
            customerPhone: formData.isPersonal ? formData.customerPhone.replace(/[^0-9]/g, '') : '',
            validUntil: formData.validUntil || null,
            conditionAdvanceDays: Number(formData.conditionAdvanceDays) || 0,
            conditionPaymentMethod: formData.conditionPaymentMethod || 'all',
-           updatedAt: new Date().toISOString()
+           createdAt: new Date().toISOString(),
+           updatedAt: new Date().toISOString(),
+           isBatch: false
          };
-
-         if (editingCoupon) {
-           await updateDoc(getDocRef('coupons', editingCoupon.id), dataToSave);
-           showToast('อัปเดตคูปองสำเร็จ');
-         } else {
-           const insertData = { ...dataToSave, createdAt: new Date().toISOString(), isBatch: false };
-           if (formData.isPersonal) {
-              insertData.isUsed = false; 
-           }
-           await addDoc(getCol('coupons'), insertData);
-           showToast('เพิ่มคูปองสำเร็จ');
+         if (formData.isPersonal) {
+           insertData.isUsed = false;
          }
+         await addDoc(getCol('coupons'), insertData);
+         showToast('เพิ่มคูปองสำเร็จ');
       }
       setIsModalOpen(false);
     } catch (err) {
@@ -455,7 +479,7 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
               
               <div className="p-6 overflow-y-auto">
                 <form id="couponForm" onSubmit={handleSave} className="space-y-5">
-                  {activeTab === 'batch' ? (
+                  {activeTab === 'batch' && !editingCoupon ? (
                   <>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1">รหัสนำหน้า (Prefix) *</label>
@@ -588,9 +612,11 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
                         className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none bg-white"
                         value={formData.type}
                         onChange={e => {
+                           const nextType = e.target.value;
                            const firstItemName = combinedItems.length > 0 ? combinedItems[0]._name : '';
-                           setFormData({...formData, type: e.target.value, value: e.target.value === 'pos_item' ? firstItemName : ''});
-                           if (e.target.value === 'pos_item') setItemSearch(firstItemName);
+                           const nextValue = nextType === 'pos_item' ? firstItemName : nextType === 'free_item' ? '0' : '';
+                           setFormData({...formData, type: nextType, value: nextValue});
+                           if (nextType === 'pos_item') setItemSearch(firstItemName);
                         }}
                       >
                         <option value="fixed">เป็นเงินสด (บาท)</option>
@@ -646,7 +672,7 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
                       ) : (
                         <input 
                           type="number" 
-                          required min="1"
+                          required min={formData.type === 'free_item' ? '0' : '1'}
                           className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none"
                           value={formData.value}
                           onChange={e => setFormData({...formData, value: e.target.value})}

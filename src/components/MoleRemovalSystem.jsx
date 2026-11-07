@@ -1,17 +1,18 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Search, Users, History, AlertTriangle, ShieldCheck, 
   ShieldAlert, Camera, Sparkles, CheckCircle, Clock,
   ArrowRight, Plus
 } from 'lucide-react';
 import { getFuzzyKey } from '../utils/fuzzy';
+import { parseThaiDate, parseNumber } from '../utils/parse';
 import { getProfilePicData, handleProfileImgError } from '../utils/imageUtils';
 import MoleConsultationForm from './MoleConsultationForm';
 import { FileText } from 'lucide-react';
 
 export default function MoleRemovalSystem({ 
-  customersRaw, 
-  histories, 
+  customersRaw = [], 
+  histories = [], 
   globalBranch, 
   triggerToast,
   onNavigateToPos,
@@ -28,20 +29,20 @@ export default function MoleRemovalSystem({
   const [customPrice, setCustomPrice] = useState('');
   const [evalNote, setEvalNote] = useState('');
   const [photoUrl, setPhotoUrl] = useState(null);
-  
-  const fileInputRef = useRef(null);
+
+  const parseRecordTimestamp = (record) => {
+    const rawDate = getFuzzyKey(record, ["วันที่", "date", "col_1"]);
+    const parsed = parseThaiDate(rawDate);
+    if (parsed) return parsed.getTime();
+    if (record?.createdAt) {
+      const fallback = parseThaiDate(record.createdAt) || new Date(record.createdAt);
+      if (fallback && !isNaN(fallback.getTime())) return fallback.getTime();
+    }
+    return 0;
+  };
 
   const allMoleCustomers = useMemo(() => {
      const moleLatestDate = new Map(); // store phone/name -> max timestamp
-     
-     const parseD = (dtStr) => {
-         if (!dtStr) return 0;
-         const parts = dtStr.split(' ')[0].split('/');
-         if (parts.length !== 3) return 0;
-         let year = parseInt(parts[2]);
-         if (year > 2500) year -= 543;
-         return new Date(year, parts[1]-1, parts[0]).getTime();
-     };
      
      histories.forEach(h => {
          const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '').trim();
@@ -49,7 +50,7 @@ export default function MoleRemovalSystem({
          if (type.includes('จี้ไฝ') || item.includes('จี้ไฝ')) {
              const hPhone = String(getFuzzyKey(h, ["เบอร์โทร", "col_3"]) || '').trim();
              const hName = String(getFuzzyKey(h, ["ชื่อ", "ชื่อลูกค้า", "col_2"]) || '').trim();
-             const ts = parseD(getFuzzyKey(h, ["วันที่", "col_1"]));
+             const ts = parseRecordTimestamp(h);
              
              if (hPhone) moleLatestDate.set(hPhone, Math.max(ts, moleLatestDate.get(hPhone) || 0));
              if (hName) moleLatestDate.set(hName, Math.max(ts, moleLatestDate.get(hName) || 0));
@@ -57,16 +58,16 @@ export default function MoleRemovalSystem({
      });
      
      return customersRaw.filter(c => {
-         const phone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').trim();
-         const name = String(getFuzzyKey(c, ["ชื่อ", "col_1"]) || '').trim();
+         const phone = String(c?.computedPhone || getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').trim();
+         const name = String(c?.computedName || getFuzzyKey(c, ["ชื่อ", "col_1"]) || '').trim();
          return (phone && moleLatestDate.has(phone)) || (name && moleLatestDate.has(name));
      }).sort((a, b) => {
-         const phoneA = String(getFuzzyKey(a, ["เบอร์โทร", "col_3"]) || '').trim();
-         const nameA = String(getFuzzyKey(a, ["ชื่อ", "col_1"]) || '').trim();
+         const phoneA = String(a?.computedPhone || getFuzzyKey(a, ["เบอร์โทร", "col_3"]) || '').trim();
+         const nameA = String(a?.computedName || getFuzzyKey(a, ["ชื่อ", "col_1"]) || '').trim();
          const tsA = Math.max(moleLatestDate.get(phoneA) || 0, moleLatestDate.get(nameA) || 0);
          
-         const phoneB = String(getFuzzyKey(b, ["เบอร์โทร", "col_3"]) || '').trim();
-         const nameB = String(getFuzzyKey(b, ["ชื่อ", "col_1"]) || '').trim();
+         const phoneB = String(b?.computedPhone || getFuzzyKey(b, ["เบอร์โทร", "col_3"]) || '').trim();
+         const nameB = String(b?.computedName || getFuzzyKey(b, ["ชื่อ", "col_1"]) || '').trim();
          const tsB = Math.max(moleLatestDate.get(phoneB) || 0, moleLatestDate.get(nameB) || 0);
          
          return tsB - tsA;
@@ -77,16 +78,16 @@ export default function MoleRemovalSystem({
     if (!searchTerm.trim()) return [];
     const term = searchTerm.toLowerCase();
     return customersRaw.filter(c => {
-      const name = String(getFuzzyKey(c, ["ชื่อ", "col_1"]) || '').toLowerCase();
-      const phone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').toLowerCase();
+      const name = String(c?.computedName || getFuzzyKey(c, ["ชื่อ", "col_1"]) || '').toLowerCase();
+      const phone = String(c?.computedPhone || getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').toLowerCase();
       return name.includes(term) || phone.includes(term);
     }).slice(0, 5);
   }, [customersRaw, searchTerm]);
 
   const customerMoles = useMemo(() => {
     if (!selectedCustomer) return [];
-    const phone = String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]) || '').trim();
-    const name = String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]) || '').trim();
+    const phone = String(selectedCustomer?.computedPhone || getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]) || '').trim();
+    const name = String(selectedCustomer?.computedName || getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]) || '').trim();
     return histories.filter(h => {
         const hPhone = String(getFuzzyKey(h, ["เบอร์โทร", "col_3"]) || '').trim();
         const hName = String(getFuzzyKey(h, ["ชื่อ", "ชื่อลูกค้า", "col_2"]) || '').trim();
@@ -97,32 +98,31 @@ export default function MoleRemovalSystem({
         const matchName = name && hName === name;
         
         return (matchPhone || matchName) && (type.includes('จี้ไฝ') || item.includes('จี้ไฝ') || item.includes('จี้กระ'));
-    }).sort((a, b) => {
-        const parseD = (dtStr) => {
-            if (!dtStr) return 0;
-            const parts = dtStr.split(' ')[0].split('/');
-            return parts.length === 3 ? new Date(parts[2], parts[1]-1, parts[0]).getTime() : 0;
-        };
-        return parseD(getFuzzyKey(b, ["วันที่", "col_1"])) - parseD(getFuzzyKey(a, ["วันที่", "col_1"]));
-    });
+    }).sort((a, b) => parseRecordTimestamp(b) - parseRecordTimestamp(a));
   }, [selectedCustomer, histories]);
 
   const checkWarranty = (dateStr) => {
-      if (!dateStr) return null;
-      const parts = dateStr.split(' ')[0].split('/');
-      if (parts.length !== 3) return null;
-      
-      let year = parseInt(parts[2]);
-      if (year > 2500) year -= 543; // Convert Buddhist Era to AD
-      
-      const d = new Date(year, parts[1] - 1, parts[0]);
-      const now = new Date();
-      const diffTime = Math.abs(now - d);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const d = parseThaiDate(dateStr);
+      if (!d) return null;
+
+      const procDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const diffDays = Math.floor((today.getTime() - procDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays < 0) {
+          return {
+              isCovered: false,
+              daysLeft: 0,
+              daysPassed: diffDays,
+              isFuture: true
+          };
+      }
       return {
           isCovered: diffDays <= 30,
           daysLeft: Math.max(0, 30 - diffDays),
-          daysPassed: diffDays
+          daysPassed: diffDays,
+          isFuture: false
       };
   };
 
@@ -151,6 +151,8 @@ export default function MoleRemovalSystem({
           count: moleSize === 'unlimited' ? 1 : moleCount,
           price: price,
           note: evalNote,
+          evalNote: evalNote,
+          photoUrl: photoUrl || null,
           name: `จี้ไฝ (${moleSize === 'unlimited' ? 'เหมาทั่วหน้า' : moleSize === 'small' ? 'จุดเล็ก' : moleSize === 'medium' ? 'จุดกลาง' : 'จุดใหญ่'} ${moleSize !== 'unlimited' ? moleCount + ' จุด' : ''})`
       }]);
       // Reset form
@@ -163,12 +165,6 @@ export default function MoleRemovalSystem({
 
   const handleRemoveItem = (id) => {
       setEvalItems(prev => prev.filter(item => item.id !== id));
-  };
-
-  const parseNumber = (val) => {
-      if (!val) return 0;
-      const num = Number(String(val).replace(/,/g, ''));
-      return isNaN(num) ? 0 : num;
   };
 
   const totalEvalPrice = evalItems.reduce((sum, item) => sum + item.price, 0);
@@ -187,20 +183,45 @@ export default function MoleRemovalSystem({
               name: `จี้ไฝ (${moleSize === 'unlimited' ? 'เหมาทั่วหน้า' : moleCount + ' จุด'})`,
               price: price,
               qty: 1,
-              type: 'service'
+              type: 'service',
+              note: evalNote || '',
+              evalNote: evalNote || '',
+              photoUrl: photoUrl || null
           };
-          window.dispatchEvent(new CustomEvent('add-to-pos-cart', { detail: { items: [singleItem], customer: selectedCustomer } }));
+          window.dispatchEvent(new CustomEvent('add-to-pos-cart', {
+              detail: {
+                  items: [singleItem],
+                  customer: selectedCustomer,
+                  photoUrl: photoUrl || null,
+                  evalNote: evalNote || ''
+              }
+          }));
           triggerToast(`ส่งประเมินราคา ฿${price} ไปยัง POS แล้ว!`, '', 'success');
       } else {
           // Send all eval items
+          const combinedNotes = [
+              ...evalItems.map(i => i.evalNote || i.note).filter(Boolean),
+              evalNote
+          ].filter(Boolean).join('; ');
+          const resolvedPhoto = photoUrl || evalItems.find(i => i.photoUrl)?.photoUrl || null;
           const posItems = evalItems.map(item => ({
               id: 'srv_mole_' + item.id,
               name: item.name,
               price: item.price,
               qty: 1,
-              type: 'service'
+              type: 'service',
+              note: item.note || '',
+              evalNote: item.evalNote || item.note || '',
+              photoUrl: item.photoUrl || photoUrl || null
           }));
-          window.dispatchEvent(new CustomEvent('add-to-pos-cart', { detail: { items: posItems, customer: selectedCustomer } }));
+          window.dispatchEvent(new CustomEvent('add-to-pos-cart', {
+              detail: {
+                  items: posItems,
+                  customer: selectedCustomer,
+                  photoUrl: resolvedPhoto,
+                  evalNote: combinedNotes
+              }
+          }));
           triggerToast(`ส่งประเมินราคา ${posItems.length} รายการ (รวม ฿${totalEvalPrice}) ไปยัง POS แล้ว!`, '', 'success');
       }
       
@@ -405,10 +426,10 @@ export default function MoleRemovalSystem({
                                                   )}
                                                   <div>
                                                       <p className={`text-xs font-black ${isCovered ? 'text-emerald-700' : 'text-slate-500'}`}>
-                                                          {isCovered ? 'อยู่ในระยะประกัน' : 'หมดประกันแล้ว'}
+                                                          {isCovered ? 'อยู่ในระยะประกัน' : w.isFuture ? 'ไม่อยู่ในระยะประกัน' : 'หมดประกันแล้ว'}
                                                       </p>
                                                       <p className={`text-[10px] font-bold ${isCovered ? 'text-emerald-600' : 'text-slate-400'}`}>
-                                                          {isCovered ? `สามารถจี้ซ้ำได้ (เหลือ ${w.daysLeft} วัน)` : `เลยระยะเวลา 30 วันมาแล้ว (${w.daysPassed} วัน)`}
+                                                          {isCovered ? `สามารถจี้ซ้ำได้ (เหลือ ${w.daysLeft} วัน)` : w.isFuture ? 'วันที่ทำรายการอยู่ในอนาคต' : `เลยระยะเวลา 30 วันมาแล้ว (${w.daysPassed} วัน)`}
                                                       </p>
                                                   </div>
                                               </div>

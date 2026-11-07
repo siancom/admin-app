@@ -3,6 +3,7 @@ import { Upload, CheckCircle, Briefcase, User, Phone, Mail, Calendar, DollarSign
 import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../config/firebase';
+import { parseNumber, getLocalYYYYMMDD } from '../utils/parse';
 import EmploymentContractModal from './EmploymentContractModal';
 
 export default function JobApplicationForm({ branches = [] }) {
@@ -106,9 +107,14 @@ export default function JobApplicationForm({ branches = [] }) {
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
+    const nextValue = type === 'checkbox'
+      ? checked
+      : name === 'idCardNumber'
+        ? value.replace(/\D/g, '').slice(0, 13)
+        : value;
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value
+      [name]: nextValue
     }));
   };
 
@@ -149,10 +155,13 @@ export default function JobApplicationForm({ branches = [] }) {
 
       await addDoc(collection(db, 'jobApplications'), {
         ...formData,
+        idCardNumber: String(formData.idCardNumber || '').replace(/\D/g, '').slice(0, 13),
         resumeUrl,
         certUrl,
         photoUrl,
         status: 'new', // new, reviewed, interviewed, hired, rejected
+        createdAt: new Date().toISOString(),
+        appliedDate: getLocalYYYYMMDD(),
         appliedAt: serverTimestamp()
       });
 
@@ -169,7 +178,9 @@ export default function JobApplicationForm({ branches = [] }) {
 
   const handleCheckStatus = async (e) => {
     e.preventDefault();
-    if (!checkPhone || !checkIdCard) {
+    const normalizedIdCard = String(checkIdCard || '').replace(/\D/g, '').slice(0, 13);
+    const trimmedPhone = String(checkPhone || '').trim();
+    if (!trimmedPhone || !normalizedIdCard) {
       setCheckError('กรุณากรอกข้อมูลให้ครบถ้วน');
       return;
     }
@@ -181,17 +192,28 @@ export default function JobApplicationForm({ branches = [] }) {
     try {
       const q = query(
         collection(db, 'jobApplications'), 
-        where('phone', '==', checkPhone), 
-        where('idCardNumber', '==', checkIdCard)
+        where('phone', '==', trimmedPhone), 
+        where('idCardNumber', '==', normalizedIdCard)
       );
       const querySnapshot = await getDocs(q);
+      let apps = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      if (apps.length === 0) {
+        const fallbackQuery = query(
+          collection(db, 'jobApplications'),
+          where('phone', '==', trimmedPhone)
+        );
+        const fallbackSnap = await getDocs(fallbackQuery);
+        apps = fallbackSnap.docs
+          .map(doc => ({ id: doc.id, ...doc.data() }))
+          .filter(app => String(app.idCardNumber || '').replace(/\D/g, '') === normalizedIdCard);
+      }
       
-      if (querySnapshot.empty) {
+      if (apps.length === 0) {
         setCheckError('ไม่พบข้อมูลใบสมัคร กรุณาตรวจสอบเบอร์โทรศัพท์และเลขบัตรประชาชนอีกครั้ง');
       } else {
         // Sort by appliedAt descending in memory if multiple, just to get latest
-        const apps = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        apps.sort((a,b) => new Date(b.appliedAt?.toDate?.() || 0) - new Date(a.appliedAt?.toDate?.() || 0));
+        apps.sort((a,b) => new Date(b.appliedAt?.toDate?.() || b.createdAt || 0) - new Date(a.appliedAt?.toDate?.() || a.createdAt || 0));
         setCheckResult(apps[0]);
       }
     } catch (err) {
@@ -277,7 +299,7 @@ export default function JobApplicationForm({ branches = [] }) {
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-slate-700 mb-2">เลขที่บัตรประชาชน <span className="text-rose-500">*</span></label>
-                      <input type="text" required value={checkIdCard} onChange={e => setCheckIdCard(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium" placeholder="กรอกเฉพาะตัวเลข 13 หลัก" />
+                      <input type="text" inputMode="numeric" required value={checkIdCard} onChange={e => setCheckIdCard(e.target.value.replace(/\D/g, '').slice(0, 13))} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium" placeholder="กรอกเฉพาะตัวเลข 13 หลัก" />
                     </div>
                     <button 
                       type="submit" 
@@ -336,10 +358,10 @@ export default function JobApplicationForm({ branches = [] }) {
                   branch: checkResult.preferredBranch || 'เกาะสมุย',
                   position: checkResult.position || 'พนักงานทรีทเม้นท์ผิวหน้า (Facial Therapist)',
                   idCard: checkResult.idCardNumber,
-                  address: checkResult.currentAddress,
-                  baseSalary: parseInt(checkResult.expectedSalary) || null,
-                  employmentStartDate: new Date().toISOString(),
-                  probationDays: 119
+                  address: checkResult.currentAddress || checkResult.address || '',
+                  baseSalary: parseNumber(checkResult.expectedSalary) || null,
+                  employmentStartDate: checkResult.hiredAt || checkResult.createdAt || checkResult.appliedAt || new Date().toISOString(),
+                  probationDays: checkResult.probationDays || 119
                }}
                onClose={() => setShowContract(false)}
             />
@@ -380,7 +402,7 @@ export default function JobApplicationForm({ branches = [] }) {
                       <>
                         <option value="เฉวง">เฉวง</option>
                         <option value="ละไม">ละไม</option>
-                        <option value="นทอน">หน้าทอน</option>
+                        <option value="หน้าทอน">หน้าทอน</option>
                         <option value="อื่นๆ">อื่นๆ</option>
                       </>
                     )}
@@ -454,7 +476,7 @@ export default function JobApplicationForm({ branches = [] }) {
 
                 <div className="md:col-span-3">
                   <label className="block text-sm font-bold text-slate-700 mb-2">เลขที่บัตรประชาชน (13 หลัก) <span className="text-rose-500">*</span></label>
-                  <input type="text" required maxLength="13" name="idCardNumber" value={formData.idCardNumber} onChange={handleInputChange} className="w-full md:w-1/2 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium tracking-widest" placeholder="X-XXXX-XXXXX-XX-X" />
+                  <input type="text" inputMode="numeric" required name="idCardNumber" value={formData.idCardNumber} onChange={handleInputChange} className="w-full md:w-1/2 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium tracking-widest" placeholder="กรอกเลขบัตรประชาชน 13 หลัก" />
                 </div>
 
                 <div className="md:col-span-3">

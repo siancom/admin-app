@@ -2,12 +2,22 @@
  * 🧰 Utility parsing functions shared across App.jsx and App_mobile.tsx
  */
 
-export function getLocalYYYYMMDD(dateObj = new Date()) {
-  if (isNaN(dateObj.getTime())) return '';
+export function getLocalYYYYMMDD(dateInput = new Date()) {
+  let dateObj = dateInput;
+  if (dateInput && typeof dateInput.toDate === 'function') {
+    dateObj = dateInput.toDate();
+  } else if (!(dateInput instanceof Date)) {
+    dateObj = new Date(dateInput);
+  }
+  if (!dateObj || isNaN(dateObj.getTime())) return '';
   const year = dateObj.getFullYear();
   const month = String(dateObj.getMonth() + 1).padStart(2, '0');
   const day = String(dateObj.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+export function normalizeBranchName(branch) {
+  return String(branch || '').replace(/^สาขา\s*/, '').trim();
 }
 
 export function formatDateTimeStr(dt) {
@@ -34,7 +44,7 @@ export function parseQty(val) {
   if (strVal === '0' || strVal === '0 ครั้ง') return 0;
   if (strVal.includes('+')) return 1; // Support for product bundles
   const num = Math.floor(parseNumber(val));
-  return num > 0 ? num : (num === 0 ? 0 : 1);
+  return num >= 0 ? num : 0;
 }
 
 export function parseHistoryTime(val) {
@@ -66,15 +76,42 @@ export function parseCSVRow(text) {
 }
 
 export function parseThaiDate(dateStr) {
-  if (!dateStr || typeof dateStr !== 'string') return null;
+  if (!dateStr) return null;
+  if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
+  if (typeof dateStr?.toDate === 'function') {
+    const dt = dateStr.toDate();
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+  if (typeof dateStr !== 'string') return null;
+  const trimmed = dateStr.trim();
+  if (!trimmed) return null;
+
   let d, m, y;
   const splitRegex = new RegExp('[-/]');
-  const parts = dateStr.includes('T') ? dateStr.split('T')[0].split(splitRegex) : dateStr.split(splitRegex);
+  const datePart = trimmed.includes('T') ? trimmed.split('T')[0] : trimmed.split(/\s+/)[0];
+  const parts = datePart.split(splitRegex);
   
   if (parts.length === 3) {
-    if (dateStr.includes('/')) { d = parseInt(parts[0], 10); m = parseInt(parts[1], 10); y = parseInt(parts[2], 10); } 
-    else { y = parseInt(parts[0], 10); m = parseInt(parts[1], 10); d = parseInt(parts[2], 10); }
-    if (y < 100) y += 2000; if (y > 2500) y -= 543;
+    if (datePart.includes('/')) {
+      // รองรับทั้ง DD/MM/YYYY และ YYYY/MM/DD
+      if (parts[0].length === 4) {
+        y = parseInt(parts[0], 10); m = parseInt(parts[1], 10); d = parseInt(parts[2], 10);
+      } else {
+        d = parseInt(parts[0], 10); m = parseInt(parts[1], 10); y = parseInt(parts[2], 10);
+      }
+    } else {
+      if (parts[2].length === 4) {
+        d = parseInt(parts[0], 10); m = parseInt(parts[1], 10); y = parseInt(parts[2], 10);
+      } else {
+        y = parseInt(parts[0], 10); m = parseInt(parts[1], 10); d = parseInt(parts[2], 10);
+      }
+    }
+    if (y < 100) {
+      // ปี 2 หลัก เช่น 68, 69 = พ.ศ. 2568, 2569 -> ค.ศ. 2025, 2026
+      y = y >= 55 ? (y + 2500 - 543) : (y + 2000);
+    } else if (y > 2400) {
+      y -= 543;
+    }
     const date = new Date(y, m - 1, d);
     if (!isNaN(date.getTime())) return date;
   }
@@ -85,25 +122,37 @@ import { getFuzzyKey } from './fuzzy';
 
 export function getBranchStock(product, branch) {
   if (!product) return 0;
+  const normTarget = normalizeBranchName(branch);
   if (product.stock_by_branch && typeof product.stock_by_branch === 'object') {
-    return Number(product.stock_by_branch[branch]) || 0;
+    if (product.stock_by_branch[branch] !== undefined) {
+      return Number(product.stock_by_branch[branch]) || 0;
+    }
+    for (const [k, v] of Object.entries(product.stock_by_branch)) {
+      if (normalizeBranchName(k) === normTarget) return Number(v) || 0;
+    }
+    return 0;
+  }
+  // Fallback เฉพาะสินค้าเก่าที่ยังไม่มี stock_by_branch
+  if (!branch || normTarget === 'เฉวง' || normTarget === 'สำนักงานใหญ่') {
+    return Number(getFuzzyKey(product, ['จำนวนคงเหลือ', 'col_12'])) || 0;
   }
   return 0;
 }
 
 export function getTotalStock(product, validBranches = null) {
   if (!product) return 0;
-  let total = 0;
-  if (product.stock_by_branch && typeof product.stock_by_branch === 'object') {
+  if (product.stock_by_branch && typeof product.stock_by_branch === 'object' && Object.keys(product.stock_by_branch).length > 0) {
+    let total = 0;
     let allowedKeys = null;
     if (validBranches && Array.isArray(validBranches) && validBranches.length > 0) {
-      allowedKeys = validBranches.map(b => b.name || b.id || b);
+      allowedKeys = validBranches.map(b => normalizeBranchName(b.name || b.id || b));
     }
     
     for (const [key, val] of Object.entries(product.stock_by_branch)) {
-      if (allowedKeys && !allowedKeys.includes(key)) continue;
+      if (allowedKeys && !allowedKeys.includes(normalizeBranchName(key)) && key !== 'สำนักงานใหญ่') continue;
       total += (Number(val) || 0);
     }
+    return total;
   }
-  return total;
+  return Number(getFuzzyKey(product, ['จำนวนคงเหลือ', 'col_12'])) || 0;
 }

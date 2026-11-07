@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, Printer } from 'lucide-react';
+import { parseNumber } from '../utils/parse';
 
 export default function PayslipModal({ employee, payrollMonth, onClose }) {
   if (!employee) return null;
@@ -12,11 +13,21 @@ export default function PayslipModal({ employee, payrollMonth, onClose }) {
     'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
     'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
   ];
-  const [yearStr, monthStr] = payrollMonth.split('-');
-  const displayMonth = `${monthNames[parseInt(monthStr, 10) - 1]} ${yearStr}`;
+  const [yearStr, monthStr] = (payrollMonth || '').split('-');
+  const displayMonth = monthStr ? `${monthNames[parseInt(monthStr, 10) - 1]} ${yearStr}` : (payrollMonth || '-');
+
+  const baseSalary = parseNumber(employee.baseSalary);
+  const totalCommission = parseNumber(employee.totalCommission);
+  const totalServiceFees = parseNumber(employee.totalServiceFees);
+  const totalFoodAllowance = parseNumber(employee.totalFoodAllowance);
+  const diligenceAllowance = parseNumber(employee.diligenceAllowance);
+  const totalAdvances = parseNumber(employee.totalAdvances);
+  const totalIncome = employee.totalIncome !== undefined && employee.totalIncome !== null
+    ? parseNumber(employee.totalIncome)
+    : (baseSalary + totalCommission + totalServiceFees + totalFoodAllowance + diligenceAllowance - totalAdvances);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-[240] flex items-center justify-center bg-black/50 p-4">
       {/* Container */}
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col relative print:shadow-none print:max-h-none print:w-full">
         {/* Header - Hidden on print */}
@@ -71,25 +82,23 @@ export default function PayslipModal({ employee, payrollMonth, onClose }) {
               <div className="space-y-3 px-2">
                 <div className="flex justify-between">
                   <span>เงินเดือนพื้นฐาน (Base Salary)</span>
-                  <span className="font-medium">{(employee.baseSalary || 0).toLocaleString()}</span>
+                  <span className="font-medium">{baseSalary.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>ค่าคอมมิชชั่น (Commission)</span>
-                  <span className="font-medium">{(employee.totalCommission || 0).toLocaleString()}</span>
+                  <span className="font-medium">{totalCommission.toLocaleString()}</span>
                 </div>
-                {(employee.totalServiceFees > 0) && (
-                  <div className="flex justify-between">
-                    <span>ค่ามือ / ค่าจี้ไฝ (Service Fees)</span>
-                    <span className="font-medium">{(employee.totalServiceFees || 0).toLocaleString()}</span>
-                  </div>
-                )}
+                <div className="flex justify-between">
+                  <span>ค่ามือ / ค่าจี้ไฝ (Service Fees)</span>
+                  <span className="font-medium">{totalServiceFees.toLocaleString()}</span>
+                </div>
                 <div className="flex justify-between">
                   <span>ค่าอาหาร (Food Allowance)</span>
-                  <span className="font-medium">{(employee.totalFoodAllowance || 0).toLocaleString()}</span>
+                  <span className="font-medium">{totalFoodAllowance.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>เบี้ยขยัน (Diligence Allowance)</span>
-                  <span className="font-medium">{(employee.diligenceAllowance || 0).toLocaleString()}</span>
+                  <span className="font-medium">{diligenceAllowance.toLocaleString()}</span>
                 </div>
               </div>
             </div>
@@ -98,10 +107,10 @@ export default function PayslipModal({ employee, payrollMonth, onClose }) {
             <div className="flex-1">
               <div className="bg-slate-100 px-4 py-2 font-bold border border-slate-300 mb-2">รายการหัก (Deductions)</div>
               <div className="space-y-3 px-2">
-                {(employee.totalAdvances > 0) ? (
+                {(totalAdvances > 0) ? (
                   <div className="flex justify-between text-rose-600">
                     <span>หักเบิกล่วงหน้า (Advance Deductions)</span>
-                    <span className="font-medium">{(employee.totalAdvances || 0).toLocaleString()}</span>
+                    <span className="font-medium">{totalAdvances.toLocaleString()}</span>
                   </div>
                 ) : (
                   <div className="flex justify-between text-slate-400">
@@ -117,7 +126,7 @@ export default function PayslipModal({ employee, payrollMonth, onClose }) {
           <div className="flex justify-between items-center border-t-2 border-b-2 border-slate-800 py-4 mb-12">
             <div className="text-lg font-bold">รายรับสุทธิ (Net Pay)</div>
             <div className="text-2xl font-black text-slate-800">
-              ฿{(employee.totalIncome || 0).toLocaleString()}
+              ฿{totalIncome.toLocaleString()}
             </div>
           </div>
 

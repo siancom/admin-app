@@ -1138,7 +1138,12 @@ export default function SettingsPage({
             </div>
           </button>
 
-          {isDataMgmtExpanded && (
+          {isDataMgmtExpanded && (() => {
+            const allCollectionData = getCurrentCollectionData();
+            const total = allCollectionData.length;
+            const displayedItems = allCollectionData.slice(0, 50);
+            const allDisplayedSelected = displayedItems.length > 0 && displayedItems.every(item => selectedItems.has(item.id));
+            return (
             <div className="mt-6 animate-in slide-in-from-top-4 duration-200">
               <p className="text-sm text-gray-500 mb-6">เลือกข้อมูลที่ต้องการลบออกจากฐานข้อมูล คุณสามารถเลือกทีละรายการหรือเลือกทั้งหมดได้</p>
 
@@ -1168,13 +1173,15 @@ export default function SettingsPage({
                       <th className="py-3 px-4 w-12">
                         <input
                           type="checkbox"
-                          checked={getCurrentCollectionData().length > 0 && selectedItems.size === getCurrentCollectionData().length}
+                          checked={allDisplayedSelected}
                           onChange={(e) => {
+                            const newSelected = new Set(selectedItems);
                             if (e.target.checked) {
-                              setSelectedItems(new Set(getCurrentCollectionData().map(item => item.id)));
+                              displayedItems.forEach(item => newSelected.add(item.id));
                             } else {
-                              setSelectedItems(new Set());
+                              displayedItems.forEach(item => newSelected.delete(item.id));
                             }
+                            setSelectedItems(newSelected);
                           }}
                           className="w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                         />
@@ -1185,7 +1192,7 @@ export default function SettingsPage({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {getCurrentCollectionData().slice(0, 50).map((item, idx) => (
+                    {displayedItems.map((item, idx) => (
                       <tr key={item.id || idx} className="hover:bg-gray-50 transition-colors">
                         <td className="py-3 px-4">
                           <input
@@ -1217,7 +1224,7 @@ export default function SettingsPage({
                         </td>
                       </tr>
                     ))}
-                    {getCurrentCollectionData().length === 0 && (
+                    {total === 0 && (
                       <tr>
                         <td colSpan={4} className="py-8 text-center text-gray-400 font-bold">ไม่มีข้อมูลในหมวดหมู่นี้</td>
                       </tr>
@@ -1225,8 +1232,8 @@ export default function SettingsPage({
                   </tbody>
                 </table>
               </div>
-              {getCurrentCollectionData().length > 50 && (
-                <p className="text-xs text-gray-400 text-center mt-2">แสดง 50 จาก {getCurrentCollectionData().length} รายการ</p>
+              {total > 50 && (
+                <p className="text-xs text-gray-400 text-center mt-2">แสดง 50 จาก {total} รายการ</p>
               )}
 
               {/* ปุ่มดำเนินการ */}
@@ -1234,7 +1241,7 @@ export default function SettingsPage({
                 <button
                   onClick={() => {
                     if (selectedItems.size === 0) return showToast('กรุณาเลือกรายการที่ต้องการลบ');
-                    const itemsToDelete = getCurrentCollectionData().filter(item => selectedItems.has(item.id));
+                    const itemsToDelete = allCollectionData.filter(item => selectedItems.has(item.id));
                     setConfirmDeleteModal({ isOpen: true, type: settingsSelectedCollection, data: itemsToDelete });
                   }}
                   disabled={selectedItems.size === 0}
@@ -1245,12 +1252,23 @@ export default function SettingsPage({
                 </button>
                 <button
                   onClick={() => {
-                    setSelectedItems(new Set(getCurrentCollectionData().map(item => item.id)));
+                    setSelectedItems(new Set(displayedItems.map(item => item.id)));
                   }}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center transition-colors active:scale-95"
+                  disabled={displayedItems.length === 0}
+                  className="bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center transition-colors active:scale-95"
                 >
-                  เลือกทั้งหมด
+                  เลือกทั้งหมดในหน้านี้ ({displayedItems.length})
                 </button>
+                {total > displayedItems.length && (
+                  <button
+                    onClick={() => {
+                      setSelectedItems(new Set(allCollectionData.map(item => item.id)));
+                    }}
+                    className="bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center transition-colors active:scale-95"
+                  >
+                    เลือกทั้งคอลเลกชัน ({total})
+                  </button>
+                )}
                 <button
                   onClick={() => setSelectedItems(new Set())}
                   className="bg-gray-50 hover:bg-gray-100 text-gray-500 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center transition-colors active:scale-95"
@@ -1259,7 +1277,8 @@ export default function SettingsPage({
                 </button>
               </div>
             </div>
-          )}
+            );
+          })()}
         </div>
       </>)}
 

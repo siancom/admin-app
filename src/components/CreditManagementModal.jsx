@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Wallet, ArrowRightLeft, MinusCircle, PlusCircle, CheckCircle, Search, User } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
+import { getFuzzyKey } from '../utils/fuzzy';
 
 const CreditManagementModal = ({ isOpen, onClose, customer, activeCreditCourses, onAddCredit, onTransferCredit, onDeductCredit, onSearchCustomer }) => {
   const [activeTab, setActiveTab] = useState('topup'); // topup, transfer, deduct
@@ -58,10 +59,11 @@ const CreditManagementModal = ({ isOpen, onClose, customer, activeCreditCourses,
       return;
     }
     
+    const resolvedDestName = destinationCustomer.computedName || String(getFuzzyKey(destinationCustomer, ['ชื่อ', 'ชื่อลูกค้า', 'name', 'col_1']) || 'ไม่ทราบชื่อ');
     await onTransferCredit({
       amount: Number(transferAmount),
       destPhone: transferPhone,
-      destName: destinationCustomer.computedName || 'ไม่ทราบชื่อ',
+      destName: resolvedDestName,
       note: transferNote,
       sourceCourses: activeCreditCourses
     });
@@ -164,7 +166,7 @@ const CreditManagementModal = ({ isOpen, onClose, customer, activeCreditCourses,
                 <div className="bg-green-100 text-green-600 p-2 rounded-full"><User size={20}/></div>
                 <div>
                   <p className="text-xs text-gray-500 font-bold mb-0.5">พบข้อมูลลูกค้า (ผู้รับโอน)</p>
-                  <p className="font-black text-gray-800">{destinationCustomer.computedName}</p>
+                  <p className="font-black text-gray-800">{destinationCustomer.computedName || String(getFuzzyKey(destinationCustomer, ['ชื่อ', 'ชื่อลูกค้า', 'name', 'col_1']) || 'ไม่ระบุชื่อ')}</p>
                 </div>
               </div>
             )}

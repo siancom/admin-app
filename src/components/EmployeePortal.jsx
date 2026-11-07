@@ -3,9 +3,9 @@ import { Clock, Calendar, CheckCircle, UserCheck, UserMinus, X, User, LogOut, Se
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import PayslipModal from './PayslipModal';
-import { parseNumber } from '../utils/parse';
+import { parseNumber, getLocalYYYYMMDD, normalizeBranchName, parseThaiDate } from '../utils/parse';
 import { getOrderStatus } from '../utils/dateUtils';
-import { getFuzzyKey } from '../utils/fuzzy';
+import { calculateEmployeeMonthlyPayroll, calculateServiceLogFee } from '../utils/payrollUtils';
 import EmploymentContractModal from './EmploymentContractModal';
 
 export default function EmployeePortal({
@@ -31,14 +31,14 @@ export default function EmployeePortal({
   const [activeTab, setActiveTab] = useState('dashboard');
   const [scheduleSubTab, setScheduleSubTab] = useState('schedule');
   const [requestsSubTab, setRequestsSubTab] = useState('leave');
-  const [scheduleMonth, setScheduleMonth] = useState(new Date().toISOString().substring(0, 7));
-  const [payrollMonth, setPayrollMonth] = useState(new Date().toISOString().substring(0, 7));
+  const [scheduleMonth, setScheduleMonth] = useState(getLocalYYYYMMDD().substring(0, 7));
+  const [payrollMonth, setPayrollMonth] = useState(getLocalYYYYMMDD().substring(0, 7));
   const [calendarSelection, setCalendarSelection] = useState([]);
   const [showPayslip, setShowPayslip] = useState(false);
   const [leaveForm, setLeaveForm] = useState({ leaveType: 'ลาป่วย', startDate: '', endDate: '', reason: '', dates: [], replacementDate: '' });
   const [advanceForm, setAdvanceForm] = useState({ amount: '', reason: '' });
   const [suppliesForm, setSuppliesForm] = useState({ itemName: '', quantity: '', reason: '' });
-  const [serviceForm, setServiceForm] = useState({ date: new Date().toISOString().split('T')[0], type: 'ค่ามือ', amount: '', note: '' });
+  const [serviceForm, setServiceForm] = useState({ date: getLocalYYYYMMDD(), type: 'ค่ามือ', amount: '', note: '' });
   const [benefitForm, setBenefitForm] = useState({ show: false, type: '', amount: '', note: '' });
   const [isSubmittingBenefit, setIsSubmittingBenefit] = useState(false);
   const [isSubmittingService, setIsSubmittingService] = useState(false);
@@ -50,19 +50,18 @@ export default function EmployeePortal({
   const [isEditingPayroll, setIsEditingPayroll] = useState(false);
   const [isSavingPayroll, setIsSavingPayroll] = useState(false);
   const [localOverrides, setLocalOverrides] = useState(employee.payrollOverrides || {});
-  const [localBaseSalary, setLocalBaseSalary] = useState(employee.baseSalary);
   const [payrollEditForm, setPayrollEditForm] = useState({
     baseSalary: '',
     totalCommission: '',
     totalServiceFees: '',
     totalFoodAllowance: '',
+    diligenceAllowance: '',
     totalAdvances: ''
   });
 
   useEffect(() => {
     setLocalOverrides(employee.payrollOverrides || {});
-    setLocalBaseSalary(employee.baseSalary);
-  }, [employee.id, employee.payrollOverrides, employee.baseSalary]);
+  }, [employee.id, employee.payrollOverrides]);
 
   const usedAnnualLeave = useMemo(() => {
     // Check approved annual leaves in the current year
@@ -176,115 +175,15 @@ export default function EmployeePortal({
   const myAdvances = useMemo(() => advancePayments.filter(a => a.employeeId === employee.id).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)), [advancePayments, employee.id]);
   const myRequisitions = useMemo(() => requisitions.filter(r => r.employeeId === employee.id).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)), [requisitions, employee.id]);
 
-  const isInPayrollMonth = (item, monthPrefix) => {
-      if (item.createdAt && item.createdAt.includes('T')) return item.createdAt.startsWith(monthPrefix);
-      if (item.date && String(item.date).match(/^\d{4}-\d{2}-\d{2}/)) return String(item.date).startsWith(monthPrefix);
-      const dStr = item.วันที่ || item.date;
-      if (dStr && typeof dStr === 'string' && dStr.includes('/')) {
-          const parts = dStr.split('/');
-          if (parts.length === 3) {
-              let year = parseInt(parts[2], 10);
-              if (year > 2500) year -= 543;
-              return `${year}-${parts[1].padStart(2, '0')}` === monthPrefix;
-          }
-      }
-      return false;
-  };
-
   const payrollEmployee = useMemo(() => {
-     let totalCommission = 0;
-     let serviceCount = 0;
-     histories.forEach(h => {
-         if (!isInPayrollMonth(h, payrollMonth)) return;
-         const sName = String(getFuzzyKey(h, ["ชื่อเจ้าหน้าที่", "ชื่อพนักงาน", "staffName", "ผู้ให้บริการ", "เจ้าหน้าที่"]) || '');
-         if (!sName) return;
-         
-         const staffNames = sName.split(/[,/]|และ|กับ/).map(s => s.trim()).filter(s => s);
-         if (staffNames.includes(employee.name)) {
-             const price = parseNumber(getFuzzyKey(h, ["ราคา", "price", "จำนวนเงิน"]) || 0);
-             const shareCount = staffNames.length;
-             totalCommission += (price * ((employee.commissionRate || 0) / 100)) / shareCount;
-             serviceCount++;
-         }
+     return calculateEmployeeMonthlyPayroll(employee, payrollMonth, {
+        histories,
+        serviceLogs,
+        advancePayments,
+        attendance,
+        localOverrides
      });
-     
-     const empServiceLogs = serviceLogs.filter(s => s.employeeId === employee.id && isInPayrollMonth(s, payrollMonth));
-     let totalServiceFees = 0;
-     empServiceLogs.forEach(s => {
-         const typeName = String(s.type || '').toLowerCase();
-         let rawAmount = parseNumber(s.amount);
-         const isPOS = typeof s.note === 'string' && s.note.startsWith('POS:');
-         
-         if (isPOS && (typeName.includes('จี้ไฝ') || typeName.includes('mole')) && rawAmount < 100) rawAmount = rawAmount * 10;
-
-         if (typeName.includes('นวดหน้า') || typeName.includes('active skin') || typeName.includes('ipl รักแร้') || typeName.includes('ทรีทเม้นท์')) {
-             totalServiceFees += 50;
-         } else if (typeName.includes('กดสิว')) {
-             totalServiceFees += 30;
-         } else if (typeName.includes('สปา') || typeName.includes('ขัดตัว')) {
-             totalServiceFees += 100;
-         } else if (typeName.includes('จี้ไฝ') || typeName.includes('กระ') || typeName.includes('ติ่งเนื้อ') || typeName.includes('mole')) {
-             totalServiceFees += rawAmount < 1000 ? (rawAmount * 0.10) : (rawAmount * 0.20);
-         } else {
-             totalServiceFees += isPOS ? (rawAmount * 0.10) : rawAmount;
-         }
-     });
-     
-     const empAdvances = advancePayments.filter(a => a.employeeId === employee.id && (a.status === 'อนุมัติ' || a.status === 'อนุมัติแล้ว') && isInPayrollMonth(a, payrollMonth));
-     let totalAdvances = 0;
-     empAdvances.forEach(a => totalAdvances += parseNumber(a.amount));
-     
-     const empAttendance = attendance.filter(a => a.employeeId === employee.id && isInPayrollMonth(a, payrollMonth));
-     const daysWorked = new Set(empAttendance.map(a => a.date)).size;
-     const foodRate = employee.foodAllowanceRate !== undefined ? Number(employee.foodAllowanceRate) : 50;
-     const autoFoodAllowance = daysWorked * foodRate;
-
-     const autoBaseSalary = parseNumber(localBaseSalary !== undefined ? localBaseSalary : (employee.baseSalary || 0));
-     const autoCommission = Math.ceil(totalCommission);
-     const autoServiceFees = Math.ceil(totalServiceFees);
-     const autoAdvances = Math.ceil(totalAdvances);
-
-     const monthOverride = (localOverrides && localOverrides[payrollMonth]) || employee.payrollOverrides?.[payrollMonth] || {};
-     const hasOverride = Object.keys(monthOverride).some(k => monthOverride[k] !== undefined && monthOverride[k] !== null && monthOverride[k] !== '');
-
-     const finalBaseSalary = monthOverride.baseSalary !== undefined && monthOverride.baseSalary !== null && monthOverride.baseSalary !== ''
-       ? parseNumber(monthOverride.baseSalary)
-       : autoBaseSalary;
-     const finalCommission = monthOverride.totalCommission !== undefined && monthOverride.totalCommission !== null && monthOverride.totalCommission !== ''
-       ? parseNumber(monthOverride.totalCommission)
-       : autoCommission;
-     const finalServiceFees = monthOverride.totalServiceFees !== undefined && monthOverride.totalServiceFees !== null && monthOverride.totalServiceFees !== ''
-       ? parseNumber(monthOverride.totalServiceFees)
-       : autoServiceFees;
-     const finalFoodAllowance = monthOverride.totalFoodAllowance !== undefined && monthOverride.totalFoodAllowance !== null && monthOverride.totalFoodAllowance !== ''
-       ? parseNumber(monthOverride.totalFoodAllowance)
-       : autoFoodAllowance;
-     const finalAdvances = monthOverride.totalAdvances !== undefined && monthOverride.totalAdvances !== null && monthOverride.totalAdvances !== ''
-       ? parseNumber(monthOverride.totalAdvances)
-       : autoAdvances;
-
-     const totalIncome = finalBaseSalary + finalCommission + finalServiceFees + finalFoodAllowance - finalAdvances;
-     
-     return {
-         ...employee,
-         baseSalary: finalBaseSalary,
-         totalCommission: finalCommission,
-         totalServiceFees: finalServiceFees,
-         totalFoodAllowance: finalFoodAllowance,
-         totalAdvances: finalAdvances,
-         autoBaseSalary,
-         autoCommission,
-         autoServiceFees,
-         autoFoodAllowance,
-         autoAdvances,
-         hasOverride,
-         netSalary: totalIncome, // Keep netSalary for UI compatibility if needed elsewhere
-         totalIncome, // For PayslipModal
-         daysWorked,
-         serviceCount,
-         serviceLogCount: empServiceLogs.length
-     };
-  }, [histories, serviceLogs, advancePayments, attendance, employee, payrollMonth, localOverrides, localBaseSalary]);
+  }, [histories, serviceLogs, advancePayments, attendance, employee, payrollMonth, localOverrides]);
 
   const handleStartEditPayroll = () => {
     if (!isAdmin && !isOwnerPayrollUnlocked) {
@@ -302,6 +201,7 @@ export default function EmployeePortal({
       totalCommission: String(payrollEmployee.totalCommission ?? 0),
       totalServiceFees: String(payrollEmployee.totalServiceFees ?? 0),
       totalFoodAllowance: String(payrollEmployee.totalFoodAllowance ?? 0),
+      diligenceAllowance: String(payrollEmployee.diligenceAllowance ?? 0),
       totalAdvances: String(payrollEmployee.totalAdvances ?? 0)
     });
     setIsEditingPayroll(true);
@@ -315,6 +215,7 @@ export default function EmployeePortal({
         totalCommission: parseNumber(payrollEditForm.totalCommission),
         totalServiceFees: parseNumber(payrollEditForm.totalServiceFees),
         totalFoodAllowance: parseNumber(payrollEditForm.totalFoodAllowance),
+        diligenceAllowance: parseNumber(payrollEditForm.diligenceAllowance),
         totalAdvances: parseNumber(payrollEditForm.totalAdvances),
         updatedAt: new Date().toISOString()
       };
@@ -324,10 +225,8 @@ export default function EmployeePortal({
         [payrollMonth]: newMonthOverride
       };
       await updateDoc(doc(db, 'employees', employee.id), {
-        baseSalary: newMonthOverride.baseSalary,
         payrollOverrides: updatedOverrides
       });
-      setLocalBaseSalary(newMonthOverride.baseSalary);
       setLocalOverrides(updatedOverrides);
       setIsEditingPayroll(false);
     } catch (err) {
@@ -499,12 +398,16 @@ export default function EmployeePortal({
     setIsSubmittingService(false);
   };
   
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalYYYYMMDD();
   const todayAtt = myAttendance.find(a => a.date === today);
   const isActiveShift = todayAtt && !todayAtt.clockOut;
 
   const todayStr = new Date().toLocaleDateString('th-TH');
-  const hasSubmittedEOD = dailySales?.some(d => d.date === todayStr && d.branch === (todayAtt?.branch || employee.branch));
+  const targetBranchNorm = normalizeBranchName(todayAtt?.branch || employee.branch);
+  const hasSubmittedEOD = dailySales?.some(d =>
+     normalizeBranchName(d.branch) === targetBranchNorm &&
+     (d.date === today || d.date === todayStr || getLocalYYYYMMDD(parseThaiDate(d.date)) === today)
+  );
   
   const hasClockedOutToday = todayAtt && todayAtt.clockOut;
   const neverClockedInToday = !todayAtt;
@@ -514,12 +417,12 @@ export default function EmployeePortal({
                        (hasClockedOutToday && !hasSubmittedEOD);
   const isPosLocked = !canAccessPOS;
 
-  // Force active tab to dashboard if not active shift, except for requests_group
+  // Force active tab to dashboard if not active shift (unless admin), except for requests_group
   useEffect(() => {
-     if (!isActiveShift && activeTab !== 'dashboard' && activeTab !== 'requests_group') {
+     if (!isAdmin && !isActiveShift && activeTab !== 'dashboard' && activeTab !== 'requests_group') {
         setActiveTab('dashboard');
      }
-  }, [isActiveShift, activeTab]);
+  }, [isAdmin, isActiveShift, activeTab]);
   const handleSaveBenefitRequest = async (e) => {
     e.preventDefault();
     setIsSubmittingBenefit(true);
@@ -528,8 +431,10 @@ export default function EmployeePortal({
         const data = {
            employeeId: employee.id,
            employeeName: employee.name,
+           benefitType: benefitForm.type,
            itemName: reqTitle,
            quantity: Number(benefitForm.amount),
+           amount: Number(benefitForm.amount),
            reason: benefitForm.note,
            status: 'รออนุมัติ',
            createdAt: new Date().toISOString(),
@@ -712,7 +617,7 @@ export default function EmployeePortal({
             {[
                { id: 'dashboard', icon: Clock, label: 'ลงเวลา' },
                { id: 'requests_group', icon: Send, label: 'คำร้อง (ลา/เบิก)' },
-               ...(isActiveShift ? [
+               ...((isActiveShift || isAdmin) ? [
                   { id: 'service', icon: UserCheck, label: 'บันทึกค่ามือ' },
                   { id: 'schedule_group', icon: Calendar, label: 'ตาราง & ประวัติ' },
                   { id: 'settings', icon: Lock, label: 'ตั้งค่า' }
@@ -846,7 +751,7 @@ export default function EmployeePortal({
                            <div className="bg-white/60 p-3 rounded-xl border border-blue-100 flex flex-col md:col-span-2 gap-2">
                               <span className="font-bold text-slate-700 mb-1">🖐️ เรทค่ามือ (Service Fees)</span>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-[11px] md:text-xs">
-                                 <div className="flex justify-between border-b border-blue-50 pb-1"><span>กดสิว</span><span className="font-black text-emerald-600">20 บ./เคส</span></div>
+                                 <div className="flex justify-between border-b border-blue-50 pb-1"><span>กดสิว</span><span className="font-black text-emerald-600">30 บ./เคส</span></div>
                                  <div className="flex justify-between border-b border-blue-50 pb-1"><span>ทรีทเม้นท์/นวดหน้า/เลเซอร์ IPL</span><span className="font-black text-emerald-600">50 บ./เคส</span></div>
                                  <div className="flex justify-between border-b border-blue-50 pb-1"><span>สปาขัดตัว</span><span className="font-black text-emerald-600">100 บ./เคส</span></div>
                                  <div className="flex justify-between border-b border-blue-50 pb-1"><span>จี้ไฝ/กระ/ติ่งเนื้อ</span><span className="font-black text-emerald-600">10-20% ของยอดบิล</span></div>
@@ -998,6 +903,18 @@ export default function EmployeePortal({
                               </div>
                            </div>
                            <div className="flex justify-between items-center text-slate-600 gap-2">
+                              <span>เบี้ยขยัน</span>
+                              <div className="flex items-center gap-1">
+                                 <span className="text-emerald-600 font-bold">+ ฿</span>
+                                 <input
+                                    type="number"
+                                    value={payrollEditForm.diligenceAllowance}
+                                    onChange={e => setPayrollEditForm({ ...payrollEditForm, diligenceAllowance: e.target.value })}
+                                    className="w-28 md:w-32 text-right font-bold text-emerald-700 bg-emerald-50/50 border border-emerald-300 focus:border-emerald-500 rounded-lg px-2.5 py-1 outline-none"
+                                 />
+                              </div>
+                           </div>
+                           <div className="flex justify-between items-center text-slate-600 gap-2">
                               <span>หักเบิกล่วงหน้า</span>
                               <div className="flex items-center gap-1">
                                  <span className="text-rose-500 font-bold">- ฿</span>
@@ -1016,7 +933,8 @@ export default function EmployeePortal({
                                     parseNumber(payrollEditForm.baseSalary) +
                                     parseNumber(payrollEditForm.totalCommission) +
                                     parseNumber(payrollEditForm.totalServiceFees) +
-                                    parseNumber(payrollEditForm.totalFoodAllowance) -
+                                    parseNumber(payrollEditForm.totalFoodAllowance) +
+                                    parseNumber(payrollEditForm.diligenceAllowance) -
                                     parseNumber(payrollEditForm.totalAdvances)
                                  ).toLocaleString()}
                               </span>
@@ -1058,23 +976,27 @@ export default function EmployeePortal({
                            </div>
                            <div className="flex justify-between items-center text-slate-600">
                               <span>ค่าคอมมิชชัน (จากยอดขาย)</span>
-                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-emerald-600 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>+ ฿{payrollEmployee.totalCommission.toLocaleString()}</span>
+                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-emerald-600 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>+ ฿{(payrollEmployee.totalCommission || 0).toLocaleString()}</span>
                            </div>
                            <div className="flex justify-between items-center text-slate-600">
                               <span>ค่ามือ / ค่าจี้ไฝ</span>
-                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-emerald-600 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>+ ฿{payrollEmployee.totalServiceFees.toLocaleString()}</span>
+                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-emerald-600 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>+ ฿{(payrollEmployee.totalServiceFees || 0).toLocaleString()}</span>
                            </div>
                            <div className="flex justify-between items-center text-slate-600">
                               <span>ค่าอาหาร</span>
                               <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-emerald-600 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>+ ฿{(payrollEmployee.totalFoodAllowance || 0).toLocaleString()}</span>
                            </div>
                            <div className="flex justify-between items-center text-slate-600">
+                              <span>เบี้ยขยัน</span>
+                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-emerald-600 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>+ ฿{(payrollEmployee.diligenceAllowance || 0).toLocaleString()}</span>
+                           </div>
+                           <div className="flex justify-between items-center text-slate-600">
                               <span>หักเบิกล่วงหน้า</span>
-                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-rose-500 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>- ฿{payrollEmployee.totalAdvances.toLocaleString()}</span>
+                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-rose-500 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>- ฿{(payrollEmployee.totalAdvances || 0).toLocaleString()}</span>
                            </div>
                            <div className="border-t border-dashed border-slate-200 pt-2 mt-2 flex justify-between items-center">
                               <span className="font-black text-slate-800">รายรับสุทธิ</span>
-                              <span className="font-black text-emerald-600 text-base">฿{payrollEmployee.netSalary.toLocaleString()}</span>
+                              <span className="font-black text-emerald-600 text-base">฿{(payrollEmployee.netSalary || 0).toLocaleString()}</span>
                            </div>
                         </div>
                      )}
@@ -1125,14 +1047,14 @@ export default function EmployeePortal({
                      <div className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2"><Send size={16} className="text-indigo-500"/> สถานะคำร้องเดือนนี้</div>
                      <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
                         {(() => {
-                           const currentMonthPrefix = new Date().toISOString().substring(0, 7); // YYYY-MM
+                           const currentMonthPrefix = getLocalYYYYMMDD().substring(0, 7); // YYYY-MM
                            
                            // Combine leaves, advances, requisitions for the current employee and current month
-                           const empLeaves = leaves.filter(l => l.employeeId === employee.id && (l.createdAt || '').startsWith(currentMonthPrefix))
+                           const empLeaves = leaves.filter(l => l.employeeId === employee.id && getLocalYYYYMMDD(l.createdAt).startsWith(currentMonthPrefix))
                               .map(l => ({ ...l, reqType: 'leave', title: l.leaveType, amount: null }));
-                           const empAdvances = advancePayments.filter(a => a.employeeId === employee.id && (a.createdAt || '').startsWith(currentMonthPrefix))
+                           const empAdvances = advancePayments.filter(a => a.employeeId === employee.id && getLocalYYYYMMDD(a.createdAt).startsWith(currentMonthPrefix))
                               .map(a => ({ ...a, reqType: 'advance', title: 'เบิกเงินล่วงหน้า', amount: a.amount }));
-                           const empRequisitions = requisitions.filter(r => r.employeeId === employee.id && (r.createdAt || '').startsWith(currentMonthPrefix))
+                           const empRequisitions = requisitions.filter(r => r.employeeId === employee.id && getLocalYYYYMMDD(r.createdAt).startsWith(currentMonthPrefix))
                               .map(r => ({ ...r, reqType: 'requisition', title: 'เบิกของใช้: ' + r.itemName, amount: r.quantity }));
                               
                            const allMyRequests = [...empLeaves, ...empAdvances, ...empRequisitions]
@@ -1253,7 +1175,7 @@ export default function EmployeePortal({
                                     <h4 className="font-black text-pink-600 text-lg">
                                        ฿{Number(log.amount).toLocaleString()} 
                                        <span className="text-sm font-bold text-emerald-500 ml-2">
-                                          (ได้ {typeof log.note === 'string' && log.note.startsWith('POS:') ? `฿${(Number(log.amount) * 0.10).toLocaleString()}` : `เต็ม ฿${Number(log.amount).toLocaleString()}`})
+                                          (ได้ ฿{Math.ceil(calculateServiceLogFee(log)).toLocaleString()})
                                        </span>
                                     </h4>
                                     <p className="text-xs font-bold text-slate-500 mt-0.5">{new Date(log.date).toLocaleDateString('th-TH')} - {log.type}</p>
@@ -1431,9 +1353,6 @@ export default function EmployeePortal({
                            </div>
                         </div>
                      )}
-                  </div>
-               </div>
-            )}
                      {requestsSubTab === 'supplies' && (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-4 md:p-6">
                            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col h-fit">
@@ -1486,6 +1405,9 @@ export default function EmployeePortal({
                            </div>
                         </div>
                      )}
+                  </div>
+               </div>
+            )}
             {/* Schedule & History Group */}
             {activeTab === 'schedule_group' && (
                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full max-h-[80vh]">
@@ -1622,50 +1544,33 @@ export default function EmployeePortal({
                             )}
                         </div>
                      )}
+                     {scheduleSubTab === 'history' && (
+                        <div className="space-y-3">
+                           <h3 className="text-lg md:text-xl font-black text-slate-800 flex items-center gap-2 mb-4"><History className="text-indigo-500" /> ประวัติการลงเวลา</h3>
+                           {myAttendance.length === 0 ? (
+                              <div className="py-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลประวัติลงเวลา</div>
+                           ) : myAttendance.map(att => (
+                              <div key={att.id} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                 <div>
+                                    <p className="font-bold text-slate-800">{new Date(att.date).toLocaleDateString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                                    <p className="text-xs font-bold text-slate-500 mt-1">สาขา: {att.branch || employee.branch}</p>
+                                 </div>
+                                 <div className="flex gap-2">
+                                    <div className="bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-bold">
+                                       เข้า: {att.clockIn ? new Date(att.clockIn).toLocaleTimeString('th-TH') : '-'}
+                                    </div>
+                                    <div className="bg-rose-100 text-rose-700 px-3 py-1.5 rounded-lg text-xs font-bold">
+                                       ออก: {att.clockOut ? new Date(att.clockOut).toLocaleTimeString('th-TH') : '-'}
+                                    </div>
+                                 </div>
+                              </div>
+                           ))}
+                        </div>
+                     )}
                   </div>
                </div>
             )}
          </div>
-      </div>
-      
-      {/* Mobile Bottom Navigation Bar */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-[210] flex justify-around items-end pb-2 px-2 h-[75px] shadow-[0_-10px_20px_rgba(0,0,0,0.03)]">
-         {[
-            { id: 'service', icon: UserCheck, label: 'ค่ามือ' },
-            { id: 'schedule_group', icon: Calendar, label: 'ตารางงาน' },
-            { id: 'dashboard', icon: Clock, label: 'ลงเวลา' },
-            { id: 'requests_group', icon: Send, label: 'คำร้อง' },
-            { id: 'settings', icon: Lock, label: 'ตั้งค่า' },
-         ].map(tab => {
-            const isMain = tab.id === 'dashboard';
-            const isActive = activeTab === tab.id;
-            
-            if (isMain) {
-                return (
-                    <button 
-                       key={tab.id}
-                       onClick={() => setActiveTab(tab.id)} 
-                       className="relative flex flex-col items-center justify-center w-[20%] h-full group"
-                    >
-                       <div className={`absolute -top-6 flex items-center justify-center w-14 h-14 rounded-full shadow-lg transition-transform duration-300 ${isActive ? 'bg-indigo-600 scale-105 shadow-indigo-500/40' : 'bg-indigo-500 scale-100'}`}>
-                           <tab.icon size={24} className="text-white" />
-                       </div>
-                       <span className={`text-[10px] font-black mt-8 ${isActive ? 'text-indigo-600' : 'text-slate-400'}`}>{tab.label}</span>
-                    </button>
-                );
-            }
-            
-            return (
-               <button 
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)} 
-                  className={`flex flex-col items-center justify-center w-[20%] h-[50px] space-y-1 ${isActive ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-               >
-                  <tab.icon size={20} className={isActive ? 'stroke-[2.5px]' : ''} />
-                  <span className="text-[10px] font-bold">{tab.label}</span>
-               </button>
-            );
-         })}
       </div>
 
       {showPayslip && (
@@ -1756,12 +1661,12 @@ export default function EmployeePortal({
          </div>
       )}
 
-      {/* Mobile Bottom Navigation Bar (Employee Version) */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-[210] flex justify-around items-end h-[68px] pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.05)] px-2">
+      {/* Mobile Bottom Navigation Bar */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 flex justify-around items-end h-[68px] pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.05)] px-2">
          {[
             { id: 'dashboard', icon: Clock, label: 'ลงเวลา' },
             { id: 'requests_group', icon: Send, label: 'คำร้อง' },
-            ...(isActiveShift ? [
+            ...((isActiveShift || isAdmin) ? [
                { id: 'service', icon: UserCheck, label: 'ค่ามือ' },
                { id: 'schedule_group', icon: Calendar, label: 'ตาราง' },
                { id: 'settings', icon: Lock, label: 'ตั้งค่า' }
@@ -1778,7 +1683,7 @@ export default function EmployeePortal({
          ))}
       </div>
       {benefitForm.show && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/60 z-[240] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl w-full max-w-md p-6 flex flex-col gap-4 animate-in zoom-in-95 duration-200">
              <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
                {benefitForm.type === 'product_limit' ? '🛍️ ขอเบิกวงเงินผลิตภัณฑ์' : '👕 ขอเบิกค่าชุดยูนิฟอร์ม'}

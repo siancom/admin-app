@@ -1,26 +1,41 @@
 import React, { useState, useRef, useMemo, Suspense } from 'react';
 import { Search, User, CheckCircle, Scissors, X, Upload, Plus, History, CheckSquare } from 'lucide-react';
 import { db, storage } from '../config/firebase';
-import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
+import { collection, doc, writeBatch } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
-import { parseNumber } from '../utils/parse';
+import { parseQty, getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
 import { getFuzzyKey } from '../utils/fuzzy';
 import { sendCourseDeductionNotification } from '../utils/lineUtils';
 import SignaturePad from './SignaturePad';
 
 export default function CourseDeductionSystem({ 
-  customers, 
-  masterCourses, 
-  employees,
-  clockedInEmployees,
-  globalBranch, 
+  customers = [], 
+  courses,
+  masterCourses = [], 
+  employees = [],
+  clockedInEmployees = [],
+  globalBranch,
+  currentBranch,
+  currentUser,
   showToast,
   onGoBack,
-  histories
+  histories = []
 }) {
+  const effectiveBranch = currentBranch || globalBranch || 'สำนักงานใหญ่';
+  const notify = (msg, type = 'info') => {
+    if (typeof showToast === 'function') {
+      showToast(msg, type);
+    }
+  };
+
+  const getCustomerName = (c) => c?.computedName || getFuzzyKey(c, ['ชื่อ', 'ชื่อลูกค้า', 'name', 'col_1']) || '';
+  const getCustomerPhone = (c) => c?.computedPhone || getFuzzyKey(c, ['เบอร์โทร', 'phone', 'col_3']) || '';
+  const getCustomerHn = (c) => c?.hnCode || c?.id || '';
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [modalSignatureData, setModalSignatureData] = useState(null);
   
   // Modal states
   const [showDeductModal, setShowDeductModal] = useState(false);
@@ -32,62 +47,141 @@ export default function CourseDeductionSystem({
   const [paymentStaff, setPaymentStaff] = useState('');
   const [paymentPhotoUrl, setPaymentPhotoUrl] = useState(null);
   const fileInputRef = useRef(null);
+  const modalSigRef = useRef(null);
   const custSigRef = useRef(null);
   const staffSigRef = useRef(null);
   const [treatmentNotes, setTreatmentNotes] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
   const handleSaveSignature = (sig) => {
-    // Logic to save signature
+    if (!sig && modalSigRef.current?.dataset?.isSigned !== 'true') {
+      return notify('กรุณาลงลายมือชื่อก่อนบันทึก', 'error');
+    }
     setShowSignatureModal(false);
   };
 
-  // Use the same active logic as App.jsx
-  const getCustomerCourseUsage = (cust) => {
-    return histories.filter(h => 
-      String(h.customerId) === String(cust?.id) && 
-      (h.type === 'usage' || (h.cart && h.cart.some(i => i.type === 'usage')))
-    );
-  };
+  const availableStaffList = useMemo(() => {
+    const normCurrent = normalizeBranchName(effectiveBranch);
+    const matchBranch = (emp) => {
+      if (!normCurrent) return true;
+      const empBranch = normalizeBranchName(emp?.branch);
+      return !empBranch || empBranch === normCurrent || empBranch === 'สำนักงานใหญ่';
+    };
+    const clocked = (clockedInEmployees || []).filter(matchBranch);
+    if (clocked.length > 0) return clocked;
+    const allBranchStaff = (employees || []).filter(matchBranch);
+    if (allBranchStaff.length > 0) return allBranchStaff;
+    if (currentUser?.name) {
+      return [{ id: currentUser.id || 'current_user', name: currentUser.name, branch: effectiveBranch }];
+    }
+    return [];
+  }, [clockedInEmployees, employees, effectiveBranch, currentUser]);
 
   const activeCourses = useMemo(() => {
     if (!selectedCustomer) return [];
-    
-    // Aggregate customer's bought courses (from cart histories)
+
+    const custName = String(getCustomerName(selectedCustomer)).trim();
+    const custPhone = String(getCustomerPhone(selectedCustomer)).trim();
+    const custCleanPhone = custPhone.replace(/\D/g, '');
+
+    if (Array.isArray(courses)) {
+      return courses
+        .filter(course => {
+          const status = String(course.computedStatus || getFuzzyKey(course, ['สถานะ', 'status']) || '').trim();
+          if (status === 'ยกเลิก' || status.includes('ยกเลิก')) return false;
+
+          const remain = course.computedRemainQty ?? parseQty(getFuzzyKey(course, ['คงเหลือ', 'ครั้งคงเหลือ', 'ครั้งที่เหลือ', 'ครั้งที่เหลือดิบ', 'col_4']));
+          if (!remain || remain <= 0) return false;
+
+          const courseTitle = String(getFuzzyKey(course, ['ชื่อคอส', 'ชื่อคอร์ส', 'รายการ', 'col_8', 'col_4']) || '').toLowerCase();
+          const isCreditCourse = courseTitle.includes('วงเงิน') || courseTitle.includes('เติมเงิน') || courseTitle.includes('เครดิต') || courseTitle.includes('voucher') || courseTitle.includes('บัตรกำนัล') || courseTitle.includes('ฝากเงิน');
+          if (isCreditCourse) return false;
+
+          const rawPhoneCandidates = [
+            course.customerPhone,
+            course.cleanPhone,
+            getFuzzyKey(course, ['เบอร์โทร', 'เบอร์โทรลูกค้า', 'col_4', 'col_3']),
+            course.col_1
+          ]
+            .filter(v => v !== undefined && v !== null && String(v).trim() !== '')
+            .map(v => String(v).trim());
+
+          const phoneMatched = custCleanPhone.length >= 6 && rawPhoneCandidates.some(cp => {
+            const digits = cp.replace(/\D/g, '');
+            return digits.length >= 6 && digits === custCleanPhone;
+          });
+          if (phoneMatched) return true;
+
+          const exactRawPhoneMatched = Boolean(custPhone) && rawPhoneCandidates.some(cp => cp === custPhone && cp.length >= 6);
+          if (exactRawPhoneMatched) return true;
+
+          // Fallback to exact customer name match only if course has no valid phone number
+          const courseHasValidPhone = rawPhoneCandidates.some(cp => cp.replace(/\D/g, '').length >= 8);
+          if (!courseHasValidPhone && custName) {
+            const cCustomerName = String(
+              course.customerName ||
+              getFuzzyKey(course, ['ผู้ซื้อคอส', 'ชื่อลูกค้า', 'ชื่อ', 'customerName', 'col_9']) ||
+              ''
+            ).trim();
+            if (cCustomerName && cCustomerName === custName) return true;
+          }
+
+          return false;
+        })
+        .map(course => {
+          const totalQty = course.computedTotalQty ?? (parseQty(getFuzzyKey(course, ['จำนวนครั้งที่ได้', 'จำนวนรวม', 'col_10', 'qty'])) || 1);
+          const remain = course.computedRemainQty ?? parseQty(getFuzzyKey(course, ['คงเหลือ', 'ครั้งคงเหลือ', 'ครั้งที่เหลือ', 'ครั้งที่เหลือดิบ', 'col_4']));
+          const used = course.computedUsedQty ?? Math.max(0, totalQty - remain);
+          return {
+            ...course,
+            used,
+            balance: remain,
+            totalQty,
+            dateBought: getFuzzyKey(course, ['วันที่ซื้อ', 'dateBought', 'col_3']) || course.id
+          };
+        });
+    }
+
+    // Fallback if `courses` prop isn't passed
     const boughtCourses = [];
-    const usageMap = {}; // track how many times a course was used
-    
-    // Fetch from histories where customer bought courses
-    const myHistories = histories.filter(h => String(h.customerId) === String(selectedCustomer.id));
+    const usageMap = {};
+    const myHistories = (histories || []).filter(h => {
+      if (String(h.customerId) === String(selectedCustomer.id)) return true;
+      const hPhone = String(getFuzzyKey(h, ['เบอร์โทร', 'phone', 'col_3']) || '').replace(/\D/g, '');
+      return custCleanPhone.length >= 6 && hPhone === custCleanPhone;
+    });
+
     myHistories.forEach(h => {
       if (h.cart) {
         h.cart.forEach(item => {
           if (item.type === 'course') {
             boughtCourses.push({
               ...item,
+              _fromHistoryFallback: true,
               dateBought: h.date,
               receiptNo: h.receiptNo || h.id
             });
           }
           if (item.type === 'usage') {
-             // Sum usage
-             const cid = item.originalItem?.id || item.id;
-             usageMap[cid] = (usageMap[cid] || 0) + (parseInt(item.qty) || 1);
+            const cid = item.originalItem?.id || item.id;
+            usageMap[cid] = (usageMap[cid] || 0) + (parseInt(item.qty, 10) || 1);
           }
         });
       }
     });
 
-    return boughtCourses.map(c => {
-       const totalQty = parseInt(getFuzzyKey(c, ["จำนวนครั้งที่ได้", "col_13", "qty"])) || 1;
-       const used = usageMap[c.id] || 0;
-       return { ...c, used, balance: totalQty - used, totalQty };
-    }).filter(c => c.balance > 0);
-  }, [selectedCustomer, histories]);
+    return boughtCourses
+      .map(c => {
+        const totalQty = parseInt(getFuzzyKey(c, ['จำนวนครั้งที่ได้', 'col_13', 'qty']), 10) || 1;
+        const used = usageMap[c.id] || 0;
+        return { ...c, used, balance: totalQty - used, totalQty };
+      })
+      .filter(c => c.balance > 0);
+  }, [selectedCustomer, courses, histories]);
 
   const singleServices = useMemo(() => {
-    return masterCourses.filter(c => {
-      const code = String(getFuzzyKey(c, ["รหัสคอส", "col_1"]));
+    return (masterCourses || []).filter(c => {
+      const code = String(getFuzzyKey(c, ["รหัสคอส", "col_1"]) || '');
       const qty = String(getFuzzyKey(c, ["จำนวนครั้งที่ได้", "qty", "col_13"]) || '1');
       if (!code.startsWith('F-') || qty !== '1') return false;
       
@@ -97,8 +191,8 @@ export default function CourseDeductionSystem({
       }
       return true;
     }).sort((a, b) => {
-      const codeA = String(getFuzzyKey(a, ["รหัสคอส", "col_1"]));
-      const codeB = String(getFuzzyKey(b, ["รหัสคอส", "col_1"]));
+      const codeA = String(getFuzzyKey(a, ["รหัสคอส", "col_1"]) || '');
+      const codeB = String(getFuzzyKey(b, ["รหัสคอส", "col_1"]) || '');
       
       const getSortScore = (code) => {
         if (code.startsWith('F-MA') || code.startsWith('F-M')) return 1;
@@ -114,84 +208,133 @@ export default function CourseDeductionSystem({
   }, [masterCourses, modalServiceSearch]);
 
   const filteredCustomers = useMemo(() => {
-    if (!searchTerm) return [];
-    const t = searchTerm.toLowerCase();
-    return customers.filter(c => 
-      c.name?.toLowerCase().includes(t) || 
-      c.phone?.toLowerCase().includes(t) || 
-      c.hnCode?.toLowerCase().includes(t)
-    ).slice(0, 10);
+    if (!searchTerm.trim()) return [];
+    const t = searchTerm.trim().toLowerCase();
+    const cleanT = t.replace(/\D/g, '');
+    return (customers || []).filter(c => {
+      const name = String(getCustomerName(c)).toLowerCase();
+      const phone = String(getCustomerPhone(c)).toLowerCase();
+      const cleanPhone = phone.replace(/\D/g, '');
+      const hn = String(getCustomerHn(c)).toLowerCase();
+      return (
+        name.includes(t) ||
+        phone.includes(t) ||
+        (cleanT.length >= 3 && cleanPhone.includes(cleanT)) ||
+        hn.includes(t)
+      );
+    }).slice(0, 10);
   }, [searchTerm, customers]);
 
+  const getCourseCodeLabel = (course) => {
+    return String(getFuzzyKey(course, ['เลขที่ใบคอส', 'รหัสคอส', 'col_2', 'col_1']) || course?.id || '-');
+  };
+
+  const getCourseTitleLabel = (course) => {
+    return String(getFuzzyKey(course, ['ชื่อคอส', 'ชื่อคอร์ส', 'รายการ', 'col_8', 'col_4']) || '-');
+  };
+
   const handleDeduct = async () => {
-    if (!paymentStaff) return showToast('กรุณาเลือกพนักงานผู้ให้บริการ', 'error');
+    if (!courseToDeduct || !selectedCustomer) return;
+    if (!paymentStaff) return notify('กรุณาเลือกพนักงานผู้ให้บริการ', 'error');
     if (custSigRef.current?.dataset?.isSigned !== "true" || staffSigRef.current?.dataset?.isSigned !== "true") {
-      return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
+      return notify('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
     }
     if (selectedServices.length === 0) {
-      return showToast('กรุณาเลือกบริการที่ใช้ในครั้งนี้', 'error');
+      return notify('กรุณาเลือกบริการที่ใช้ในครั้งนี้', 'error');
+    }
+
+    const paidCount = selectedServices.filter(s => {
+      const name = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]) || '').trim();
+      return !name.includes('ฟรี');
+    }).length;
+    const hasFreeService = selectedServices.some(s => String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]) || '').includes('ฟรี'));
+    const qty = paidCount > 0 ? paidCount : (hasFreeService ? 0 : 1);
+
+    if (qty > (courseToDeduct.balance ?? 0)) {
+      return notify(`เลือกบริการเกินจำนวนสิทธิ์คงเหลือ (${courseToDeduct.balance ?? 0} ครั้ง)`, 'error');
     }
 
     setIsProcessing(true);
     try {
       let finalPhotoUrl = '';
       if (paymentPhotoUrl) {
-         const storageRef = ref(storage, `usage_photos/${Date.now()}.jpg`);
-         await uploadString(storageRef, paymentPhotoUrl, 'data_url');
-         finalPhotoUrl = await getDownloadURL(storageRef);
+        const storageRef = ref(storage, `usage_photos/${Date.now()}.jpg`);
+        await uploadString(storageRef, paymentPhotoUrl, 'data_url');
+        finalPhotoUrl = await getDownloadURL(storageRef);
       }
 
-      const custSig = custSigRef.current?.toDataURL() || '';
-      const staffSig = staffSigRef.current?.toDataURL() || '';
+      const custSig = custSigRef.current?.toDataURL('image/png') || '';
+      const staffSig = staffSigRef.current?.toDataURL('image/png') || '';
 
-      const deductedQty = selectedServices.filter(s => {
-        const name = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"])).trim();
-        return !name.includes('ฟรี');
-      }).length || (selectedServices.some(s => String(getFuzzyKey(s, ["ชื่อคอส", "col_4"])).includes('ฟรี')) ? 0 : 1);
-      
+      const nowObj = new Date();
+      const todayIso = getLocalYYYYMMDD(nowObj);
+      const timeStr = nowObj.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+      const custName = String(getCustomerName(selectedCustomer)).trim();
+      const custPhone = String(getCustomerPhone(selectedCustomer)).trim();
+      const custCleanPhone = custPhone.replace(/\D/g, '');
+      const courseNo = String(getFuzzyKey(courseToDeduct, ['เลขที่ใบคอส', 'รหัสคอส', 'col_2', 'col_1']) || '');
+      const courseName = getCourseTitleLabel(courseToDeduct);
+      const usedServiceNames = selectedServices.map(s => String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]) || '').trim()).filter(Boolean);
+      const itemDesc = usedServiceNames.length > 0
+        ? `ตัดคอร์ส: ${courseName} (${usedServiceNames.join(', ')})`
+        : `ตัดคอร์ส: ${courseName}`;
+
+      const currentUsed = courseToDeduct.computedUsedQty ?? courseToDeduct.used ?? parseQty(getFuzzyKey(courseToDeduct, ['ครั้งที่ใช้', 'รวมใช้งานแล้ว', 'ใช้ไป', 'col_5']));
+      const currentTotal = courseToDeduct.computedTotalQty ?? courseToDeduct.totalQty ?? (parseQty(getFuzzyKey(courseToDeduct, ['จำนวนครั้งที่ได้', 'จำนวนรวม', 'col_10'])) || 1);
+      const newUsed = currentUsed + qty;
+      const newRemain = Math.max(0, currentTotal - newUsed);
+      const newStatus = newRemain <= 0 ? 'ใช้ครบแล้ว' : 'ยังคงเหลือ';
+      const canUpdateCourseDoc = Boolean(courseToDeduct.id && !courseToDeduct._fromHistoryFallback);
+
+      const batch = writeBatch(db);
+      const historyRef = doc(collection(db, 'histories'));
       const historyData = {
-        date: new Date().toISOString(),
-        customerId: selectedCustomer.id,
-        customerName: selectedCustomer.name,
-        branch: globalBranch || 'สำนักงานใหญ่',
-        type: 'usage',
-        total: 0,
-        subtotal: 0,
-        discount: 0,
-        amountReceived: 0,
-        change: 0,
-        paymentMethod: 'course_deduction',
-        splitPayment: {},
-        paymentStaff,
-        paymentPhotoUrl: finalPhotoUrl,
+        "วันที่": nowObj.toLocaleDateString('th-TH'),
+        date: todayIso,
+        "เวลา": timeStr,
+        "ชื่อลูกค้า": custName,
+        "เบอร์โทร": custPhone,
+        "cleanPhone": custCleanPhone,
+        "รายการ": itemDesc,
+        "ประเภท": "รับบริการ",
+        "สถานะ": "เรียบร้อย",
+        "จำนวนครั้ง": qty,
+        "จำนวน": String(qty),
+        "เลขที่ใบคอส": courseNo,
+        "สาขา": String(effectiveBranch),
+        "ชื่อเจ้าหน้าที่": paymentStaff,
+        "พนักงาน": paymentStaff,
+        courseId: courseToDeduct.id || '',
+        courseUpdatedDirectly: canUpdateCourseDoc,
+        createdAt: nowObj.toISOString(),
         customerSignature: custSig,
         staffSignature: staffSig,
-        treatmentNotes,
-        usedServices: selectedServices.map(s => getFuzzyKey(s, ["ชื่อคอส", "col_4"])),
-        cart: [{
-          ...courseToDeduct,
-          type: 'usage',
-          qty: deductedQty > 0 ? deductedQty : (selectedServices.length === 0 ? 1 : 0),
-          originalItem: courseToDeduct,
-          price: 0
-        }],
-        createdAt: serverTimestamp()
+        customerId: selectedCustomer.id || '',
+        usedServices: usedServiceNames,
+        treatmentNotes: treatmentNotes || '',
+        paymentPhotoUrl: finalPhotoUrl || null,
+        customerPhoto: finalPhotoUrl || null
       };
 
-      await addDoc(collection(db, 'histories'), historyData);
+      batch.set(historyRef, historyData);
+
+      if (canUpdateCourseDoc) {
+        const courseRef = doc(db, 'courses', courseToDeduct.id);
+        batch.update(courseRef, {
+          "ครั้งที่ใช้": String(newUsed),
+          "สถานะ": newStatus
+        });
+      }
+
+      await batch.commit();
       
       // Send LINE notification for course deduction
       if (selectedCustomer && selectedCustomer.lineUid) {
-         const qtyDeducted = deductedQty > 0 ? deductedQty : (selectedServices.length === 0 ? 1 : 0);
-         const remaining = courseToDeduct.balance - qtyDeducted;
-         const courseName = String(getFuzzyKey(courseToDeduct, ["ชื่อคอส", "col_4"]));
-         
-         sendCourseDeductionNotification(courseName, qtyDeducted, remaining, selectedCustomer.lineUid)
-             .catch(e => console.warn('Deduction Line notification failed:', e.message));
+        sendCourseDeductionNotification(courseName, qty, newRemain, selectedCustomer.lineUid)
+          .catch(e => console.warn('Deduction Line notification failed:', e.message));
       }
 
-      
-      showToast('ตัดคอร์สสำเร็จ!', 'success');
+      notify('ตัดคอร์สสำเร็จ!', 'success');
       setShowDeductModal(false);
       setCourseToDeduct(null);
       setSelectedServices([]);
@@ -201,7 +344,7 @@ export default function CourseDeductionSystem({
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (error) {
       console.error(error);
-      showToast('เกิดข้อผิดพลาดในการตัดคอร์ส', 'error');
+      notify('เกิดข้อผิดพลาดในการตัดคอร์ส', 'error');
     } finally {
       setIsProcessing(false);
     }
@@ -233,11 +376,28 @@ export default function CourseDeductionSystem({
                               <X size={20} />
                           </button>
                       </div>
-                      <div className="p-4 bg-slate-50/50 rounded-b-3xl">
+                      <div className="p-4 bg-slate-50/50 rounded-b-3xl space-y-4">
                           <SignaturePad 
-                              onSave={handleSaveSignature}
-                              onCancel={() => setShowSignatureModal(false)}
+                              label="ลายเซ็นลูกค้า"
+                              canvasRef={modalSigRef}
+                              onSigned={(sig) => setModalSignatureData(sig)}
                           />
+                          <div className="flex gap-3 justify-end">
+                              <button
+                                  type="button"
+                                  onClick={() => setShowSignatureModal(false)}
+                                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm transition-colors"
+                              >
+                                  ยกเลิก
+                              </button>
+                              <button
+                                  type="button"
+                                  onClick={() => handleSaveSignature(modalSignatureData)}
+                                  className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm transition-colors"
+                              >
+                                  บันทึก
+                              </button>
+                          </div>
                       </div>
                   </div>
               </div>
@@ -254,6 +414,15 @@ export default function CourseDeductionSystem({
           </h2>
           <p className="text-slate-500 mt-2 font-medium">ค้นหาลูกค้าและเลือกคอร์สที่ต้องการตัดใช้งาน</p>
         </div>
+        {onGoBack && (
+          <button
+            type="button"
+            onClick={onGoBack}
+            className="self-start sm:self-auto px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm transition-colors"
+          >
+            กลับหน้าหลัก
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
@@ -283,8 +452,8 @@ export default function CourseDeductionSystem({
                   <User size={24} />
                 </div>
                 <div>
-                  <div className="font-bold text-slate-800 text-lg">{cust.name}</div>
-                  <div className="text-sm text-slate-500">HN: {cust.hnCode} • โทร: {cust.phone}</div>
+                  <div className="font-bold text-slate-800 text-lg">{getCustomerName(cust) || '-'}</div>
+                  <div className="text-sm text-slate-500">HN: {getCustomerHn(cust) || '-'} • โทร: {getCustomerPhone(cust) || '-'}</div>
                 </div>
               </div>
             )) : (
@@ -301,8 +470,8 @@ export default function CourseDeductionSystem({
                   <User size={28} />
                 </div>
                 <div>
-                  <div className="font-bold text-slate-800 text-xl">{selectedCustomer.name}</div>
-                  <div className="text-slate-500 font-medium">HN: {selectedCustomer.hnCode} • โทร: {selectedCustomer.phone}</div>
+                  <div className="font-bold text-slate-800 text-xl">{getCustomerName(selectedCustomer) || '-'}</div>
+                  <div className="text-slate-500 font-medium">HN: {getCustomerHn(selectedCustomer) || '-'} • โทร: {getCustomerPhone(selectedCustomer) || '-'}</div>
                 </div>
               </div>
               <button 
@@ -326,9 +495,9 @@ export default function CourseDeductionSystem({
                       className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-pink-300 hover:shadow-md transition-all flex flex-col h-full"
                     >
                       <div className="flex-1">
-                        <div className="text-xs font-bold text-pink-500 mb-2">{String(getFuzzyKey(course, ["รหัสคอส", "col_1"]))}</div>
+                        <div className="text-xs font-bold text-pink-500 mb-2">{getCourseCodeLabel(course)}</div>
                         <div className="font-bold text-slate-800 text-lg leading-tight mb-3">
-                          {String(getFuzzyKey(course, ["ชื่อคอส", "col_4"]))}
+                          {getCourseTitleLabel(course)}
                         </div>
                         <div className="flex items-center gap-4 mb-4">
                           <div className="text-sm font-medium text-slate-500">
@@ -376,7 +545,7 @@ export default function CourseDeductionSystem({
             <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
               <div>
                 <h2 className="text-2xl font-black text-slate-800">ยืนยันการตัดคอร์ส</h2>
-                <p className="text-slate-500 font-medium">ตัด 1 ครั้ง จากคอร์ส {String(getFuzzyKey(courseToDeduct, ["ชื่อคอส", "col_4"]))}</p>
+                <p className="text-slate-500 font-medium">ตัดคอร์ส {getCourseTitleLabel(courseToDeduct)} (คงเหลือ {courseToDeduct.balance} ครั้ง)</p>
               </div>
               <button onClick={() => setShowDeductModal(false)} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
                 <X size={20} />
@@ -489,8 +658,8 @@ export default function CourseDeductionSystem({
                     <label className="block text-sm font-bold text-slate-600 mb-2">พนักงานผู้ให้บริการ <span className="text-red-500">*</span></label>
                     <select value={paymentStaff} onChange={e => setPaymentStaff(e.target.value)} className="w-full border-2 border-slate-200 rounded-xl p-3 outline-none focus:border-pink-400 font-medium">
                       <option value="">-- เลือกพนักงาน --</option>
-                      {clockedInEmployees.filter(emp => !globalBranch || emp.branch === globalBranch || emp.branch === 'สำนักงานใหญ่').map(emp => (
-                        <option key={emp.id} value={emp.name}>{emp.name} ({emp.branch})</option>
+                      {availableStaffList.map(emp => (
+                        <option key={emp.id} value={emp.name}>{emp.name}{emp.branch ? ` (${emp.branch})` : ''}</option>
                       ))}
                     </select>
                   </div>
@@ -532,8 +701,8 @@ export default function CourseDeductionSystem({
                   </div>
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     <SignaturePad canvasRef={custSigRef} label="ลายเซ็นลูกค้า" />
-                     <SignaturePad canvasRef={staffSigRef} label="ลายเซ็นพนักงาน" />
+                     <SignaturePad canvasRef={custSigRef} label="ลายเซ็นลูกค้า" onSigned={() => {}} />
+                     <SignaturePad canvasRef={staffSigRef} label="ลายเซ็นพนักงาน" onSigned={() => {}} />
                   </div>
                 </div>
               </div>

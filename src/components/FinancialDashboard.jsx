@@ -5,9 +5,10 @@ import {
   Users, Package, Zap, Wifi, Home, Coffee, MoreHorizontal, Droplets, Camera, Info, Calculator, Download,
   ArrowDownToLine, ArrowUpFromLine, Landmark, CreditCard, PieChart, Coins, Building, Edit2
 } from 'lucide-react';
-import { parseNumber } from '../utils/parse';
+import { parseNumber, getLocalYYYYMMDD, normalizeBranchName, parseThaiDate } from '../utils/parse';
 import { computeOwnerCostPrice } from '../utils/priceUtils';
-import { getOrderStatus, isInPayrollMonth } from '../utils/dateUtils';
+import { getOrderStatus } from '../utils/dateUtils';
+import { calculateEmployeeMonthlyPayroll } from '../utils/payrollUtils';
 import { getFuzzyKey } from '../utils/fuzzy';
 import { db, storage } from '../config/firebase';
 import { doc, setDoc, updateDoc, deleteDoc, deleteField, collection, serverTimestamp } from 'firebase/firestore';
@@ -15,29 +16,101 @@ import ModalWrapper from './ModalWrapper';
 import MonthlyEodPrintModal from './MonthlyEodPrintModal';
 import DailyReportPrintModal from './DailyReportPrintModal';
 
+const TREASURY_CATEGORIES = new Set([
+  'เงินทุนตั้งต้น',
+  'รับเงินกู้ยืม',
+  'จ่ายคืนเงินกู้',
+  'จ่ายเงินปันผล',
+  'ถอนเงินส่วนตัว',
+  'บัญชีธนาคาร',
+  'ทรัพย์สินอื่นๆ',
+  'ทองคำ',
+  'เงินสด'
+]);
+
+const isTreasuryRecord = (e) => e?.type === 'treasury' || TREASURY_CATEGORIES.has(e?.category);
+
+const toValidDate = (val) => {
+  if (!val) return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  if (typeof val?.toDate === 'function') {
+    const d = val.toDate();
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof val?.seconds === 'number') {
+    const d = new Date(val.seconds * 1000);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (!trimmed) return null;
+    if (trimmed.includes('T')) {
+      const d = new Date(trimmed);
+      if (!isNaN(d.getTime())) return d;
+    }
+    const parsed = parseThaiDate(trimmed);
+    if (parsed) return parsed;
+    const fallback = new Date(trimmed);
+    return isNaN(fallback.getTime()) ? null : fallback;
+  }
+  return null;
+};
+
 // Helper to get local date string YYYY-MM-DD
 const getLocalDateStr = (dateVal) => {
-  const d = dateVal ? new Date(dateVal) : new Date();
-  if (isNaN(d.getTime())) return '';
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  if (dateVal === undefined || dateVal === null || dateVal === '') {
+    return getLocalYYYYMMDD(new Date());
+  }
+  const d = toValidDate(dateVal);
+  return d ? getLocalYYYYMMDD(d) : '';
+};
+
+const extractIsoDate = (val) => {
+  if (!val) return '';
+  const d = toValidDate(val);
+  return d ? getLocalYYYYMMDD(d) : '';
 };
 
 // Helper function to extract correct ISO date from EOD records
 const getIsoDate = (d) => {
-    if (d.date && d.date.includes('/')) {
-        const parts = d.date.split('/');
-        if (parts.length === 3) {
-           let [day, month, year] = parts;
-           day = day.padStart(2, '0');
-           month = month.padStart(2, '0');
-           year = String(parseInt(year) > 2500 ? parseInt(year) - 543 : year);
-           return `${year}-${month}-${day}`;
-        }
-    }
-    return d.createdAt ? getLocalDateStr(d.createdAt) : '';
+  if (!d) return '';
+  if (d.date) {
+    const parsed = parseThaiDate(d.date);
+    if (parsed) return getLocalYYYYMMDD(parsed);
+    const iso = extractIsoDate(d.date);
+    if (iso) return iso;
+  }
+  return extractIsoDate(d.createdAt);
+};
+
+const getOrderIsoDate = (o) => {
+  if (!o) return '';
+  return (
+    extractIsoDate(o.createdAt) ||
+    extractIsoDate(o.date) ||
+    extractIsoDate(o['วันที่']) ||
+    ''
+  );
+};
+
+const isOrderCompletedForRevenue = (o) => {
+  if (!o || o.isCancelled || o.source === 'POS_Parked') return false;
+  const rawStatus = String(getFuzzyKey(o, ['status', 'สถานะ']) || '').trim();
+  if (!rawStatus) return true;
+  return getOrderStatus(o) === 'อนุมัติแล้ว';
+};
+
+const isShopeeOrder = (o) =>
+  o?.source === 'SHOPEE' || String(o?.orderChannel || '').toLowerCase() === 'shopee';
+
+const getEffectiveOrderPrice = (o) =>
+  isShopeeOrder(o) && o?.shopeeNetReceived !== undefined && o?.shopeeNetReceived !== ''
+    ? parseNumber(o.shopeeNetReceived)
+    : parseNumber(o?.price);
+
+const matchesBranchFilter = (recordBranch, selectedBranch) => {
+  if (!selectedBranch || selectedBranch === 'ทั้งหมด') return true;
+  return normalizeBranchName(recordBranch) === normalizeBranchName(selectedBranch);
 };
 
 // รายรับที่มาจากใบส่งยอดเท่านั้น (ไม่มีบิล POS): ยอดโอนที่เจ้าของกรอกเอง + ส่วนต่างเงินสด
@@ -169,26 +242,28 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
 
   const branchOptions = ['ทั้งหมด', ...branches.map(b => b.name || b.id)];
 
+  const opexExpenses = useMemo(() => expenses.filter(e => !isTreasuryRecord(e)), [expenses]);
+
   const expenseDataByBranch = useMemo(() => {
-    const now = new Date();
-    const currentMonthExpenses = expenses.filter(e => {
-       if (!e.date) return false;
-       const d = new Date(e.date);
-       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    const currentMonthPrefix = getLocalYYYYMMDD(new Date()).substring(0, 7);
+    const currentMonthExpenses = opexExpenses.filter(e => {
+       const iso = extractIsoDate(e.date);
+       return Boolean(iso && iso.startsWith(currentMonthPrefix));
     });
 
     const branchMap = {};
     currentMonthExpenses.forEach(e => {
        const b = e.branch || 'ไม่ระบุ';
+       const amt = parseNumber(e.amount);
        if (!branchMap[b]) branchMap[b] = { total: 0, fixedTotal: 0, varTotal: 0, categories: {} };
-       branchMap[b].total += e.amount || 0;
+       branchMap[b].total += amt;
        if (FIXED_COST_CATEGORIES.includes(e.category)) {
-          branchMap[b].fixedTotal += e.amount || 0;
+          branchMap[b].fixedTotal += amt;
        } else {
-          branchMap[b].varTotal += e.amount || 0;
+          branchMap[b].varTotal += amt;
        }
        if (!branchMap[b].categories[e.category]) branchMap[b].categories[e.category] = 0;
-       branchMap[b].categories[e.category] += e.amount || 0;
+       branchMap[b].categories[e.category] += amt;
     });
 
     return Object.entries(branchMap).map(([branchName, data]) => {
@@ -207,7 +282,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
            chartData
        };
     }).sort((a,b) => b.total - a.total);
-  }, [expenses]);
+  }, [opexExpenses]);
 
   useEffect(() => {
     const cleanBranch = String(targetBranch || '').replace('สาขา', '').trim();
@@ -249,27 +324,26 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
 
   const filteredOrders = useMemo(() => {
     return orders.filter(o => {
-      const orderDate = new Date(o.createdAt || o.วันที่);
-      let isSame = false;
-      if (filterMode === 'month') {
-          const m = filterDate.substring(0, 7); // 'YYYY-MM'
-          if (o.createdAt && typeof o.createdAt === 'string' && o.createdAt.includes('T')) {
-              isSame = o.createdAt.startsWith(m);
-          } else {
-              isSame = true;
-          }
-      } else {
-          if (o.createdAt && typeof o.createdAt === 'string' && o.createdAt.includes('T')) {
-              isSame = getLocalDateStr(o.createdAt) === filterDate;
-          } else {
-              isSame = true; 
-          }
+      if (!isOrderCompletedForRevenue(o)) return false;
+      if (!matchesBranchFilter(o.branch, filterBranch)) return false;
+      if (filterDate) {
+        const orderIso = getOrderIsoDate(o);
+        let isSame = false;
+        if (!orderIso) {
+          isSame = false;
+        } else if (filterMode === 'month') {
+          isSame = orderIso.startsWith(filterDate.substring(0, 7));
+        } else {
+          isSame = orderIso === filterDate;
+        }
+        if (!isSame) return false;
       }
-      if (filterDate && !isSame) return false;
-      if (filterBranch !== 'ทั้งหมด' && o.branch !== filterBranch) return false;
-      if (o.status && getOrderStatus(o) !== 'อนุมัติแล้ว') return false;
       return true;
-    }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    }).sort((a, b) => {
+      const tA = toValidDate(a.createdAt || a.date || a['วันที่'])?.getTime() || 0;
+      const tB = toValidDate(b.createdAt || b.date || b['วันที่'])?.getTime() || 0;
+      return tB - tA;
+    });
   }, [orders, filterDate, filterBranch, filterMode]);
 
   const stats = useMemo(() => {
@@ -283,16 +357,15 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
     
     const submittedEodKeys = new Set();
     dailySales.forEach(d => {
-      if (d.date && d.branch) {
-        submittedEodKeys.add(`${d.date}_${d.branch}`);
+      const isoDate = getIsoDate(d);
+      const normBranch = normalizeBranchName(d.branch || 'สำนักงานใหญ่');
+      if (isoDate && normBranch) {
+        submittedEodKeys.add(`${isoDate}__${normBranch}`);
       }
     });
     
     filteredOrders.forEach(o => {
-      let p = parseNumber(o.price);
-      if (o.orderChannel === 'shopee' && o.shopeeNetReceived !== undefined) {
-         p = parseNumber(o.shopeeNetReceived);
-      }
+      const p = getEffectiveOrderPrice(o);
       
       const isOldPO = (o.courseName || '').includes('[ซื้อเข้า');
       const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
@@ -338,15 +411,20 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
         totalCOGS += (cCogs + pCogs);
         count++;
         
-        const oDate = new Date(o.createdAt).toLocaleDateString('th-TH');
-        const oBranch = o.branch || "สำนักงานใหญ่";
-        if (submittedEodKeys.has(`${oDate}_${oBranch}`)) {
+        const oIsoDate = getOrderIsoDate(o);
+        const oBranch = o.branch || 'สำนักงานใหญ่';
+        const oNormBranch = normalizeBranchName(oBranch) || 'สำนักงานใหญ่';
+        const eodKey = oIsoDate ? `${oIsoDate}__${oNormBranch}` : '';
+        if (eodKey && submittedEodKeys.has(eodKey)) {
           totalSubmitted += p;
         } else {
           totalUnsubmitted += p;
-          const key = `${oDate}_${oBranch}`;
-          if (!unsubmittedSalesByDateBranch[key]) unsubmittedSalesByDateBranch[key] = 0;
-          unsubmittedSalesByDateBranch[key] += p;
+          if (eodKey) {
+            if (!unsubmittedSalesByDateBranch[eodKey]) {
+              unsubmittedSalesByDateBranch[eodKey] = { total: 0, branchLabel: oBranch };
+            }
+            unsubmittedSalesByDateBranch[eodKey].total += p;
+          }
         }
         
         const parsed = parsePaymentStr(o.paymentMethod);
@@ -360,7 +438,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
             totalCod += parsed.cod;
         }
         
-        if (o.orderChannel && o.orderChannel !== 'instore') {
+        if ((o.orderChannel && o.orderChannel !== 'instore') || isShopeeOrder(o)) {
             totalOnline += p;
         }
         
@@ -396,17 +474,18 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
       }
     });
 
-    // Add OPEX from expenses collection (Filter by date/branch)
-    const filteredExpenses = expenses.filter(e => {
+    // Add OPEX from operating expenses only (exclude treasury records)
+    const filteredExpenses = opexExpenses.filter(e => {
        let isSame = false;
+       const eIso = extractIsoDate(e.date);
        if (!filterDate) {
          isSame = true;
        } else if (filterMode === 'month') {
-         isSame = e.date && e.date.startsWith(filterDate.substring(0, 7));
+         isSame = Boolean(eIso && eIso.startsWith(filterDate.substring(0, 7)));
        } else {
-         isSame = e.date === filterDate;
+         isSame = eIso === filterDate;
        }
-       const isSameBranch = filterBranch === 'ทั้งหมด' || e.branch === filterBranch;
+       const isSameBranch = matchesBranchFilter(e.branch, filterBranch);
        return isSame && isSameBranch;
     });
     
@@ -421,11 +500,11 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
        if (!filterDate) {
          isSame = true;
        } else if (filterMode === 'month') {
-         isSame = isoDate.startsWith(filterDate.substring(0, 7));
+         isSame = Boolean(isoDate && isoDate.startsWith(filterDate.substring(0, 7)));
        } else {
          isSame = isoDate === filterDate;
        }
-       const isSameBranch = filterBranch === 'ทั้งหมด' || d.branch === filterBranch;
+       const isSameBranch = matchesBranchFilter(d.branch, filterBranch);
        return isSame && isSameBranch;
     });
     let depositDetails = [];
@@ -451,22 +530,31 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
     
     // Add estimated deposit for unsubmitted days
     let unsubmittedDepositEstimate = 0;
-    Object.entries(unsubmittedSalesByDateBranch).forEach(([key, dailyTotal]) => {
-       const [dDate, dBranch] = key.split('_');
+    Object.entries(unsubmittedSalesByDateBranch).forEach(([key, entry]) => {
+       const [isoDate, normBranch] = key.split('__');
+       if (!isoDate) return;
+       const dailyTotal = typeof entry === 'number' ? entry : entry.total;
+       const branchLabel = (typeof entry === 'object' && entry.branchLabel) ? entry.branchLabel : normBranch;
+       const parsedDisplay = parseThaiDate(isoDate);
+       const displayDate = parsedDisplay ? parsedDisplay.toLocaleDateString('th-TH') : isoDate;
        const amount = Math.floor(dailyTotal / 100) * 100;
        unsubmittedDepositEstimate += amount;
        depositDetails.push({
-         date: dDate,
-         branch: dBranch,
+         date: displayDate,
+         branch: branchLabel,
          amount: amount,
          status: 'ยังไม่ส่ง EOD',
          isEstimated: true,
-         createdAt: new Date(dDate.split('/').reverse().join('-')).toISOString() // Approximation for sorting
+         createdAt: `${isoDate}T12:00:00+07:00`
        });
     });
     
     totalDeposit += unsubmittedDepositEstimate;
-    depositDetails.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    depositDetails.sort((a, b) => {
+      const tA = toValidDate(a.createdAt || a.date)?.getTime() || 0;
+      const tB = toValidDate(b.createdAt || b.date)?.getTime() || 0;
+      return tB - tA;
+    });
     
     // Sort and get top products
     const productList = Object.entries(productSales).map(([name, data]) => ({ name, qty: data.qty, revenue: data.revenue }));
@@ -487,7 +575,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
       totalDeposit, confirmedDeposit, totalSubmitted, totalUnsubmitted, depositDetails, filteredDailySales, topProductsByRevenue, topProductsByQty,
       filteredOrders
     };
-  }, [filteredOrders, expenses, dailySales, filterDate, filterBranch, filterMode]);
+  }, [filteredOrders, opexExpenses, dailySales, filterDate, filterBranch, filterMode]);
 
   const bannerStats = useMemo(() => {
     let todayCost = 0, todayProfit = 0, todaySales = 0, todayCOGS = 0, todayGrossProfit = 0;
@@ -495,20 +583,19 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
     let monthCost = 0, monthProfit = 0, monthSales = 0, monthCOGS = 0, monthGrossProfit = 0;
     let monthCourseCOGS = 0, monthProductCOGS = 0;
     
-    const targetDateObj = filterDate ? new Date(filterDate + 'T00:00:00') : new Date();
-    const todayStr = targetDateObj.toLocaleDateString('th-TH');
-    const todayIso = filterDate || getLocalDateStr(targetDateObj);
-    const currentMonth = targetDateObj.getMonth();
-    const currentYear = targetDateObj.getFullYear();
+    const targetDateObj = (filterDate && parseThaiDate(filterDate)) || new Date();
+    const todayIso = filterDate || getLocalYYYYMMDD(targetDateObj);
     const currentMonthStr = todayIso.substring(0, 7);
 
     orders.forEach(o => {
-      if (!o.createdAt || (o.status && getOrderStatus(o) !== 'อนุมัติแล้ว')) return;
-      if (filterBranch !== 'ทั้งหมด' && o.branch !== filterBranch) return;
+      if (!isOrderCompletedForRevenue(o)) return;
+      if (!matchesBranchFilter(o.branch, filterBranch)) return;
 
-      const d = new Date(o.createdAt);
-      const isToday = o.createdAt.includes('T') ? getLocalDateStr(o.createdAt) === todayIso : new Date(o.createdAt).toLocaleDateString('th-TH') === todayStr;
-      const isThisMonth = d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      const orderIso = getOrderIsoDate(o);
+      if (!orderIso) return;
+      const isToday = orderIso === todayIso;
+      const isThisMonth = orderIso.startsWith(currentMonthStr);
+      if (!isToday && !isThisMonth) return;
 
       const isOldPO = (o.courseName || '').includes('[ซื้อเข้า');
       const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
@@ -516,10 +603,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
       
       if (isReq) return;
 
-      let p = parseNumber(o.price);
-      if (o.orderChannel === 'shopee' && o.shopeeNetReceived !== undefined) {
-         p = parseNumber(o.shopeeNetReceived);
-      }
+      const p = getEffectiveOrderPrice(o);
 
       if (isPO) {
         if (isToday) todayCost += p;
@@ -564,12 +648,13 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
       }
     });
 
-    expenses.forEach(e => {
-       const isSameBranch = filterBranch === 'ทั้งหมด' || e.branch === filterBranch;
-       if (!isSameBranch) return;
+    opexExpenses.forEach(e => {
+       if (!matchesBranchFilter(e.branch, filterBranch)) return;
+       const eIso = extractIsoDate(e.date);
+       if (!eIso) return;
 
-       const isToday = e.date === todayIso;
-       const isThisMonth = e.date && e.date.startsWith(currentMonthStr);
+       const isToday = eIso === todayIso;
+       const isThisMonth = eIso.startsWith(currentMonthStr);
        const p = parseNumber(e.amount);
 
        if (isToday) todayCost += p;
@@ -577,12 +662,12 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
     });
 
     dailySales.forEach(d => {
-       if (filterBranch !== 'ทั้งหมด' && d.branch !== filterBranch) return;
+       if (!matchesBranchFilter(d.branch, filterBranch)) return;
        const extra = getEodExtraSales(d);
        if (!extra) return;
        const iso = getIsoDate(d);
        if (iso === todayIso) todaySales += extra;
-       if (iso.startsWith(currentMonthStr)) monthSales += extra;
+       if (iso && iso.startsWith(currentMonthStr)) monthSales += extra;
     });
 
     todayProfit = todaySales - todayCost;
@@ -594,37 +679,28 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
        todayCost, todayProfit, monthCost, monthProfit, todaySales, monthSales, todayGrossProfit, monthGrossProfit, todayCOGS, monthCOGS,
        todayCourseCOGS, todayProductCOGS, monthCourseCOGS, monthProductCOGS
     };
-  }, [orders, expenses, dailySales, filterBranch, filterDate]);
+  }, [orders, opexExpenses, dailySales, filterBranch, filterDate]);
 
   const currentMonthSalesData = useMemo(() => {
-    const now = filterDate ? new Date(filterDate + 'T00:00:00') : new Date();
+    const now = (filterDate && parseThaiDate(filterDate)) || new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
     const currentMonthStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    const cleanFilterBranch = String(filterBranch || '').replace('สาขา', '').trim();
-    const matchesBranch = (b) => {
-      if (filterBranch === 'ทั้งหมด') return true;
-      const cleanB = String(b || '').replace('สาขา', '').trim();
-      return b === filterBranch || (cleanFilterBranch && cleanB === cleanFilterBranch);
-    };
     
     let dailyData = Array.from({ length: daysInMonth }, (_, i) => ({ day: i + 1, sales: 0 }));
     
     orders.forEach(o => {
-      if (!o.createdAt) return;
-      if (!matchesBranch(o.branch)) return;
+      if (!isOrderCompletedForRevenue(o)) return;
+      if (!matchesBranchFilter(o.branch, filterBranch)) return;
       
-      const d = new Date(o.createdAt);
-      if (d.getMonth() === currentMonth && d.getFullYear() === currentYear && (!o.status || getOrderStatus(o) === 'อนุมัติแล้ว')) {
-        const dayIdx = d.getDate() - 1;
+      const orderIso = getOrderIsoDate(o);
+      if (orderIso && orderIso.startsWith(currentMonthStr)) {
+        const dayIdx = parseInt(orderIso.split('-')[2], 10) - 1;
         const isPO = o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า');
         const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
         if (!isPO && !isReq && dailyData[dayIdx]) {
-          let p = parseNumber(o.price);
-          if (o.orderChannel === 'shopee' && o.shopeeNetReceived !== undefined) {
-             p = parseNumber(o.shopeeNetReceived);
-          }
+          const p = getEffectiveOrderPrice(o);
           let debtPaymentAmt = 0;
           if (o.cartItems && Array.isArray(o.cartItems)) {
               o.cartItems.forEach(item => {
@@ -637,11 +713,11 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
     });
 
     dailySales.forEach(d => {
-      if (!matchesBranch(d.branch)) return;
+      if (!matchesBranchFilter(d.branch, filterBranch)) return;
       const extra = getEodExtraSales(d);
       if (!extra) return;
       const iso = getIsoDate(d);
-      if (iso.startsWith(currentMonthStr)) {
+      if (iso && iso.startsWith(currentMonthStr)) {
         const dayNum = parseInt(iso.split('-')[2], 10);
         if (dayNum >= 1 && dayNum <= daysInMonth && dailyData[dayNum - 1]) {
           dailyData[dayNum - 1].sales = Math.max(0, dailyData[dayNum - 1].sales + extra);
@@ -712,15 +788,12 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
       filteredOrders.forEach(o => {
          if (o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า') || o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก')) return;
          
-         const date = new Date(o.createdAt || new Date()).toLocaleString('th-TH');
+         const date = (toValidDate(o.createdAt || o.date || o['วันที่']) || new Date()).toLocaleString('th-TH');
          const branch = o.branch || '-';
          const orderNo = o.orderNo || o.referenceNo || '-';
          const customer = (o.customerName || '').replace(/,/g, ' ') || 'ทั่วไป';
-         let price = parseNumber(o.price);
-         if (o.orderChannel === 'shopee' && o.shopeeNetReceived !== undefined) {
-             price = parseNumber(o.shopeeNetReceived);
-         }
-         const channel = o.orderChannel === 'shopee' ? 'Shopee/Online' : (o.paymentMethod || 'ไม่ระบุ');
+         const price = getEffectiveOrderPrice(o);
+         const channel = isShopeeOrder(o) ? 'Shopee/Online' : (o.paymentMethod || 'ไม่ระบุ');
          
          csvContent += `${date},${branch},${orderNo},${customer},${price},${channel}\n`;
       });
@@ -734,7 +807,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
       filteredOrders.forEach(o => {
          const isOldPO = (o.courseName || '').includes('[ซื้อเข้า');
          if (o.transactionType === 'owner_purchase' || isOldPO) {
-             const date = new Date(o.createdAt || new Date()).toLocaleString('th-TH');
+             const date = (toValidDate(o.createdAt || o.date || o['วันที่']) || new Date()).toLocaleString('th-TH');
              const branch = o.branch || '-';
              const desc = (o.courseName || 'สั่งซื้อสินค้า').replace(/,/g, ' ');
              const price = parseNumber(o.price);
@@ -742,23 +815,24 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
          }
       });
       
-      // OPEX Expenses
-      expenses.forEach(e => {
+      // OPEX Expenses (exclude treasury records)
+      opexExpenses.forEach(e => {
          if (!filterDate) return;
+         const eIso = extractIsoDate(e.date);
          let isMatch = false;
          if (filterMode === 'month') {
-            isMatch = e.date && e.date.startsWith(filterDate.substring(0, 7));
+            isMatch = Boolean(eIso && eIso.startsWith(filterDate.substring(0, 7)));
          } else {
-            isMatch = e.date === filterDate;
+            isMatch = eIso === filterDate;
          }
          if (!isMatch) return;
-         if (filterBranch !== 'ทั้งหมด' && (e.branch || 'ไม่ระบุ') !== filterBranch) return;
+         if (!matchesBranchFilter(e.branch || 'ไม่ระบุ', filterBranch)) return;
          
-         const date = new Date(e.date || new Date()).toLocaleString('th-TH');
+         const date = (toValidDate(e.date) || new Date()).toLocaleDateString('th-TH');
          const branch = e.branch || 'ไม่ระบุ';
          const cat = e.category || 'อื่นๆ';
          const desc = (e.note || '').replace(/,/g, ' ');
-         const amt = e.amount || 0;
+         const amt = parseNumber(e.amount);
          csvContent += `${date},${branch},${cat},${desc},${amt}\n`;
       });
       csvContent += '\n';
@@ -789,87 +863,50 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
   const payrollSummary = useMemo(() => {
      if (expenseForm.category !== 'เงินเดือนพนักงาน') return null;
 
-     const now = new Date(expenseForm.date || new Date());
-     const monthPrefix = now.toISOString().substring(0, 7); 
+     const baseDate = (expenseForm.date && parseThaiDate(expenseForm.date)) || expenseForm.date || new Date();
+     const monthPrefix = (getLocalYYYYMMDD(baseDate) || getLocalYYYYMMDD()).substring(0, 7);
      
      let totalBase = 0;
      let totalFood = 0;
+     let totalDiligence = 0;
      let totalComm = 0;
+     let totalService = 0;
      let totalAdv = 0;
      let totalNet = 0;
-     let totalService = 0;
 
      // Filter employees by branch
      const branchEmployees = employees.filter(emp => {
         if (!expenseForm.branch || expenseForm.branch === 'ทั้งหมด') return true;
-        if (expenseForm.branch === 'สำนักงานใหญ่') return emp.branch === 'สำนักงานใหญ่' || !emp.branch;
-        return emp.branch === expenseForm.branch;
+        if (normalizeBranchName(expenseForm.branch) === 'สำนักงานใหญ่') {
+          return !emp.branch || normalizeBranchName(emp.branch) === 'สำนักงานใหญ่';
+        }
+        return normalizeBranchName(emp.branch) === normalizeBranchName(expenseForm.branch);
      });
 
      branchEmployees.forEach(emp => {
-        const baseSalary = parseNumber(emp.baseSalary || 0);
-        
-        const monthHistories = histories.filter(h => isInPayrollMonth(h, monthPrefix));
-        let empComm = 0;
-        monthHistories.forEach(h => {
-            const sName = String(getFuzzyKey(h, ["ชื่อเจ้าหน้าที่", "ชื่อพนักงาน", "staffName", "ผู้ให้บริการ", "เจ้าหน้าที่", "พนักงาน", "paymentStaff"]) || '');
-            if (!sName) return;
-            const staffNames = sName.split(/[,/]|และ|กับ/).map(s => s.trim()).filter(s => s);
-            if (staffNames.includes(emp.name)) {
-                const price = parseNumber(getFuzzyKey(h, ["ราคา", "price", "จำนวนเงิน", "ยอดเงิน"]) || 0);
-                const typeStr = String(getFuzzyKey(h, ["ประเภท"]) || '');
-                const shareCount = staffNames.length;
-                if (typeStr.includes('ซื้อสินค้า')) {
-                    empComm += (price * ((parseFloat(emp.productCommissionRate) || 0) / 100)) / shareCount;
-                } else {
-                    empComm += (price * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
-                }
-            }
+        const p = calculateEmployeeMonthlyPayroll(emp, monthPrefix, {
+           histories,
+           serviceLogs,
+           advancePayments,
+           attendance
         });
-        
-        const empServiceLogs = serviceLogs.filter(s => s.employeeId === emp.id && isInPayrollMonth(s, monthPrefix));
-        let empService = 0;
-        empServiceLogs.forEach(s => {
-            const typeName = String(s.type || '').toLowerCase();
-            let rawAmount = parseNumber(s.amount);
-            const isPOS = typeof s.note === 'string' && s.note.startsWith('POS:');
-            
-            if (isPOS && (typeName.includes('จี้ไฝ') || typeName.includes('mole')) && rawAmount < 100) rawAmount = rawAmount * 10;
-
-            if (typeName.includes('นวดหน้า') || typeName.includes('active skin') || typeName.includes('ipl รักแร้') || typeName.includes('ทรีทเม้นท์')) {
-                empService += 50;
-            } else if (typeName.includes('กดสิว')) {
-                empService += 30;
-            } else if (typeName.includes('สปา') || typeName.includes('ขัดตัว')) {
-                empService += 100;
-            } else if (typeName.includes('จี้ไฝ') || typeName.includes('กระ') || typeName.includes('ติ่งเนื้อ') || typeName.includes('mole')) {
-                empService += rawAmount < 1000 ? (rawAmount * 0.10) : (rawAmount * 0.20);
-            } else {
-                empService += isPOS ? (rawAmount * 0.10) : rawAmount;
-            }
-        });
-        
-        const empAdvances = advancePayments.filter(a => a.employeeId === emp.id && (a.status === 'อนุมัติ' || a.status === 'อนุมัติแล้ว') && isInPayrollMonth(a, monthPrefix));
-        let empAdv = 0;
-        empAdvances.forEach(a => { empAdv += parseNumber(a.amount); });
-        
-        const empAttendance = attendance.filter(a => a.employeeId === emp.id && isInPayrollMonth(a, monthPrefix));
-        const daysWorked = new Set(empAttendance.map(a => a.date)).size;
-        const empFood = daysWorked * 50;
-        
-        totalBase += baseSalary;
-        totalComm += empComm;
-        totalService += empService;
-        totalFood += empFood;
-        totalAdv += empAdv;
-        totalNet += (baseSalary + empComm + empService + empFood - empAdv);
+        totalBase += p.baseSalary;
+        totalComm += p.totalCommission;
+        totalService += p.totalServiceFees;
+        totalFood += p.totalFoodAllowance;
+        totalDiligence += p.diligenceAllowance;
+        totalAdv += p.totalAdvances;
+        totalNet += p.totalIncome;
      });
 
      return { 
         monthPrefix, 
         totalBase, 
         totalComm: totalComm + totalService, 
+        totalCommissionOnly: totalComm,
+        totalService,
         totalFood, 
+        totalDiligence,
         totalAdv, 
         totalNet, 
         branchEmployees 
@@ -882,68 +919,21 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
       return;
     }
     
-    const now = new Date(expenseForm.date);
-    const monthPrefix = now.toISOString().substring(0, 7); 
-    const monthHistories = histories.filter(h => isInPayrollMonth(h, monthPrefix));
+    const baseDate = (expenseForm.date && parseThaiDate(expenseForm.date)) || expenseForm.date || new Date();
+    const monthPrefix = (getLocalYYYYMMDD(baseDate) || getLocalYYYYMMDD()).substring(0, 7);
     
-    const baseSalary = parseNumber(emp.baseSalary || 0);
-    
-    let totalCommission = 0;
-    monthHistories.forEach(h => {
-        const sName = String(getFuzzyKey(h, ["ชื่อเจ้าหน้าที่", "ชื่อพนักงาน", "staffName", "ผู้ให้บริการ", "เจ้าหน้าที่", "พนักงาน", "paymentStaff"]) || '');
-        if (!sName) return;
-        const staffNames = sName.split(/[,/]|และ|กับ/).map(s => s.trim()).filter(s => s);
-        if (staffNames.includes(emp.name)) {
-            const price = parseNumber(getFuzzyKey(h, ["ราคา", "price", "จำนวนเงิน", "ยอดเงิน"]) || 0);
-            const typeStr = String(getFuzzyKey(h, ["ประเภท"]) || '');
-            const shareCount = staffNames.length;
-            if (typeStr.includes('ซื้อสินค้า')) {
-                totalCommission += (price * ((parseFloat(emp.productCommissionRate) || 0) / 100)) / shareCount;
-            } else {
-                totalCommission += (price * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
-            }
-        }
+    const p = calculateEmployeeMonthlyPayroll(emp, monthPrefix, {
+      histories,
+      serviceLogs,
+      advancePayments,
+      attendance
     });
     
-    const empServiceLogs = serviceLogs.filter(s => s.employeeId === emp.id && isInPayrollMonth(s, monthPrefix));
-    let totalServiceFees = 0;
-    empServiceLogs.forEach(s => {
-        const typeName = String(s.type || '').toLowerCase();
-        let rawAmount = parseNumber(s.amount);
-        const isPOS = typeof s.note === 'string' && s.note.startsWith('POS:');
-        
-        if (isPOS && (typeName.includes('จี้ไฝ') || typeName.includes('mole')) && rawAmount < 100) rawAmount = rawAmount * 10;
-
-        if (typeName.includes('นวดหน้า') || typeName.includes('active skin') || typeName.includes('ipl รักแร้') || typeName.includes('ทรีทเม้นท์')) {
-            totalServiceFees += 50;
-        } else if (typeName.includes('กดสิว')) {
-            totalServiceFees += 30;
-        } else if (typeName.includes('สปา') || typeName.includes('ขัดตัว')) {
-            totalServiceFees += 100;
-        } else if (typeName.includes('จี้ไฝ') || typeName.includes('กระ') || typeName.includes('ติ่งเนื้อ') || typeName.includes('mole')) {
-            totalServiceFees += rawAmount < 1000 ? (rawAmount * 0.10) : (rawAmount * 0.20);
-        } else {
-            totalServiceFees += isPOS ? (rawAmount * 0.10) : rawAmount;
-        }
-    });
-    
-    const empAdvances = advancePayments.filter(a => a.employeeId === emp.id && (a.status === 'อนุมัติ' || a.status === 'อนุมัติแล้ว') && isInPayrollMonth(a, monthPrefix));
-    let totalAdvances = 0;
-    empAdvances.forEach(a => {
-        totalAdvances += parseNumber(a.amount);
-    });
-    
-    const empAttendance = attendance.filter(a => a.employeeId === emp.id && isInPayrollMonth(a, monthPrefix));
-    const daysWorked = new Set(empAttendance.map(a => a.date)).size;
-    const totalFoodAllowance = daysWorked * 50;
-    
-    const totalSalaryAndComm = (baseSalary + totalCommission + totalServiceFees + totalFoodAllowance - totalAdvances);
-    
-    let debugLog = `ฐาน ${baseSalary}, คอม ${totalCommission.toFixed(2)}, มือ ${totalServiceFees}, อาหาร ${totalFoodAllowance}, หักเบิก ${totalAdvances}`;
+    const debugLog = `ฐาน ${p.baseSalary}, คอม ${Number(p.totalCommission || 0).toFixed(2)}, มือ ${p.totalServiceFees}, อาหาร ${p.totalFoodAllowance}, เบี้ยขยัน ${p.diligenceAllowance}, หักเบิก ${p.totalAdvances}`;
     
     setExpenseForm({
        ...expenseForm, 
-       amount: totalSalaryAndComm, 
+       amount: p.totalIncome, 
        note: `เงินเดือน ${emp.name} ประจำเดือน ${monthPrefix} | ${debugLog}`
     });
   };
@@ -1024,11 +1014,11 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
   };
 
   const breakEvenAnalysis = useMemo(() => {
-    const cleanTarget = String(targetBranch || '').replace('สาขา', '').trim();
+    const cleanTarget = normalizeBranchName(targetBranch);
     const isTargetBranch = (bName) => {
       if (targetBranch === 'ทั้งหมด') return bName !== 'none';
-      const cleanB = String(bName || '').replace('สาขา', '').trim();
-      return bName === targetBranch || (cleanTarget && cleanB === cleanTarget);
+      const cleanB = normalizeBranchName(bName);
+      return bName === targetBranch || Boolean(cleanTarget && cleanB === cleanTarget);
     };
 
     const branchData = expenseDataByBranch.find(b => isTargetBranch(b.branchName)) 
@@ -1042,9 +1032,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
     const varCosts = branchData.varTotal;
     const totalOpex = fixedCosts + varCosts;
     
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
+    const currentMonthPrefix = getLocalYYYYMMDD(new Date()).substring(0, 7);
     
     let totalSales = 0;
     let totalCogs = 0;
@@ -1052,21 +1040,18 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
     let productSalesTotal = 0;
     
     orders.forEach(o => {
-      if (!o.createdAt || getOrderStatus(o) !== 'อนุมัติแล้ว') return;
+      if (!isOrderCompletedForRevenue(o)) return;
       if (targetBranch !== 'ทั้งหมด' && !isTargetBranch(o.branch)) return;
       
-      const d = new Date(o.createdAt);
-      if (d.getMonth() !== currentMonth || d.getFullYear() !== currentYear) return;
+      const orderIso = getOrderIsoDate(o);
+      if (!orderIso || !orderIso.startsWith(currentMonthPrefix)) return;
       
       const isOldPO = (o.courseName || '').includes('[ซื้อเข้า');
       const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
       const isPO = o.transactionType === 'owner_purchase' || isOldPO;
       if (isReq || isPO) return;
       
-      let p = parseNumber(o.price);
-      if (o.orderChannel === 'shopee' && o.shopeeNetReceived !== undefined) {
-         p = parseNumber(o.shopeeNetReceived);
-      }
+      const p = getEffectiveOrderPrice(o);
       
       let debtPaymentAmt = 0;
       let cSales = 0, pSales = 0;
@@ -1470,7 +1455,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
               branchOptions={branchOptions}
               stats={stats}
               bannerStats={bannerStats}
-              expenses={expenses}
+              expenses={opexExpenses}
             />
 
             {/* Banner: Daily & Monthly Cost/Profit */}
@@ -1734,11 +1719,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                       
                       let profitContent = '-';
                       let costContent = '-';
-                      let rev = parseNumber(o.price);
-                      
-                      if (o.orderChannel === 'shopee' && o.shopeeNetReceived !== undefined) {
-                          rev = parseNumber(o.shopeeNetReceived);
-                      }
+                      const rev = getEffectiveOrderPrice(o);
 
                       if (!isPO && !isReq && o.totalCost !== undefined) {
                          const cost = parseNumber(o.totalCost);
@@ -1746,6 +1727,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                          profitContent = `฿${(rev - cost).toLocaleString()}`;
                       }
                       
+                      const orderTimeDate = toValidDate(o.createdAt);
                       return (
                         <div key={o.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow p-5 flex flex-col justify-between group">
                            <div className="flex justify-between items-start mb-3">
@@ -1754,7 +1736,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                                    {o.orderNo}
                                  </div>
                                  <div className="text-[11px] text-slate-400 font-medium bg-slate-50 inline-block px-2 py-0.5 rounded-md">
-                                   เวลา: {o.createdAt ? new Date(o.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                                   เวลา: {orderTimeDate ? orderTimeDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-'}
                                  </div>
                               </div>
                               {badge}
@@ -1776,7 +1758,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                                 <div className={`text-sm font-black ${isPO ? 'text-rose-600' : isReq ? 'text-amber-600' : 'text-slate-800'}`}>
                                   {isPO ? '-' : ''}฿{rev.toLocaleString()}
                                 </div>
-                                {o.orderChannel === 'shopee' && o.shopeeNetReceived !== undefined && (
+                                {isShopeeOrder(o) && o.shopeeNetReceived !== undefined && (
                                   <div className="text-[9px] text-emerald-600 font-bold leading-none mt-1">รับจริง (Net)</div>
                                 )}
                               </div>
@@ -1816,54 +1798,28 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
           
           const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
           const monthlyDailySales = dailySales.filter(d => {
-              if (filterBranch !== 'ทั้งหมด' && d.branch !== filterBranch) return false;
-              return getIsoDate(d).startsWith(monthStr);
+              if (!matchesBranchFilter(d.branch, filterBranch)) return false;
+              const iso = getIsoDate(d);
+              return Boolean(iso && iso.startsWith(monthStr));
           });
           const monthlyOrders = orders.filter(o => {
-              if (filterBranch !== 'ทั้งหมด' && o.branch !== filterBranch) return false;
-              if (o.status && getOrderStatus(o) !== 'อนุมัติแล้ว') return false;
-              
-              if (o.createdAt && typeof o.createdAt === 'string' && o.createdAt.includes('T')) {
-                  return o.createdAt.startsWith(monthStr);
-              } else if (o.createdAt && typeof o.createdAt.toDate === 'function') {
-                  // Firestore Timestamp
-                  const d = o.createdAt.toDate();
-                  const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                  return mStr === monthStr;
-              } else if (o.createdAt) {
-                  const d = new Date(o.createdAt);
-                  if (!isNaN(d.getTime())) {
-                      const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                      return mStr === monthStr;
-                  }
-              }
-              return true; // Fallback
+              if (!matchesBranchFilter(o.branch, filterBranch)) return false;
+              if (!isOrderCompletedForRevenue(o)) return false;
+              const orderIso = getOrderIsoDate(o);
+              if (!orderIso) return false;
+              return orderIso.startsWith(monthStr);
           });
           
           const calendarDays = Array(firstDay).fill(null);
           for (let i = 1; i <= daysInMonth; i++) {
             const d = new Date(year, month, i);
-            const tzOffset = d.getTimezoneOffset() * 60000;
-            const dateStr = new Date(d.getTime() - tzOffset).toISOString().split('T')[0];
+            const dateStr = getLocalYYYYMMDD(d);
             
             const eodsForDay = monthlyDailySales.filter(e => getIsoDate(e) === dateStr);
             
-            const ordersForDay = monthlyOrders.filter(o => {
-               let dStr = '';
-               if (o.createdAt) {
-                  const dObj = typeof o.createdAt.toDate === 'function' ? o.createdAt.toDate() : new Date(o.createdAt);
-                  if (!isNaN(dObj.getTime())) {
-                      const tz = dObj.getTimezoneOffset() * 60000;
-                      dStr = new Date(dObj.getTime() - tz).toISOString().split('T')[0];
-                  }
-               }
-               return dStr === dateStr;
-            });
+            const ordersForDay = monthlyOrders.filter(o => getOrderIsoDate(o) === dateStr);
             const dayTotalSales = ordersForDay.reduce((sum, o) => {
-               let p = parseNumber(o.price);
-               if (o.orderChannel === 'shopee' && o.shopeeNetReceived !== undefined) {
-                  p = parseNumber(o.shopeeNetReceived);
-               }
+               const p = getEffectiveOrderPrice(o);
                const isOldPO = (o.courseName || '').includes('[ซื้อเข้า');
                const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
                const isPO = o.transactionType === 'owner_purchase' || isOldPO;
@@ -1936,7 +1892,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                 filterBranch={filterBranch}
                 branchOptions={branchOptions}
                 orders={monthlyOrders}
-                expenses={expenses}
+                expenses={opexExpenses}
               />
               
               {/* Calendar Grid */}
@@ -2011,13 +1967,13 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-1.5 h-6 bg-indigo-500 rounded-full"></div>
                 <h3 className="font-bold text-lg text-slate-800">
-                  รายการส่งยอดวันที่ {new Date(filterDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                  รายการส่งยอดวันที่ {(toValidDate(filterDate) || new Date()).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
                 </h3>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {selectedDayCards
-                  .sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt))
+                {[...selectedDayCards]
+                  .sort((a,b) => (toValidDate(b.createdAt || b.date)?.getTime() || 0) - (toValidDate(a.createdAt || a.date)?.getTime() || 0))
                   .map(d => (
                   <div key={d.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
                     {/* Status Banner */}
@@ -2029,7 +1985,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                       <div className="flex justify-between items-start mb-3">
                         <div>
                           <div className="text-lg font-black text-slate-800">{d.branch}</div>
-                          <div className="text-xs text-slate-400 font-mono">{new Date(d.createdAt).toLocaleString('th-TH')}</div>
+                          <div className="text-xs text-slate-400 font-mono">{(toValidDate(d.createdAt) || toValidDate(d.date)) ? (toValidDate(d.createdAt) || toValidDate(d.date)).toLocaleString('th-TH') : (d.date || '-')}</div>
                         </div>
                         <div className="flex items-center gap-2">
                           <div className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-md">
@@ -2288,10 +2244,10 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
                        <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
                           <h4 className="font-bold text-slate-800 flex items-center gap-2"><DollarSign className="text-emerald-500" /> สรุปรายได้พนักงาน</h4>
-                          <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg flex items-center gap-1"><Calendar size={12}/> {new Date(expenseForm.date || new Date()).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</span>
+                          <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg flex items-center gap-1"><Calendar size={12}/> {(toValidDate(expenseForm.date) || new Date()).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</span>
                        </div>
                        
-                       <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
+                       <div className="grid grid-cols-2 lg:grid-cols-6 gap-2">
                          <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl flex flex-col items-center justify-center text-center">
                            <span className="text-[10px] font-bold text-slate-500 mb-1">รวมเงินเดือนพื้นฐาน</span>
                            <span className="text-sm font-black text-slate-700">฿{payrollSummary.totalBase.toLocaleString()}</span>
@@ -2301,7 +2257,11 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                            <span className="text-sm font-black text-orange-600">฿{payrollSummary.totalFood.toLocaleString()}</span>
                          </div>
                          <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl flex flex-col items-center justify-center text-center">
-                           <span className="text-[10px] font-bold text-slate-500 mb-1">รวมค่าคอมมิชชั่น</span>
+                           <span className="text-[10px] font-bold text-slate-500 mb-1">รวมเบี้ยขยัน</span>
+                           <span className="text-sm font-black text-teal-600">฿{payrollSummary.totalDiligence.toLocaleString()}</span>
+                         </div>
+                         <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl flex flex-col items-center justify-center text-center">
+                           <span className="text-[10px] font-bold text-slate-500 mb-1">รวมค่าคอม+ค่ามือ</span>
                            <span className="text-sm font-black text-indigo-600">฿{payrollSummary.totalComm.toLocaleString(undefined, {maximumFractionDigits:0})}</span>
                          </div>
                          <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl flex flex-col items-center justify-center text-center">
@@ -2459,32 +2419,37 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {expenses.filter(e => {
-                        // Show current month expenses mostly
-                        if (!e.date) return false;
-                        const d = new Date(e.date);
-                        const now = new Date();
-                        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-                    }).sort((a,b) => new Date(b.date) - new Date(a.date)).map(e => (
-                      <tr key={e.id} className="hover:bg-slate-50">
-                        <td className="px-6 py-3">{new Date(e.date).toLocaleDateString('th-TH')}</td>
-                        <td className="px-6 py-3">{e.branch}</td>
-                        <td className="px-6 py-3"><span className="bg-slate-100 text-slate-600 px-2 py-1 rounded-lg text-xs font-bold">{e.category}</span></td>
-                        <td className="px-6 py-4 max-w-[200px] truncate text-slate-500">
-                          {e.note || '-'}
-                          {e.receiptUrl && (
-                            <a href={e.receiptUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-bold ml-2 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100 transition-colors">
-                              <ImageIcon size={12} /> ดูรูปใบเสร็จ
-                            </a>
-                          )}
-                        </td>
-                        <td className="px-6 py-3 text-right font-bold text-orange-600">฿{e.amount?.toLocaleString()}</td>
-                        <td className="px-6 py-3 text-center">
-                           <button onClick={() => handleDeleteExpense(e.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded-lg transition-colors"><X size={16}/></button>
-                        </td>
-                      </tr>
-                    ))}
-                    {expenses.length === 0 && <tr><td colSpan={6} className="text-center py-6 text-slate-400">ยังไม่มีประวัติค่าใช้จ่าย</td></tr>}
+                    {(() => {
+                      const currentMonthPrefix = getLocalYYYYMMDD(new Date()).substring(0, 7);
+                      const monthOpexList = opexExpenses
+                        .filter(e => {
+                          const iso = extractIsoDate(e.date);
+                          return Boolean(iso && iso.startsWith(currentMonthPrefix));
+                        })
+                        .sort((a, b) => (toValidDate(b.date)?.getTime() || 0) - (toValidDate(a.date)?.getTime() || 0));
+                      if (monthOpexList.length === 0) {
+                        return <tr><td colSpan={6} className="text-center py-6 text-slate-400">ยังไม่มีประวัติค่าใช้จ่าย</td></tr>;
+                      }
+                      return monthOpexList.map(e => (
+                        <tr key={e.id} className="hover:bg-slate-50">
+                          <td className="px-6 py-3">{(toValidDate(e.date) ? toValidDate(e.date).toLocaleDateString('th-TH') : (e.date || '-'))}</td>
+                          <td className="px-6 py-3">{e.branch}</td>
+                          <td className="px-6 py-3"><span className="bg-slate-100 text-slate-600 px-2 py-1 rounded-lg text-xs font-bold">{e.category}</span></td>
+                          <td className="px-6 py-4 max-w-[200px] truncate text-slate-500">
+                            {e.note || '-'}
+                            {e.receiptUrl && (
+                              <a href={e.receiptUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-bold ml-2 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100 transition-colors">
+                                <ImageIcon size={12} /> ดูรูปใบเสร็จ
+                              </a>
+                            )}
+                          </td>
+                          <td className="px-6 py-3 text-right font-bold text-orange-600">฿{parseNumber(e.amount).toLocaleString()}</td>
+                          <td className="px-6 py-3 text-center">
+                             <button onClick={() => handleDeleteExpense(e.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded-lg transition-colors"><X size={16}/></button>
+                          </td>
+                        </tr>
+                      ));
+                    })()}
                   </tbody>
                 </table>
               </div>
@@ -2513,7 +2478,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
              {(() => {
                 const pendingCourses = courses.filter(c => {
                     const pending = parseNumber(c['ยอดค้างชำระ'] || c.pending || 0);
-                    return pending > 0 && (filterBranch === 'ทั้งหมด' || c['สาขาที่ซื้อ'] === filterBranch || c.branch === filterBranch);
+                    return pending > 0 && matchesBranchFilter(c['สาขาที่ซื้อ'] || c.branch, filterBranch);
                 });
                 const totalPending = pendingCourses.reduce((sum, c) => sum + parseNumber(c['ยอดค้างชำระ'] || c.pending || 0), 0);
                 const totalPrice = pendingCourses.reduce((sum, c) => sum + parseNumber(c['ราคา'] || c.price || 0), 0);
@@ -2562,14 +2527,11 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                  <tbody className="divide-y divide-slate-100">
                    {courses.filter(c => {
                        const pending = parseNumber(c['ยอดค้างชำระ'] || c.pending || 0);
-                       return pending > 0 && (filterBranch === 'ทั้งหมด' || c['สาขาที่ซื้อ'] === filterBranch || c.branch === filterBranch);
+                       return pending > 0 && matchesBranchFilter(c['สาขาที่ซื้อ'] || c.branch, filterBranch);
                    }).sort((a,b) => {
-                       const dA = a['วันที่ซื้อ'] || a.createdAt || '';
-                       const dB = b['วันที่ซื้อ'] || b.createdAt || '';
-                       if (dA && dB && dA.includes('/') && dB.includes('/')) {
-                           return new Date(dB.split('/').reverse().join('-')) - new Date(dA.split('/').reverse().join('-'));
-                       }
-                       return new Date(dB) - new Date(dA);
+                       const tA = toValidDate(a['วันที่ซื้อ'] || a.createdAt)?.getTime() || 0;
+                       const tB = toValidDate(b['วันที่ซื้อ'] || b.createdAt)?.getTime() || 0;
+                       return tB - tA;
                    }).map(c => {
                        const pending = parseNumber(c['ยอดค้างชำระ'] || c.pending || 0);
                        const price = parseNumber(c['ราคา'] || c.price || 0);
@@ -2578,7 +2540,8 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                        const phone = c['เบอร์โทร'] || c.customerPhone || '-';
                        const courseName = c['ชื่อคอส'] || c.courseName || '-';
                        const branch = c['สาขาที่ซื้อ'] || c.branch || '-';
-                       const dateStr = c['วันที่ซื้อ'] || c.createdAt || '-';
+                       const rawDateVal = c['วันที่ซื้อ'] || c.createdAt;
+                       const dateStr = typeof rawDateVal === 'string' ? rawDateVal : (toValidDate(rawDateVal) ? toValidDate(rawDateVal).toLocaleDateString('th-TH') : '-');
                        
                        return (
                          <tr key={c.id} className="hover:bg-orange-50/30 transition-colors">
@@ -2609,7 +2572,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                          </tr>
                        );
                    })}
-                   {courses.filter(c => parseNumber(c['ยอดค้างชำระ'] || c.pending || 0) > 0 && (filterBranch === 'ทั้งหมด' || c['สาขาที่ซื้อ'] === filterBranch || c.branch === filterBranch)).length === 0 && (
+                   {courses.filter(c => parseNumber(c['ยอดค้างชำระ'] || c.pending || 0) > 0 && matchesBranchFilter(c['สาขาที่ซื้อ'] || c.branch, filterBranch)).length === 0 && (
                      <tr>
                        <td colSpan="9" className="px-6 py-12 text-center text-slate-400 font-bold">
                          ไม่มีรายการยอดค้างชำระในสาขานี้ 🎉
@@ -2642,11 +2605,11 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
               const courseRefNo = c['เลขที่ใบคอส'] || c.courseNo || '';
               // Filter from histories where อ้างอิง matches and it's a payment
               const relatedHistories = histories.filter(h => h['อ้างอิง'] === courseRefNo && (h['ประเภท'] === 'ชำระยอดค้าง' || h['ประเภท'] === 'ซื้อคอร์ส')).sort((a,b) => {
-                  const dateA = a['วันที่'] ? a['วันที่'].split('/').reverse().join('') : '';
+                  const dateA = extractIsoDate(a['วันที่']) || '';
                   const timeA = a['เวลา'] || '';
-                  const dateB = b['วันที่'] ? b['วันที่'].split('/').reverse().join('') : '';
+                  const dateB = extractIsoDate(b['วันที่']) || '';
                   const timeB = b['เวลา'] || '';
-                  return (dateA+timeA).localeCompare(dateB+timeB);
+                  return `${dateA} ${timeA}`.localeCompare(`${dateB} ${timeB}`);
               });
               const totalPaid = parseNumber(c['ยอดชำระแล้วทั้งหมด'] || 0);
 
@@ -2697,7 +2660,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
           <h1 className="text-3xl font-bold mb-2">รายงานสรุปยอดขาย</h1>
           <p className="text-lg">IRIS NATURES</p>
           <div className="flex justify-center gap-6 mt-4 text-sm text-slate-700">
-            <div><strong>วันที่:</strong> {new Date(filterDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+            <div><strong>วันที่:</strong> {(toValidDate(filterDate) || new Date()).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
             <div><strong>สาขา:</strong> {filterBranch}</div>
             <div><strong>พิมพ์เมื่อ:</strong> {new Date().toLocaleString('th-TH')}</div>
             <div><strong>รูปแบบ:</strong> {filterMode === 'month' ? 'สรุปรายเดือน' : 'สรุปรายวัน'}</div>
@@ -2711,6 +2674,10 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
               <div className="flex justify-between">
                 <span>รายรับรวม (Sales)</span>
                 <span className="font-bold text-lg text-emerald-600">฿{stats.totalSales.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-100 pb-2 mb-2">
+                <span>ต้นทุนขาย (COGS)</span>
+                <span className="font-bold text-lg text-blue-600">- ฿{stats.totalCOGS.toLocaleString()}</span>
               </div>
               <div className="flex justify-between border-b border-slate-100 pb-2 mb-2">
                 <span>รายจ่าย (PO)</span>
@@ -2766,22 +2733,28 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                 <td colSpan={6} className="border border-slate-300 px-3 py-4 text-center">ไม่มีข้อมูล</td>
               </tr>
             ) : (
-              filteredOrders.map(o => (
-                <tr key={o.id}>
-                  <td className="border border-slate-300 px-3 py-2">{o.createdAt ? new Date(o.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
-                  <td className="border border-slate-300 px-3 py-2">{o.orderNo}</td>
-                  <td className="border border-slate-300 px-3 py-2">{o.customerName || 'ลูกค้าทั่วไป'}</td>
-                  <td className="border border-slate-300 px-3 py-2 text-xs">{o.paymentMethod || '-'}</td>
-                  <td className="border border-slate-300 px-3 py-2 text-right">
-                    {o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า') ? '-' : ''}฿{parseNumber(o.price).toLocaleString()}
-                  </td>
-                  <td className="border border-slate-300 px-3 py-2 text-right font-bold">
-                    {o.totalCost !== undefined && o.transactionType !== 'owner_purchase' && o.transactionType !== 'branch_requisition' && !(o.courseName || '').includes('[ซื้อเข้า') && !(o.courseName || '').includes('[เบิกจาก') 
-                       ? `฿${(parseNumber(o.price) - parseNumber(o.totalCost)).toLocaleString()}` 
-                       : '-'}
-                  </td>
-                </tr>
-              ))
+              filteredOrders.map(o => {
+                const effectivePrice = (o.source === 'SHOPEE' || String(o.orderChannel || '').toLowerCase() === 'shopee') && o.shopeeNetReceived !== undefined
+                  ? parseNumber(o.shopeeNetReceived)
+                  : parseNumber(o.price);
+                const printOrderDate = toValidDate(o.createdAt);
+                return (
+                  <tr key={o.id}>
+                    <td className="border border-slate-300 px-3 py-2">{printOrderDate ? printOrderDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
+                    <td className="border border-slate-300 px-3 py-2">{o.orderNo}</td>
+                    <td className="border border-slate-300 px-3 py-2">{o.customerName || 'ลูกค้าทั่วไป'}</td>
+                    <td className="border border-slate-300 px-3 py-2 text-xs">{o.paymentMethod || '-'}</td>
+                    <td className="border border-slate-300 px-3 py-2 text-right">
+                      {o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า') ? '-' : ''}฿{effectivePrice.toLocaleString()}
+                    </td>
+                    <td className="border border-slate-300 px-3 py-2 text-right font-bold">
+                      {o.totalCost !== undefined && o.transactionType !== 'owner_purchase' && o.transactionType !== 'branch_requisition' && !(o.courseName || '').includes('[ซื้อเข้า') && !(o.courseName || '').includes('[เบิกจาก') 
+                         ? `฿${(effectivePrice - parseNumber(o.totalCost)).toLocaleString()}` 
+                         : '-'}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -2851,7 +2824,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                           let totalCapital = 0, totalLoans = 0, repayLoans = 0, totalDividends = 0, totalWithdrawals = 0, totalBanks = 0, totalAssets = 0, totalGold = 0, totalCash = 0;
                           let bankAccounts = {};
                           expenses.forEach(e => {
-                          if (e.type === 'treasury' || ['เงินทุนตั้งต้น', 'รับเงินกู้ยืม', 'จ่ายคืนเงินกู้', 'จ่ายเงินปันผล', 'ถอนเงินส่วนตัว', 'บัญชีธนาคาร', 'ทรัพย์สินอื่นๆ', 'ทองคำ', 'เงินสด'].includes(e.category)) {
+                          if (isTreasuryRecord(e)) {
                              const amt = parseNumber(e.amount);
                              if (e.category === 'เงินทุนตั้งต้น') totalCapital += amt;
                              else if (e.category === 'รับเงินกู้ยืม') totalLoans += amt;
@@ -2860,8 +2833,18 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                              else if (e.category === 'ถอนเงินส่วนตัว') totalWithdrawals += amt;
                              else if (e.category === 'บัญชีธนาคาร') {
                                 totalBanks += amt;
-                                const bankKey = `${e.bankAccountName || 'ไม่ระบุชื่อบัญชี'} - ${e.bankName || 'ไม่ระบุธนาคาร'}`;
-                                bankAccounts[bankKey] = (bankAccounts[bankKey] || 0) + amt;
+                                const accName = e.bankAccountName || '';
+                                const bankName = e.bankName || '';
+                                const bankKey = JSON.stringify([accName, bankName]);
+                                if (!bankAccounts[bankKey]) {
+                                   bankAccounts[bankKey] = {
+                                      accName,
+                                      bankName,
+                                      label: `${accName || 'ไม่ระบุชื่อบัญชี'} - ${bankName || 'ไม่ระบุธนาคาร'}`,
+                                      amount: 0
+                                   };
+                                }
+                                bankAccounts[bankKey].amount += amt;
                              }
                              else if (e.category === 'ทรัพย์สินอื่นๆ') totalAssets += amt;
                              else if (e.category === 'ทองคำ') totalGold += amt;
@@ -2884,15 +2867,14 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                                    </span>
                                    <span className="font-bold text-cyan-600">฿{totalBanks.toLocaleString()}</span>
                                 </div>
-                                {Object.entries(bankAccounts).map(([key, val]) => (
+                                {Object.entries(bankAccounts).map(([key, acct]) => (
                                    <div key={key} className="flex justify-between items-center text-xs pl-4 text-slate-500 group">
                                       <span className="flex items-center gap-2">
-                                         • {key}
+                                         • {acct.label}
                                          <button 
                                             onClick={async () => {
-                                               const [oldAccName, oldBankName] = key.split(' - ');
-                                               const actualOldAcc = oldAccName === 'ไม่ระบุชื่อบัญชี' ? '' : oldAccName;
-                                               const actualOldBank = oldBankName === 'ไม่ระบุธนาคาร' ? '' : oldBankName;
+                                               const actualOldAcc = acct.accName;
+                                               const actualOldBank = acct.bankName;
                                                
                                                showPrompt(`แก้ไขชื่อบัญชี`, actualOldAcc, 'ระบุชื่อบัญชีใหม่...', (newAcc) => {
                                                    if (newAcc === null || newAcc === undefined) return;
@@ -2900,7 +2882,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                                                       showPrompt(`แก้ไขชื่อธนาคาร`, actualOldBank, 'ระบุชื่อธนาคารใหม่...', (newBank) => {
                                                          if (newBank === null || newBank === undefined) return;
                                                          setTimeout(() => {
-                                                            showConfirm('ยืนยันการแก้ไข', `เปลี่ยนทุกรายการที่อยู่ในหมวดนี้\nจาก: ${key}\nเป็น: ${newAcc || 'ไม่ระบุชื่อบัญชี'} - ${newBank || 'ไม่ระบุธนาคาร'} ใช่หรือไม่?`, async () => {
+                                                            showConfirm('ยืนยันการแก้ไข', `เปลี่ยนทุกรายการที่อยู่ในหมวดนี้\nจาก: ${acct.label}\nเป็น: ${newAcc || 'ไม่ระบุชื่อบัญชี'} - ${newBank || 'ไม่ระบุธนาคาร'} ใช่หรือไม่?`, async () => {
                                                   try {
                                                      const batch = expenses.filter(e => e.category === 'บัญชีธนาคาร' && (e.bankAccountName || '') === actualOldAcc && (e.bankName || '') === actualOldBank);
                                                      let promises = [];
@@ -2924,7 +2906,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                                             <Edit2 size={10} />
                                          </button>
                                       </span>
-                                      <span className="font-semibold">฿{val.toLocaleString()}</span>
+                                      <span className="font-semibold">฿{acct.amount.toLocaleString()}</span>
                                    </div>
                                 ))}
                              </div>
@@ -3113,7 +3095,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                      if (showTreasuryHistory === 'รับเงินกู้ยืม') return e.category === 'รับเงินกู้ยืม' || e.category === 'จ่ายคืนเงินกู้';
                      return e.category === showTreasuryHistory;
                   })
-                  .sort((a,b) => new Date(b.createdAt?.seconds ? b.createdAt.toDate() : b.date) - new Date(a.createdAt?.seconds ? a.createdAt.toDate() : a.date))
+                  .sort((a,b) => (toValidDate(b.createdAt || b.date)?.getTime() || 0) - (toValidDate(a.createdAt || a.date)?.getTime() || 0))
                   .map((e, idx) => (
                      <div key={idx} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col gap-2 relative">
                         <div className="flex justify-between items-start">
@@ -3241,8 +3223,8 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                               <button 
                                 onClick={() => {
                                   setShowDepositModal(false);
-                                  const dateStr = getLocalDateStr(d.createdAt);
-                                  setFilterDate(dateStr);
+                                  const dateStr = getIsoDate(d) || getLocalDateStr(d.createdAt);
+                                  if (dateStr) setFilterDate(dateStr);
                                   setActiveTab('verifications');
                                 }} 
                                 className="text-[10px] text-indigo-600 underline hover:text-indigo-800"
@@ -3293,70 +3275,72 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {expenses.filter(e => {
-                if (!selectedExpenseCategory || !e.date) return false;
-                const d = new Date(e.date);
-                const now = new Date();
-                const isCurrentMonth = d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-                return isCurrentMonth && (e.branch || 'ไม่ระบุ') === selectedExpenseCategory.branch && e.category === selectedExpenseCategory.category;
-              }).sort((a,b) => new Date(b.date) - new Date(a.date)).map(e => {
-                let poOrder = null;
-                let extractedOrderNo = null;
-                const isAuto = e.note && e.note.includes('[อัตโนมัติ]');
-                
-                // รองรับรูปแบบ (เลขอ้างอิง: POxxx) และ เลี่ยงเคสที่ไม่เจอใน orders
-                if (e.note && e.note.includes('เลขอ้างอิง:')) {
-                  const match = e.note.match(/เลขอ้างอิง:\s*([^)]+)/);
-                  if (match && match[1]) {
-                    extractedOrderNo = match[1].trim();
-                    poOrder = orders.find(o => o.orderNo === extractedOrderNo);
-                  }
-                } else if (isAuto) {
-                  // Fallback for legacy test data that doesn't have orderNo in the note
-                  poOrder = orders.find(o => 
-                    (o.transactionType === 'branch_requisition' || o.transactionType === 'owner_purchase' || (o.note || '').includes('[อัตโนมัติ]')) &&
-                    o.price === e.amount && 
-                    new Date(o.createdAt).toLocaleDateString('th-TH') === new Date(e.date).toLocaleDateString('th-TH')
+              {(() => {
+                const currentMonthPrefix = getLocalYYYYMMDD(new Date()).substring(0, 7);
+                const catExpenses = opexExpenses.filter(e => {
+                  if (!selectedExpenseCategory) return false;
+                  const iso = extractIsoDate(e.date);
+                  const isCurrentMonth = Boolean(iso && iso.startsWith(currentMonthPrefix));
+                  return isCurrentMonth && (e.branch || 'ไม่ระบุ') === selectedExpenseCategory.branch && e.category === selectedExpenseCategory.category;
+                }).sort((a,b) => (toValidDate(b.date)?.getTime() || 0) - (toValidDate(a.date)?.getTime() || 0));
+
+                if (catExpenses.length === 0) {
+                  return (
+                    <tr>
+                      <td colSpan="3" className="text-center py-8 text-slate-400">ไม่มีข้อมูล</td>
+                    </tr>
                   );
-                  if (poOrder) {
-                    extractedOrderNo = poOrder.orderNo;
-                  }
                 }
-                
-                return (
-                  <tr key={e.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 whitespace-nowrap">{new Date(e.date).toLocaleDateString('th-TH')}</td>
-                    <td className="px-4 py-3 max-w-[200px] truncate" title={e.note}>
-                      {e.note || '-'}
-                      {e.receiptUrl && (
-                        <a href={e.receiptUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-indigo-600 hover:text-indigo-700 font-bold ml-2 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 transition-colors">
-                          <ImageIcon size={10} /> รูป
-                        </a>
-                      )}
-                      {(extractedOrderNo || isAuto) && (
-                        <button 
-                          onClick={() => setViewingPO(poOrder || { orderNo: extractedOrderNo || 'ไม่ระบุ', notFound: true, createdAt: e.date, customerName: e.branch, cart: [] })} 
-                          className="inline-flex items-center gap-1 text-[10px] text-teal-600 hover:text-teal-700 font-bold ml-2 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-100 transition-colors"
-                        >
-                          <ListChecks size={10} /> ดูใบเบิก
-                        </button>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right font-black text-slate-700">฿{(e.amount || 0).toLocaleString()}</td>
-                  </tr>
-                );
-              })}
-              {expenses.filter(e => {
-                if (!selectedExpenseCategory || !e.date) return false;
-                const d = new Date(e.date);
-                const now = new Date();
-                const isCurrentMonth = d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-                return isCurrentMonth && (e.branch || 'ไม่ระบุ') === selectedExpenseCategory.branch && e.category === selectedExpenseCategory.category;
-              }).length === 0 && (
-                <tr>
-                  <td colSpan="3" className="text-center py-8 text-slate-400">ไม่มีข้อมูล</td>
-                </tr>
-              )}
+
+                return catExpenses.map(e => {
+                  let poOrder = null;
+                  let extractedOrderNo = null;
+                  const isAuto = e.note && e.note.includes('[อัตโนมัติ]');
+                  
+                  // รองรับรูปแบบ (เลขอ้างอิง: POxxx) และ เลี่ยงเคสที่ไม่เจอใน orders
+                  if (e.note && e.note.includes('เลขอ้างอิง:')) {
+                    const match = e.note.match(/เลขอ้างอิง:\s*([^)]+)/);
+                    if (match && match[1]) {
+                      extractedOrderNo = match[1].trim();
+                      poOrder = orders.find(o => o.orderNo === extractedOrderNo);
+                    }
+                  } else if (isAuto) {
+                    // Fallback for legacy test data that doesn't have orderNo in the note
+                    const eIso = extractIsoDate(e.date);
+                    poOrder = orders.find(o => 
+                      (o.transactionType === 'branch_requisition' || o.transactionType === 'owner_purchase' || (o.note || '').includes('[อัตโนมัติ]')) &&
+                      parseNumber(o.price) === parseNumber(e.amount) && 
+                      eIso && getOrderIsoDate(o) === eIso
+                    );
+                    if (poOrder) {
+                      extractedOrderNo = poOrder.orderNo;
+                    }
+                  }
+                  
+                  return (
+                    <tr key={e.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-3 whitespace-nowrap">{toValidDate(e.date) ? toValidDate(e.date).toLocaleDateString('th-TH') : (e.date || '-')}</td>
+                      <td className="px-4 py-3 max-w-[200px] truncate" title={e.note}>
+                        {e.note || '-'}
+                        {e.receiptUrl && (
+                          <a href={e.receiptUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] text-indigo-600 hover:text-indigo-700 font-bold ml-2 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 transition-colors">
+                            <ImageIcon size={10} /> รูป
+                          </a>
+                        )}
+                        {(extractedOrderNo || isAuto) && (
+                          <button 
+                            onClick={() => setViewingPO(poOrder || { orderNo: extractedOrderNo || 'ไม่ระบุ', notFound: true, createdAt: e.date, customerName: e.branch, cart: [] })} 
+                            className="inline-flex items-center gap-1 text-[10px] text-teal-600 hover:text-teal-700 font-bold ml-2 bg-teal-50 px-1.5 py-0.5 rounded border border-teal-100 transition-colors"
+                          >
+                            <ListChecks size={10} /> ดูใบเบิก
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right font-black text-slate-700">฿{parseNumber(e.amount).toLocaleString()}</td>
+                    </tr>
+                  );
+                });
+              })()}
             </tbody>
           </table>
         </div>
