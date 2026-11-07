@@ -222,7 +222,7 @@ export default function App() {
   const [courseFilterType, setCourseFilterType] = useState('all');
   const [courseSummaryFilter, setCourseSummaryFilter] = useState('all');
   const [filterCustomerStatus, setFilterCustomerStatus] = useState('all'); 
-  const [filterBookingStatus, setFilterBookingStatus] = useState('all'); 
+  const [filterBookingStatus, setFilterBookingStatus] = useState('today_upcoming'); 
   const [filterBookingBranch, setFilterBookingBranch] = useState('all'); 
   const [filterOrderStatus, setFilterOrderStatus] = useState('รออนุมัติ'); 
   const [bookingViewMode, setBookingViewMode] = useState('timeline');
@@ -1468,10 +1468,27 @@ export default function App() {
   }, [orders, searchTerm, filterOrderStatus]);
 
   const sortedBookings = useMemo(() => {
+    const todayStr = getLocalYYYYMMDD();
     return bookings.filter(b => { 
         const matchSearch = String(b.customerName || '').includes(searchTerm) || String(b.customerPhone || '').includes(searchTerm) || String(b.courseName || '').includes(searchTerm); 
         const st = getBookingStatus(b);
-        const matchStatus = filterBookingStatus === 'all' || st === filterBookingStatus; 
+        const dt = getSafeDateTime(b);
+        const isToday = dt && dt.startsWith(todayStr);
+
+        let matchStatus = true;
+        if (filterBookingStatus === 'all') {
+            matchStatus = true;
+        } else if (filterBookingStatus === 'today_upcoming') {
+            // แสดงเฉพาะคิวทั้งหมดของวันที่ปัจจุบันที่ยังไม่ถึงคิว
+            const isNotReached = ['รอการยืนยัน', 'ยืนยันแล้ว', 'รอเข้ารับบริการ', 'รอคิว'].includes(st);
+            matchStatus = isToday && isNotReached;
+        } else if (filterBookingStatus === 'today_all') {
+            // คิววันนี้ทั้งหมด
+            matchStatus = isToday && st !== 'ยกเลิก' && st !== 'ยกเลิกฉุกเฉิน' && st !== 'ยกเลิกโดยลูกค้า';
+        } else {
+            matchStatus = st === filterBookingStatus; 
+        }
+
         const bBranchClean = String(b.branch || 'เฉวง').replace(/^สาขา/,'').trim();
         const filterBranchClean = String(filterBookingBranch).replace(/^สาขา/,'').trim();
         const matchBranch = filterBookingBranch === 'all' || bBranchClean === filterBranchClean;
@@ -1504,20 +1521,28 @@ export default function App() {
   
   const bookingStats = useMemo(() => {
     const todayStr = getLocalYYYYMMDD(); 
+    const todayUpcoming = bookings.filter(b => {
+        const dt = getSafeDateTime(b);
+        const st = getBookingStatus(b);
+        const isToday = dt && dt.startsWith(todayStr);
+        const isNotReached = ['รอการยืนยัน', 'ยืนยันแล้ว', 'รอเข้ารับบริการ', 'รอคิว'].includes(st);
+        return isToday && isNotReached;
+    }).length;
+
+    const todayAll = bookings.filter(b => {
+        const dt = getSafeDateTime(b);
+        const st = getBookingStatus(b);
+        const isToday = dt && dt.startsWith(todayStr);
+        return isToday && st !== 'ยกเลิก' && st !== 'ยกเลิกฉุกเฉิน' && st !== 'ยกเลิกโดยลูกค้า';
+    }).length;
+
     return { 
         total: bookings.length, 
         pending: bookings.filter(b => getBookingStatus(b) === 'รอการยืนยัน').length, 
         confirmed: bookings.filter(b => getBookingStatus(b) === 'ยืนยันแล้ว').length, 
-        today: bookings.filter(b => {
-            const dt = getSafeDateTime(b);
-            return dt && dt.startsWith(todayStr) && getBookingStatus(b) !== 'ยกเลิก' && getBookingStatus(b) !== 'เสร็จสิ้น';
-        }).length,
-        badgeCount: bookings.filter(b => {
-            const st = getBookingStatus(b);
-            if (st === 'รอการยืนยัน') return true;
-            const dt = getSafeDateTime(b);
-            return dt && dt.startsWith(todayStr) && st !== 'ยกเลิก' && st !== 'เสร็จสิ้น';
-        }).length
+        today: todayAll,
+        todayUpcoming: todayUpcoming,
+        badgeCount: todayUpcoming // ป้ายแจ้งเตือนแสดงเฉพาะคิวทั้งหมดของวันที่ปัจจุบันที่ยังไม่ถึงคิว!
     };
   }, [bookings]);
 
@@ -4168,7 +4193,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
           <SidebarItem activeTab={activeTab} setActiveTab={setActiveTab} setSidebarOpen={setSidebarOpen} id="dashboard" icon={Home} label="แดชบอร์ด" />
           <SidebarItem activeTab={activeTab} setActiveTab={setActiveTab} setSidebarOpen={setSidebarOpen} id="pos" icon={ScanLine} label="ระบบ POS" onClick={handlePosAccess} />
           <SidebarItem activeTab={activeTab} setActiveTab={setActiveTab} setSidebarOpen={setSidebarOpen} id="course_deduction" icon={Scissors} label="ตัดคอร์สบริการ" />
-          <SidebarItem activeTab={activeTab} setActiveTab={setActiveTab} setSidebarOpen={setSidebarOpen} id="bookings" icon={Calendar} label="ตารางนัดหมาย" badge={bookingStats.badgeCount} />
+          <SidebarItem activeTab={activeTab} setActiveTab={(t) => { setActiveTab(t); if(t === "bookings") setFilterBookingStatus("today_upcoming"); }} setSidebarOpen={setSidebarOpen} id="bookings" icon={Calendar} label="ตารางนัดหมาย" badge={bookingStats.badgeCount} />
           <SidebarItem activeTab={activeTab} setActiveTab={setActiveTab} setSidebarOpen={setSidebarOpen} id="calendar_dashboard" icon={CalendarDays} label="ปฏิทินวันหยุดและคิวจอง" />
           <SidebarItem activeTab={activeTab} setActiveTab={setActiveTab} setSidebarOpen={setSidebarOpen} id="orders" icon={ShoppingCart} label="คำสั่งซื้อ" badge={orderStats.pending} />
           <SidebarItem activeTab={activeTab} setActiveTab={setActiveTab} setSidebarOpen={setSidebarOpen} id="masterCourses" icon={Layers} label="คอร์สโปรโมชั่น" />
@@ -4721,7 +4746,17 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                          <button onClick={() => setBookingViewMode('timeline')} className={`px-3 py-1.5 flex items-center text-xs font-bold rounded-lg transition-colors ${bookingViewMode === 'timeline' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}><List size={14} className="mr-1 hidden sm:block"/> ไทม์ไลน์</button>
                          <button onClick={() => setBookingViewMode('cards')} className={`px-3 py-1.5 flex items-center text-xs font-bold rounded-lg transition-colors ${bookingViewMode === 'cards' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}><LayoutGrid size={14} className="mr-1 hidden sm:block"/> การ์ด</button>
                       </div>
-                      <select value={filterBookingStatus} onChange={(e) => setFilterBookingStatus(e.target.value)} className="bg-gray-50 rounded-xl px-3 py-2 text-sm font-bold outline-none border border-gray-200 flex-1 sm:w-auto min-w-[120px]"><option value="all">สถานะทั้งหมด</option><option value="รอการยืนยัน">รอการยืนยัน</option><option value="ยืนยันแล้ว">ยืนยันแล้ว</option><option value="กำลังใช้บริการ">กำลังใช้บริการ</option><option value="เสร็จสิ้น">เสร็จสิ้น</option><option value="ยกเลิก">ยกเลิก</option><option value="ยกเลิกฉุกเฉิน">🚨 ยกเลิกฉุกเฉิน</option></select>
+                      <select value={filterBookingStatus} onChange={(e) => setFilterBookingStatus(e.target.value)} className="bg-gray-50 rounded-xl px-3 py-2 text-sm font-bold outline-none border border-gray-200 flex-1 sm:w-auto min-w-[140px]">
+                          <option value="today_upcoming">⚡ คิววันนี้ที่ยังไม่ถึงคิว (${bookingStats.todayUpcoming})</option>
+                          <option value="today_all">📅 คิววันนี้ทั้งหมด (${bookingStats.today})</option>
+                          <option value="all">📋 คิวทั้งหมดทุกวัน (${bookings.length})</option>
+                          <option value="รอการยืนยัน">รอการยืนยัน</option>
+                          <option value="ยืนยันแล้ว">ยืนยันแล้ว</option>
+                          <option value="กำลังใช้บริการ">กำลังใช้บริการ</option>
+                          <option value="เสร็จสิ้น">เสร็จสิ้น</option>
+                          <option value="ยกเลิก">ยกเลิก</option>
+                          <option value="ยกเลิกฉุกเฉิน">🚨 ยกเลิกฉุกเฉิน</option>
+                       </select>
                       
                       <button onClick={() => setIsCheckInOpen(true)} className="bg-emerald-500 hover:bg-emerald-600 transition-colors text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center shadow-md active:scale-95 shrink-0"><ScanLine size={16} className="mr-1"/> เช็คอิน</button>
                                             <button onClick={() => {
@@ -4732,6 +4767,46 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                       }} className="bg-purple-600 hover:bg-purple-700 transition-colors text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center shadow-md active:scale-95 shrink-0"><UserPlus size={16} className="mr-1"/> Walk-in</button>
                       <button onClick={() => { setGeneralBookingForm({ name: "", phone: "", service: "", dateTime: "", branch: filterBookingBranch !== "all" ? filterBookingBranch : "เฉวง", isWalkIn: false }); setIsGeneralBookingOpen(true); }} className="bg-blue-600 hover:bg-blue-700 transition-colors text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center shadow-md active:scale-95 shrink-0"><Plus size={16} className="mr-1"/> นัดหมาย</button>
                    </div>
+                </div>
+
+                {/* Quick Filter Chips: แสดงคิวทั้งหมดของวันที่ปัจจุบันที่ยังไม่ถึงคิว */}
+                <div className="flex flex-wrap items-center gap-2 px-1">
+                    <button 
+                        onClick={() => setFilterBookingStatus('today_upcoming')}
+                        className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 shadow-sm active:scale-95 ${filterBookingStatus === 'today_upcoming' ? 'bg-indigo-600 text-white shadow-indigo-200 ring-2 ring-indigo-300' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'}`}
+                    >
+                        <span>⚡ คิววันนี้ที่ยังไม่ถึงคิว</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${filterBookingStatus === 'today_upcoming' ? 'bg-white text-indigo-700' : 'bg-indigo-50 text-indigo-600'}`}>
+                            {bookingStats.todayUpcoming}
+                        </span>
+                    </button>
+                    <button 
+                        onClick={() => setFilterBookingStatus('today_all')}
+                        className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 shadow-sm active:scale-95 ${filterBookingStatus === 'today_all' ? 'bg-blue-600 text-white shadow-blue-200 ring-2 ring-blue-300' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'}`}
+                    >
+                        <span>📅 คิววันนี้ทั้งหมด</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${filterBookingStatus === 'today_all' ? 'bg-white text-blue-700' : 'bg-blue-50 text-blue-600'}`}>
+                            {bookingStats.today}
+                        </span>
+                    </button>
+                    <button 
+                        onClick={() => setFilterBookingStatus('กำลังใช้บริการ')}
+                        className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 shadow-sm active:scale-95 ${filterBookingStatus === 'กำลังใช้บริการ' ? 'bg-purple-600 text-white shadow-purple-200 ring-2 ring-purple-300' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'}`}
+                    >
+                        <span>🟢 กำลังรับบริการ</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${filterBookingStatus === 'กำลังใช้บริการ' ? 'bg-white text-purple-700' : 'bg-purple-50 text-purple-600'}`}>
+                            {bookings.filter(b => getBookingStatus(b) === 'กำลังใช้บริการ').length}
+                        </span>
+                    </button>
+                    <button 
+                        onClick={() => setFilterBookingStatus('all')}
+                        className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 shadow-sm active:scale-95 ${filterBookingStatus === 'all' ? 'bg-slate-800 text-white shadow-slate-300' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'}`}
+                    >
+                        <span>📋 คิวทั้งหมดทุกวัน</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${filterBookingStatus === 'all' ? 'bg-white text-slate-800' : 'bg-gray-100 text-gray-600'}`}>
+                            {bookings.length}
+                        </span>
+                    </button>
                 </div>
 
                 {bookingViewMode === 'calendar' && (() => {
@@ -4918,7 +4993,24 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                                </div>
                            );
                        })}
-                       {sortedBookings.length === 0 && <div className="text-center py-20"><Calendar size={64} className="mx-auto text-gray-200 mb-4"/><p className="text-base font-black text-gray-800 mb-1">ไม่พบข้อมูลนัดหมายในไทม์ไลน์</p></div>}
+                       {sortedBookings.length === 0 && (
+                           <div className="text-center py-16 bg-white rounded-3xl border border-dashed border-gray-200 p-8 shadow-sm max-w-lg mx-auto">
+                              <div className="w-16 h-16 bg-indigo-50 text-indigo-500 rounded-3xl flex items-center justify-center mx-auto mb-3">
+                                 <CheckCircle size={32} />
+                              </div>
+                              <h4 className="text-base font-black text-gray-800 mb-1">
+                                 {filterBookingStatus === 'today_upcoming' ? 'ไม่มีคิวค้างในวันนี้ (ไม่มีคิวที่ยังไม่ถึงคิว)' : 'ไม่พบข้อมูลนัดหมาย'}
+                              </h4>
+                              <p className="text-xs text-gray-500 mb-4">
+                                 {filterBookingStatus === 'today_upcoming' ? 'คิววันนี้ได้รับการดูแลครบถ้วนแล้ว หรือยังไม่มีการจองคิวใหม่สำหรับวันนี้' : 'ลองเปลี่ยนตัวกรองสถานะหรือค้นหาด้วยคำอื่น'}
+                              </p>
+                              {filterBookingStatus !== 'all' && (
+                                 <button onClick={() => setFilterBookingStatus('all')} className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-bold transition-colors">
+                                    ดูคิวทั้งหมดทุกวัน
+                                 </button>
+                              )}
+                           </div>
+                        )}
                     </div>
                 )}
 
@@ -5013,7 +5105,24 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                                 </div>
                             );
                         })}
-                        {sortedBookings.length === 0 && <div className="col-span-full text-center py-20"><Calendar size={64} className="mx-auto text-gray-200 mb-4"/><p className="text-base font-black text-gray-800 mb-1">ไม่พบข้อมูลนัดหมาย</p></div>}
+                        {sortedBookings.length === 0 && (
+                           <div className="col-span-full text-center py-16 bg-white rounded-3xl border border-dashed border-gray-200 p-8 shadow-sm max-w-lg mx-auto">
+                              <div className="w-16 h-16 bg-indigo-50 text-indigo-500 rounded-3xl flex items-center justify-center mx-auto mb-3">
+                                 <CheckCircle size={32} />
+                              </div>
+                              <h4 className="text-base font-black text-gray-800 mb-1">
+                                 {filterBookingStatus === 'today_upcoming' ? 'ไม่มีคิวค้างในวันนี้ (ไม่มีคิวที่ยังไม่ถึงคิว)' : 'ไม่พบข้อมูลนัดหมาย'}
+                              </h4>
+                              <p className="text-xs text-gray-500 mb-4">
+                                 {filterBookingStatus === 'today_upcoming' ? 'คิววันนี้ได้รับการดูแลครบถ้วนแล้ว หรือยังไม่มีการจองคิวใหม่สำหรับวันนี้' : 'ลองเปลี่ยนตัวกรองสถานะหรือค้นหาด้วยคำอื่น'}
+                              </p>
+                              {filterBookingStatus !== 'all' && (
+                                 <button onClick={() => setFilterBookingStatus('all')} className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-bold transition-colors">
+                                    ดูคิวทั้งหมดทุกวัน
+                                 </button>
+                              )}
+                           </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -7622,7 +7731,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
             <span className="text-[9px] font-bold">ใบคอร์ส</span>
          </button>
 
-         <button onClick={() => { setActiveTab('bookings'); setIsMobileMoreMenuOpen(false); }} className={`flex flex-col items-center justify-center w-full h-full pb-1.5 space-y-1 ${activeTab === 'bookings' ? 'text-teal-600' : 'text-gray-400 hover:text-gray-600'}`}>
+         <button onClick={() => { setActiveTab('bookings'); setFilterBookingStatus('today_upcoming'); setIsMobileMoreMenuOpen(false); }} className={`flex flex-col items-center justify-center w-full h-full pb-1.5 space-y-1 ${activeTab === 'bookings' ? 'text-teal-600' : 'text-gray-400 hover:text-gray-600'}`}>
             <div className="relative">
                <Calendar size={22} className={activeTab === 'bookings' ? 'stroke-[2.5px]' : ''} />
                {bookingStats.badgeCount > 0 && (
