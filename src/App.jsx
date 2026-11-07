@@ -77,6 +77,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import EmployeePortal from './components/EmployeePortal';
 import TreatmentJobSlipModal from './components/TreatmentJobSlipModal';
 import RoomManagementBoard from './components/RoomManagementBoard';
+import BookingCountdown from './components/BookingCountdown';
 import { sendOrderLineNotification, sendBookingLineNotification, sendPOSCheckoutNotification, sendCourseDeductionNotification, sendRewardLineNotification } from './utils/lineUtils';
 import CustomerBedSession from './components/CustomerBedSession';
 import CalendarBookingDashboard from './components/CalendarBookingDashboard';
@@ -85,6 +86,7 @@ import DailyBookingModal from './components/DailyBookingModal';
 import CreditManagementModal from './components/CreditManagementModal';
 import IShipBookingModal from './components/IShipBookingModal';
 import ShippingLabelModal from './components/ShippingLabelModal';
+import CoursePrintModal from './components/CoursePrintModal';
 import AddressManagerModal from './components/AddressManagerModal';
 import { fetch17Track } from './utils/wooProxy';
 // 📦 17TRACK — แปลงสถานะพัสดุเป็นไทย (ใช้ร่วมทุกหน้าที่แสดง trackingInfo)
@@ -3537,6 +3539,23 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
       });
 
       if (!found) {
+          // 🌟 สแกน QR ใบคอร์ส (A4) แต่ไม่มีคิว → เปิด POS พร้อมเลือกลูกค้าให้ตัดคอร์สได้ทันที
+          const valLower = String(rawVal).trim().toLowerCase();
+          const scannedCourse = processedCourses.find(c => [getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"]), c.courseRefKey, c.id]
+              .map(v => String(v || '').trim().toLowerCase()).filter(Boolean).includes(valLower));
+          if (scannedCourse) {
+              const cPhone = String(getFuzzyKey(scannedCourse, ["เบอร์โทร", "col_1"]) || '').replace(/\D/g, '');
+              const cust = customers.find(c => String(c.computedPhone || '').replace(/\D/g, '') === cPhone);
+              if (cust) {
+                  setCheckInInput('');
+                  setIsCheckInScannerOpen(false);
+                  setIsCheckInOpen(false);
+                  setPosPreselectedCustomer(cust);
+                  setActiveTab('pos');
+                  showToast(`พบใบคอร์ส ${scannedCourse.courseRefKey || ''} ของ ${cust.computedName} — เปิด POS เพื่อตัดคอร์ส`);
+                  return;
+              }
+          }
           showToast(`ไม่พบคิวนัดหมายที่ตรงกับข้อมูล: ${val}`);
           return;
       }
@@ -3885,41 +3904,14 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
   if (isPrintMultiCourseMode && selectedCustomer) {
     const coursesToRender = getCustomerCourses(selectedCustomer.computedPhone).filter(c => selectedCoursesForPrint.includes(c.id));
     return (
-       <div className="bg-gray-100 min-h-screen text-black print:bg-white print:p-0">
-           <div className="print:hidden p-4 flex justify-center gap-4 bg-white border-b shadow-sm mb-4 sticky top-0 z-50">
-              <button onClick={() => { setIsPrintMultiCourseMode(false); setIsSelectCoursesToPrintOpen(true); }} className="px-6 py-3 bg-gray-200 hover:bg-gray-300 rounded-xl font-bold">กลับ</button>
-              <button onClick={() => window.print()} className="px-6 py-3 bg-teal-600 text-white rounded-xl font-bold flex items-center"><Printer className="mr-2"/> พิมพ์ {coursesToRender.length} ใบ</button>
-           </div>
-           <div className="p-4 sm:p-8 print:p-0">
-               {coursesToRender.map((c, idx) => (
-                   <div key={c.id} style={{ pageBreakAfter: idx < coursesToRender.length - 1 ? 'always' : 'auto' }} className="max-w-2xl mx-auto border-2 border-gray-800 p-8 rounded-3xl shadow-sm bg-white mb-8 print:border-0 print:shadow-none print:m-0 print:p-0">
-                       <div className="text-center mb-8"><h1 className="text-3xl font-black mb-2">ใบคอร์สรับบริการ</h1><p className="text-gray-500 font-mono">Ref: {c.courseRefKey}</p></div>
-                       <div className="grid grid-cols-2 gap-6 mb-8 text-lg">
-                           <div className="col-span-2"><p className="text-sm text-gray-500 font-bold mb-1">ชื่อคอร์ส</p><p className="font-black text-xl">{String(getFuzzyKey(c, "ชื่อคอส"))}</p></div>
-                           <div><p className="text-sm text-gray-500 font-bold mb-1">ชื่อลูกค้า</p><p className="font-bold">{String(getFuzzyKey(c, "ผู้ซื้อคอส"))}</p></div>
-                           <div><p className="text-sm text-gray-500 font-bold mb-1">เบอร์โทรศัพท์</p><p className="font-mono font-bold">{String(getFuzzyKey(c, "เบอร์โทร"))}</p></div>
-                       </div>
-                       <div className="flex justify-around items-center border border-gray-300 rounded-2xl p-4 mb-8 text-center bg-gray-50">
-                           <div><p className="text-xs font-bold text-gray-500 uppercase">ทั้งหมด</p><p className="text-2xl font-black">{c.computedTotalQty}</p></div><div className="w-px h-10 bg-gray-300"></div>
-                           <div><p className="text-xs font-bold text-gray-500 uppercase">ใช้ไปแล้ว</p><p className="text-2xl font-black">{c.computedUsedQty}</p></div><div className="w-px h-10 bg-gray-300"></div>
-                           <div><p className="text-xs font-bold text-gray-500 uppercase">คงเหลือ</p><p className="text-3xl font-black text-teal-600">{c.computedRemainQty}</p></div>
-                       </div>
-                       {c.computedTotalCredit > 0 && (
-                           <div className="flex justify-around items-center border border-orange-200 rounded-2xl p-4 mb-8 text-center bg-orange-50/50">
-                               <div><p className="text-xs font-bold text-orange-600 uppercase">ยอดเครดิตที่ได้รับ</p><p className="text-lg font-black text-orange-800">฿{c.computedTotalCredit.toLocaleString()}</p></div><div className="w-px h-8 bg-orange-200"></div>
-                               <div><p className="text-xs font-bold text-orange-600 uppercase">เบิกสินค้าไปแล้ว</p><p className="text-lg font-black text-orange-800">฿{c.computedUsedCredit.toLocaleString()}</p></div><div className="w-px h-8 bg-orange-200"></div>
-                               <div><p className="text-xs font-bold text-orange-600 uppercase">เครดิตคงเหลือ</p><p className="text-2xl font-black text-orange-600">฿{c.computedRemainCredit.toLocaleString()}</p></div>
-                           </div>
-                       )}
-                       <div className="mb-8">
-                           <h3 className="font-bold text-gray-800 mb-3 border-b border-gray-200 pb-2">ประวัติการใช้งาน</h3>
-                           <HistoryTable histories={c.myHistories?.filter(h => !(h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '') === 'ยกเลิก') && (isUsageType(String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '')) || isAddType(String(getFuzzyKey(h, ["ประเภท", "col_4"]) || ''))))} />
-                       </div>
-                       <div className="text-center text-sm text-gray-400 mt-8 pt-4 border-t border-gray-100"><p>พิมพ์เมื่อ: {new Date().toLocaleString('th-TH')}</p></div>
-                   </div>
-               ))}
-           </div>
-       </div>
+      <CoursePrintModal
+        isOpen
+        courses={coursesToRender}
+        masterCourses={masterCourses}
+        shopName={appSettings?.shopName || 'IrisCare Clinic'}
+        onBack={() => { setIsPrintMultiCourseMode(false); setIsSelectCoursesToPrintOpen(true); }}
+        onClose={() => setIsPrintMultiCourseMode(false)}
+      />
     );
   }
 
@@ -3956,35 +3948,16 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
   }
 
   if (isPrintSingleCourseMode && selectedCourse) {
+    // 🌟 ใบคอร์ส A4 + QR + ช่องว่างครบตามจำนวนครั้ง (ใช้ได้ทั้งออนไลน์และกระดาษ)
     return (
-       <div className="p-8 bg-white min-h-screen text-black print:p-0">
-           <div className="print:hidden mb-6 flex gap-4"><button onClick={() => setIsPrintSingleCourseMode(false)} className="px-4 py-2 bg-gray-200 rounded-xl font-bold">กลับ</button><button onClick={() => window.print()} className="px-4 py-2 bg-teal-600 text-white rounded-xl font-bold">สั่งพิมพ์</button></div>
-           <div className="max-w-2xl mx-auto border-2 border-gray-800 p-8 rounded-3xl shadow-sm">
-               <div className="text-center mb-8"><h1 className="text-3xl font-black mb-2">ใบคอร์สรับบริการ</h1><p className="text-gray-500 font-mono">Ref: {selectedCourse.courseRefKey}</p></div>
-               <div className="grid grid-cols-2 gap-6 mb-8 text-lg">
-                   <div className="col-span-2"><p className="text-sm text-gray-500 font-bold mb-1">ชื่อคอร์ส</p><p className="font-black text-xl">{String(getFuzzyKey(selectedCourse, "ชื่อคอส"))}</p></div>
-                   <div><p className="text-sm text-gray-500 font-bold mb-1">ชื่อลูกค้า</p><p className="font-bold">{String(getFuzzyKey(selectedCourse, "ผู้ซื้อคอส"))}</p></div>
-                   <div><p className="text-sm text-gray-500 font-bold mb-1">เบอร์โทรศัพท์</p><p className="font-mono font-bold">{String(getFuzzyKey(selectedCourse, "เบอร์โทร"))}</p></div>
-               </div>
-               <div className="flex justify-around items-center border border-gray-300 rounded-2xl p-4 mb-8 text-center bg-gray-50">
-                   <div><p className="text-xs font-bold text-gray-500 uppercase">ทั้งหมด</p><p className="text-2xl font-black">{selectedCourse.computedTotalQty}</p></div><div className="w-px h-10 bg-gray-300"></div>
-                   <div><p className="text-xs font-bold text-gray-500 uppercase">ใช้ไปแล้ว</p><p className="text-2xl font-black">{selectedCourse.computedUsedQty}</p></div><div className="w-px h-10 bg-gray-300"></div>
-                   <div><p className="text-xs font-bold text-gray-500 uppercase">คงเหลือ</p><p className="text-3xl font-black text-teal-600">{selectedCourse.computedRemainQty}</p></div>
-               </div>
-               {selectedCourse.computedTotalCredit > 0 && (
-                   <div className="flex justify-around items-center border border-orange-200 rounded-2xl p-4 mb-8 text-center bg-orange-50/50">
-                       <div><p className="text-xs font-bold text-orange-600 uppercase">ยอดเครดิตที่ได้รับ</p><p className="text-lg font-black text-orange-800">฿{selectedCourse.computedTotalCredit.toLocaleString()}</p></div><div className="w-px h-8 bg-orange-200"></div>
-                       <div><p className="text-xs font-bold text-orange-600 uppercase">เบิกสินค้าไปแล้ว</p><p className="text-lg font-black text-orange-800">฿{selectedCourse.computedUsedCredit.toLocaleString()}</p></div><div className="w-px h-8 bg-orange-200"></div>
-                       <div><p className="text-xs font-bold text-orange-600 uppercase">เครดิตคงเหลือ</p><p className="text-2xl font-black text-orange-600">฿{selectedCourse.computedRemainCredit.toLocaleString()}</p></div>
-                   </div>
-               )}
-               <div className="mb-8">
-                   <h3 className="font-bold text-gray-800 mb-3 border-b border-gray-200 pb-2">ประวัติการใช้งาน</h3>
-                   <HistoryTable histories={selectedCourse.myHistories?.filter(h => !(h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '') === 'ยกเลิก') && (isUsageType(String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '')) || isAddType(String(getFuzzyKey(h, ["ประเภท", "col_4"]) || ''))))} />
-               </div>
-               <div className="text-center text-sm text-gray-400 mt-8 pt-4 border-t border-gray-100"><p>พิมพ์เมื่อ: {new Date().toLocaleString('th-TH')}</p></div>
-           </div>
-       </div>
+      <CoursePrintModal
+        isOpen
+        courses={[selectedCourse]}
+        masterCourses={masterCourses}
+        shopName={appSettings?.shopName || 'IrisCare Clinic'}
+        onBack={() => setIsPrintSingleCourseMode(false)}
+        onClose={() => setIsPrintSingleCourseMode(false)}
+      />
     );
   }
 
@@ -4003,14 +3976,14 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                    <tbody>
                        {filteredCourses.map((c, i) => (
                            <tr key={i} className="hover:bg-gray-50 border-b border-gray-200">
-                               <td className="border border-gray-300 p-2">{c.id.substring(0, 5)}</td>
-                               <td className="border border-gray-300 p-2">{String(getFuzzyKey(c, ["ชื่อลูกค้า"]) || '')}</td>
-                               <td className="border border-gray-300 p-2">{String(getFuzzyKey(c, ["ชื่อคอร์ส"]) || '')}</td>
+                               <td className="border border-gray-300 p-2 font-mono text-xs">{c.courseRefKey || String(getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"]) || c.id.substring(0, 7))}</td>
+                               <td className="border border-gray-300 p-2 font-medium">{String(getFuzzyKey(c, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "ชื่อ", "col_9"]) || '-')}</td>
+                               <td className="border border-gray-300 p-2 font-medium">{String(getFuzzyKey(c, ["ชื่อคอส", "ชื่อคอร์ส", "col_8"]) || '-')}</td>
                                <td className="border border-gray-300 p-2 text-center">{c.computedTotalQty}</td>
                                <td className="border border-gray-300 p-2 text-center">{c.computedUsedQty}</td>
-                               <td className="border border-gray-300 p-2 text-center">{c.computedRemainQty}</td>
-                               <td className="border border-gray-300 p-2 text-center">{c.computedRemainCredit}</td>
-                               <td className="border border-gray-300 p-2 text-center">{String(getFuzzyKey(c, ["สถานะ", "col_7"]) || '')}</td>
+                               <td className="border border-gray-300 p-2 text-center font-bold text-teal-600">{c.computedRemainQty}</td>
+                               <td className="border border-gray-300 p-2 text-center">{c.computedRemainCredit ? Number(c.computedRemainCredit).toLocaleString() : '0'}</td>
+                               <td className="border border-gray-300 p-2 text-center">{c.computedStatus || String(getFuzzyKey(c, ["สถานะ", "col_7"]) || '-')}</td>
                            </tr>
                        ))}
                    </tbody>
@@ -4537,6 +4510,9 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                                  <p className="text-xs font-bold text-slate-600 truncate">{b.customerName || b.customerPhone}</p>
                                  <p className="text-[10px] font-bold text-indigo-600 mt-1 line-clamp-2">{b.courseName}</p>
                               </div>
+                              <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between">
+                                 <BookingCountdown booking={b} />
+                              </div>
                            </div>
                         ));
                      })()}
@@ -4888,26 +4864,29 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                                                                     </select>
                                                                 </div>
                                                                 
-                                                                <div className="flex flex-wrap gap-1 mb-2">
-                                                                    {String(b.courseName || '-').split(',').map((c, i) => {
-                                                                        const typeName = c.trim();
-                                                                        if (!typeName) return null;
-                                                                        let Icon = null;
-                                                                        const nameLower = typeName.toLowerCase();
-                                                                        if (nameLower.includes('หน้า') || nameLower.includes('ทรีท') || nameLower.includes('นวด')) Icon = Sparkles;
-                                                                        else if (nameLower.includes('สิว') || nameLower.includes('มาร์ค') || nameLower.includes('มาส์ก')) Icon = Droplet;
-                                                                        else if (nameLower.includes('ipl') || nameLower.includes('เลเซอร์') || nameLower.includes('laser') || nameLower.includes('กำจัดขน') || nameLower.includes('รักแร้')) Icon = Zap;
-                                                                        else if (nameLower.includes('ไฝ') || nameLower.includes('ขี้แมลงวัน') || nameLower.includes('ติ่งเนื้อ')) Icon = Target;
-                                                                        else if (nameLower.includes('ฉีด') || nameLower.includes('botox') || nameLower.includes('โบท็อก') || nameLower.includes('ฟิลเลอร์') || nameLower.includes('filler') || nameLower.includes('แฟต') || nameLower.includes('fat') || nameLower.includes('meso') || nameLower.includes('เมโส')) Icon = Syringe;
-                                                                        else if (nameLower.includes('ดริป') || nameLower.includes('วิตามิน') || nameLower.includes('vitamin') || nameLower.includes('drip') || nameLower.includes('ผิวขาว')) Icon = Pill;
+                                                                <div className="flex flex-wrap items-center justify-between gap-1 mb-2">
+                                                                    <div className="flex flex-wrap gap-1">
+                                                                        {String(b.courseName || '-').split(',').map((c, i) => {
+                                                                            const typeName = c.trim();
+                                                                            if (!typeName) return null;
+                                                                            let Icon = null;
+                                                                            const nameLower = typeName.toLowerCase();
+                                                                            if (nameLower.includes('หน้า') || nameLower.includes('ทรีท') || nameLower.includes('นวด')) Icon = Sparkles;
+                                                                            else if (nameLower.includes('สิว') || nameLower.includes('มาร์ค') || nameLower.includes('มาส์ก')) Icon = Droplet;
+                                                                            else if (nameLower.includes('ipl') || nameLower.includes('เลเซอร์') || nameLower.includes('laser') || nameLower.includes('กำจัดขน') || nameLower.includes('รักแร้')) Icon = Zap;
+                                                                            else if (nameLower.includes('ไฝ') || nameLower.includes('ขี้แมลงวัน') || nameLower.includes('ติ่งเนื้อ')) Icon = Target;
+                                                                            else if (nameLower.includes('ฉีด') || nameLower.includes('botox') || nameLower.includes('โบท็อก') || nameLower.includes('ฟิลเลอร์') || nameLower.includes('filler') || nameLower.includes('แฟต') || nameLower.includes('fat') || nameLower.includes('meso') || nameLower.includes('เมโส')) Icon = Syringe;
+                                                                            else if (nameLower.includes('ดริป') || nameLower.includes('วิตามิน') || nameLower.includes('vitamin') || nameLower.includes('drip') || nameLower.includes('ผิวขาว')) Icon = Pill;
 
-                                                                        return (
-                                                                            <div key={i} className={`flex items-center gap-1 px-2 py-0.5 rounded-full border ${st === 'รอการยืนยัน' ? 'bg-amber-50 border-amber-200 text-amber-700' : st === 'ยืนยันแล้ว' ? 'bg-blue-50 border-blue-200 text-blue-700' : st === 'กำลังใช้บริการ' ? 'bg-purple-50 border-purple-200 text-purple-700' : st === 'เสร็จสิ้น' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
-                                                                                {Icon && <Icon size={12} strokeWidth={2.5} />}
-                                                                                <span className="font-black text-[12px]">{typeName}</span>
-                                                                            </div>
-                                                                        );
-                                                                    })}
+                                                                            return (
+                                                                                <div key={i} className={`flex items-center gap-1 px-2 py-0.5 rounded-full border ${st === 'รอการยืนยัน' ? 'bg-amber-50 border-amber-200 text-amber-700' : st === 'ยืนยันแล้ว' ? 'bg-blue-50 border-blue-200 text-blue-700' : st === 'กำลังใช้บริการ' ? 'bg-purple-50 border-purple-200 text-purple-700' : st === 'เสร็จสิ้น' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
+                                                                                    {Icon && <Icon size={12} strokeWidth={2.5} />}
+                                                                                    <span className="font-black text-[12px]">{typeName}</span>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                    <BookingCountdown booking={b} />
                                                                 </div>
                                                                 
                                                                 <div className="flex justify-between items-end mt-auto">
@@ -5003,26 +4982,29 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                                                                     </select>
                                         </div>
                                         
-                                        <div className="flex flex-wrap gap-1 mb-2">
-                                            {String(b.courseName || '-').split(',').map((c, i) => {
-                                                const typeName = c.trim();
-                                                if (!typeName) return null;
-                                                let Icon = null;
-                                                const nameLower = typeName.toLowerCase();
-                                                if (nameLower.includes('หน้า') || nameLower.includes('ทรีท') || nameLower.includes('นวด')) Icon = Sparkles;
-                                                else if (nameLower.includes('สิว') || nameLower.includes('มาร์ค') || nameLower.includes('มาส์ก')) Icon = Droplet;
-                                                else if (nameLower.includes('ipl') || nameLower.includes('เลเซอร์') || nameLower.includes('laser') || nameLower.includes('กำจัดขน') || nameLower.includes('รักแร้')) Icon = Zap;
-                                                else if (nameLower.includes('ไฝ') || nameLower.includes('ขี้แมลงวัน') || nameLower.includes('ติ่งเนื้อ')) Icon = Target;
-                                                else if (nameLower.includes('ฉีด') || nameLower.includes('botox') || nameLower.includes('โบท็อก') || nameLower.includes('ฟิลเลอร์') || nameLower.includes('filler') || nameLower.includes('แฟต') || nameLower.includes('fat') || nameLower.includes('meso') || nameLower.includes('เมโส')) Icon = Syringe;
-                                                else if (nameLower.includes('ดริป') || nameLower.includes('วิตามิน') || nameLower.includes('vitamin') || nameLower.includes('drip') || nameLower.includes('ผิวขาว')) Icon = Pill;
+                                        <div className="flex flex-wrap items-center justify-between gap-1 mb-2">
+                                            <div className="flex flex-wrap gap-1">
+                                                {String(b.courseName || '-').split(',').map((c, i) => {
+                                                    const typeName = c.trim();
+                                                    if (!typeName) return null;
+                                                    let Icon = null;
+                                                    const nameLower = typeName.toLowerCase();
+                                                    if (nameLower.includes('หน้า') || nameLower.includes('ทรีท') || nameLower.includes('นวด')) Icon = Sparkles;
+                                                    else if (nameLower.includes('สิว') || nameLower.includes('มาร์ค') || nameLower.includes('มาส์ก')) Icon = Droplet;
+                                                    else if (nameLower.includes('ipl') || nameLower.includes('เลเซอร์') || nameLower.includes('laser') || nameLower.includes('กำจัดขน') || nameLower.includes('รักแร้')) Icon = Zap;
+                                                    else if (nameLower.includes('ไฝ') || nameLower.includes('ขี้แมลงวัน') || nameLower.includes('ติ่งเนื้อ')) Icon = Target;
+                                                    else if (nameLower.includes('ฉีด') || nameLower.includes('botox') || nameLower.includes('โบท็อก') || nameLower.includes('ฟิลเลอร์') || nameLower.includes('filler') || nameLower.includes('แฟต') || nameLower.includes('fat') || nameLower.includes('meso') || nameLower.includes('เมโส')) Icon = Syringe;
+                                                    else if (nameLower.includes('ดริป') || nameLower.includes('วิตามิน') || nameLower.includes('vitamin') || nameLower.includes('drip') || nameLower.includes('ผิวขาว')) Icon = Pill;
 
-                                                return (
-                                                    <div key={i} className={`flex items-center gap-1 px-2 py-0.5 rounded-full border ${st === 'รอการยืนยัน' ? 'bg-amber-50 border-amber-200 text-amber-700' : st === 'ยืนยันแล้ว' ? 'bg-blue-50 border-blue-200 text-blue-700' : st === 'กำลังใช้บริการ' ? 'bg-purple-50 border-purple-200 text-purple-700' : st === 'เสร็จสิ้น' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
-                                                        {Icon && <Icon size={12} strokeWidth={2.5} />}
-                                                        <span className="font-black text-[12px]">{typeName}</span>
-                                                    </div>
-                                                );
-                                            })}
+                                                    return (
+                                                        <div key={i} className={`flex items-center gap-1 px-2 py-0.5 rounded-full border ${st === 'รอการยืนยัน' ? 'bg-amber-50 border-amber-200 text-amber-700' : st === 'ยืนยันแล้ว' ? 'bg-blue-50 border-blue-200 text-blue-700' : st === 'กำลังใช้บริการ' ? 'bg-purple-50 border-purple-200 text-purple-700' : st === 'เสร็จสิ้น' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
+                                                            {Icon && <Icon size={12} strokeWidth={2.5} />}
+                                                            <span className="font-black text-[12px]">{typeName}</span>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                            <BookingCountdown booking={b} />
                                         </div>
                                         
                                         <div className="flex justify-between items-end mt-auto">
@@ -6039,6 +6021,44 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
           );
       })()}
 
+      {/* 🌟 Select Courses To Print Modal (A4) 🌟 */}
+      {isSelectCoursesToPrintOpen && selectedCustomer && (() => {
+        const custCourses = getCustomerCourses(selectedCustomer.computedPhone);
+        const allSelected = custCourses.length > 0 && custCourses.every(c => selectedCoursesForPrint.includes(c.id));
+        return (
+          <div className="fixed inset-0 z-[180] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+            <div className="bg-white w-full max-w-lg rounded-[28px] p-6 shadow-2xl flex flex-col max-h-[85vh]">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-black text-gray-800 flex items-center"><Printer size={20} className="mr-2 text-teal-600"/> เลือกใบคอร์สที่จะพิมพ์ (A4)</h3>
+                <button onClick={() => setIsSelectCoursesToPrintOpen(false)} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100"><X size={18}/></button>
+              </div>
+              <label className="flex items-center gap-2 text-sm font-bold text-gray-600 mb-3 cursor-pointer">
+                <input type="checkbox" checked={allSelected} onChange={() => setSelectedCoursesForPrint(allSelected ? [] : custCourses.map(c => c.id))} className="w-4 h-4 accent-teal-600" />
+                เลือกทั้งหมด ({custCourses.length} ใบ)
+              </label>
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                {custCourses.map(c => (
+                  <label key={c.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${selectedCoursesForPrint.includes(c.id) ? 'border-teal-300 bg-teal-50/60' : 'border-gray-100 hover:bg-gray-50'}`}>
+                    <input type="checkbox" checked={selectedCoursesForPrint.includes(c.id)} onChange={() => setSelectedCoursesForPrint(prev => prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id])} className="w-4 h-4 accent-teal-600" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-sm text-gray-800 truncate">{String(getFuzzyKey(c, ["ชื่อคอส", "col_8"]) || '-')}</p>
+                      <p className="text-[11px] text-gray-500 font-mono">{c.courseRefKey || '-'} • ใช้ {c.computedUsedQty}/{c.computedTotalQty} • {c.computedStatus}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <button
+                disabled={selectedCoursesForPrint.length === 0}
+                onClick={() => { setIsSelectCoursesToPrintOpen(false); setIsPrintMultiCourseMode(true); }}
+                className="mt-4 w-full py-3 rounded-xl font-black text-white bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 flex items-center justify-center gap-2 shadow-md"
+              >
+                <Printer size={18}/> ดูตัวอย่าง / พิมพ์ {selectedCoursesForPrint.length} ใบ
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* 🌟 Course Details Modal 🌟 */}
       {selectedCourse && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-md">
@@ -6120,7 +6140,7 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                      setSelectedCustomer(null);
                      window.scrollTo({ top: 0, behavior: 'smooth' });
                    }} className="bg-teal-500 hover:bg-teal-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-teal-500/30 flex items-center justify-center text-lg active:scale-95 transition-all"><CheckCircle className="mr-2"/> รับบริการ / เบิกสินค้า (POS)</button>
-                   <button onClick={() => { setIsPrintSingleCourseMode(true); setTimeout(() => window.print(), 500); }} className="bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-2xl font-black shadow-lg flex items-center justify-center text-lg active:scale-95 transition-all"><Printer className="mr-2"/> พิมพ์ใบคอร์ส</button>
+                   <button onClick={() => setIsPrintSingleCourseMode(true)} className="bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-2xl font-black shadow-lg flex items-center justify-center text-lg active:scale-95 transition-all"><Printer className="mr-2"/> พิมพ์ใบคอร์ส</button>
                 </div>
 
                 {(() => {
@@ -7023,8 +7043,13 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
               </div>
               
               <div className="text-left bg-gray-50 p-4 rounded-xl mb-6">
-                 <p className="text-[10px] text-gray-400 uppercase font-bold mb-1">ชื่อลูกค้า</p>
-                 <p className="font-bold text-gray-800 text-sm mb-3">{bookingTicket.customerName}</p>
+                 <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <p className="text-[10px] text-gray-400 uppercase font-bold mb-0.5">ชื่อลูกค้า</p>
+                      <p className="font-bold text-gray-800 text-sm">{bookingTicket.customerName}</p>
+                    </div>
+                    <BookingCountdown booking={bookingTicket} />
+                 </div>
                  <p className="text-[10px] text-gray-400 uppercase font-bold mb-1">วันที่และเวลา</p>
                  <p className="font-bold text-gray-800 text-sm">{formatDateTimeStr(getSafeDateTime(bookingTicket))}</p>
               </div>

@@ -207,10 +207,30 @@ export default function CourseDeductionSystem({
     });
   }, [masterCourses, modalServiceSearch]);
 
+  // 🌟 ค้นหาลูกค้าจากเลขที่ใบคอร์ส (สแกน QR บนใบคอร์ส A4 หรือพิมพ์เลขที่ใบคอส)
+  const findCustomerByCourseRef = (raw) => {
+    const t = String(raw || '').trim().toLowerCase();
+    if (!t || !Array.isArray(courses)) return null;
+    const course = courses.find(c => {
+      const refs = [getFuzzyKey(c, ['เลขที่ใบคอส', 'col_2']), c.courseRefKey, c.id]
+        .map(v => String(v || '').trim().toLowerCase()).filter(Boolean);
+      return refs.includes(t);
+    });
+    if (!course) return null;
+    const cPhone = String(getFuzzyKey(course, ['เบอร์โทร', 'col_1']) || '').replace(/\D/g, '');
+    const cName = String(getFuzzyKey(course, ['ผู้ซื้อคอส', 'ชื่อลูกค้า', 'col_9']) || '').trim();
+    return (customers || []).find(cu => {
+      const p = String(getCustomerPhone(cu)).replace(/\D/g, '');
+      return cPhone.length >= 6 && p === cPhone;
+    }) || (cName ? (customers || []).find(cu => String(getCustomerName(cu)).trim() === cName) : null) || null;
+  };
+
   const filteredCustomers = useMemo(() => {
     if (!searchTerm.trim()) return [];
     const t = searchTerm.trim().toLowerCase();
     const cleanT = t.replace(/\D/g, '');
+    const byCourse = findCustomerByCourseRef(searchTerm);
+    if (byCourse) return [byCourse];
     return (customers || []).filter(c => {
       const name = String(getCustomerName(c)).toLowerCase();
       const phone = String(getCustomerPhone(c)).toLowerCase();
@@ -223,7 +243,7 @@ export default function CourseDeductionSystem({
         hn.includes(t)
       );
     }).slice(0, 10);
-  }, [searchTerm, customers]);
+  }, [searchTerm, customers, courses]);
 
   const getCourseCodeLabel = (course) => {
     return String(getFuzzyKey(course, ['เลขที่ใบคอส', 'รหัสคอส', 'col_2', 'col_1']) || course?.id || '-');
@@ -430,9 +450,20 @@ export default function CourseDeductionSystem({
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={24} />
           <input
             type="text"
-            placeholder="ค้นหาชื่อ, เบอร์โทร, หรือรหัสลูกค้า (HN)..."
+            placeholder="ค้นหาชื่อ, เบอร์โทร, HN หรือสแกน/พิมพ์เลขที่ใบคอร์ส..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                const cust = findCustomerByCourseRef(searchTerm);
+                if (cust) {
+                  e.preventDefault();
+                  setSelectedCustomer(cust);
+                  setSearchTerm('');
+                  notify(`พบใบคอร์สของ ${getCustomerName(cust)}`, 'success');
+                }
+              }
+            }}
             className="w-full pl-12 pr-4 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50 focus:bg-white focus:border-pink-400 focus:ring-4 focus:ring-pink-100 outline-none transition-all text-lg font-medium"
           />
         </div>

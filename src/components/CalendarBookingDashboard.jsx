@@ -4,6 +4,7 @@ import { getDocRef } from '../config/firebase';
 import { deleteDoc, setDoc } from 'firebase/firestore';
 import { getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
 import { getSafeDateTime, getBookingStatus } from '../utils/dateUtils';
+import BookingCountdown from './BookingCountdown';
 
 export default function CalendarBookingDashboard({ 
     bookings = [], 
@@ -293,7 +294,7 @@ export default function CalendarBookingDashboard({
                                                     </div>
                                                     <div className="text-xs font-bold text-indigo-600 mt-1">{b.courseName}</div>
                                                 </div>
-                                                <div>
+                                                <div className="flex flex-col items-end gap-1.5">
                                                     <span className={`px-2 py-1 rounded-lg text-xs font-bold ${
                                                         b.status === 'รอการยืนยัน' ? 'bg-amber-100 text-amber-700' :
                                                         b.status === 'ยืนยันแล้ว' ? 'bg-emerald-100 text-emerald-700' :
@@ -302,6 +303,7 @@ export default function CalendarBookingDashboard({
                                                     }`}>
                                                         {b.status || 'รอการยืนยัน'}
                                                     </span>
+                                                    <BookingCountdown booking={b} />
                                                 </div>
                                             </div>
                                         ))}

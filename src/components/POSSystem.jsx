@@ -1182,6 +1182,21 @@ export default function POSSystem({
     setCart(prev => prev.filter(i => !(i.id === id && i.type === type)));
   };
 
+  // 🌟 ค้นหาใบคอร์สจากค่าที่สแกน (QR บนใบคอร์ส A4 / เลขที่ใบคอส / courseRefKey / id)
+  const findCourseByScanRef = (raw) => {
+    const t = String(raw || '').trim();
+    if (!t) return null;
+    const tLower = t.toLowerCase();
+    return courses.find(c => {
+      const refs = [
+        getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"]),
+        c.courseRefKey,
+        c.id
+      ].map(v => String(v || '').trim().toLowerCase()).filter(Boolean);
+      return refs.includes(tLower);
+    }) || null;
+  };
+
   const handleSearchEnter = (e) => {
     if (e.key === 'Enter' && searchTerm.trim() !== '') {
       const code = searchTerm.trim();
@@ -1254,8 +1269,8 @@ export default function POSSystem({
                }
            }
 
-           // Check if it's a course invoice number
-           const course = courses.find(c => String(getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"])) === code);
+           // Check if it's a course invoice number (ใบคอร์ส A4 / QR)
+           const course = findCourseByScanRef(code);
            if (course) {
                const coursePhone = String(getFuzzyKey(course, ["เบอร์โทร", "col_1"]) || '').replace(/[^0-9]/g, '');
                if (coursePhone) {
@@ -1265,6 +1280,7 @@ export default function POSSystem({
                    });
                    if (customer) {
                        setSelectedCustomer(customer);
+                       setActiveTab('my_courses');
                        showToast(`สแกนพบใบคอร์สและเลือกลูกค้า: ${getFuzzyKey(customer, ["ชื่อ", "col_1"])}`, 'success');
                        return;
                    }
@@ -7176,6 +7192,11 @@ export default function POSSystem({
               if (cleanMatch && cleanMatch.length >= 10) {
                   foundCustomer = customers.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || '').replace(/[^0-9]/g, '') === cleanMatch);
               }
+              if (!foundCustomer) {
+                  const scannedCourse = findCourseByScanRef(text);
+                  const scPhone = scannedCourse ? String(getFuzzyKey(scannedCourse, ["เบอร์โทร", "col_1"]) || '').replace(/[^0-9]/g, '') : '';
+                  if (scPhone) foundCustomer = customers.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || '').replace(/[^0-9]/g, '') === scPhone) || null;
+              }
               if (foundCustomer) {
                   setSelectedCustomer(foundCustomer);
                   const myCourses = courses.filter(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').trim() === String(foundCustomer.computedPhone || getFuzzyKey(foundCustomer, ["เบอร์โทร", "col_3"])).trim());
@@ -7233,8 +7254,8 @@ export default function POSSystem({
                  }
              }
 
-             // Check if it's a course invoice number
-             const course = courses.find(c => String(getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"])) === text);
+             // Check if it's a course invoice number (ใบคอร์ส A4 / QR)
+             const course = findCourseByScanRef(text);
              if (course) {
                  const coursePhone = String(getFuzzyKey(course, ["เบอร์โทร", "col_1"]) || '').replace(/[^0-9]/g, '');
                  if (coursePhone) {
@@ -7244,6 +7265,7 @@ export default function POSSystem({
                      });
                      if (customer) {
                          setSelectedCustomer(customer);
+                         setActiveTab('my_courses');
                          showToast(`สแกนพบใบคอร์สและเลือกลูกค้า: ${getFuzzyKey(customer, ["ชื่อ", "col_1"])}`, 'success');
                          setScannerTarget(null);
                          return;
@@ -7288,7 +7310,7 @@ export default function POSSystem({
                   <div className="p-6 flex flex-col items-center text-center">
                       <div className="bg-white p-4 rounded-2xl shadow-lg border border-slate-100 mb-4">
                           <QRCodeSVG 
-                              value={getFuzzyKey(courseQRModalData, "เลขที่ใบคอส") || getFuzzyKey(courseQRModalData, "รหัสคอส") || ''} 
+                              value={String(getFuzzyKey(courseQRModalData, ["เลขที่ใบคอส", "col_2"]) || courseQRModalData.courseRefKey || courseQRModalData.id || '').trim()} 
                               size={180} 
                           />
                       </div>
