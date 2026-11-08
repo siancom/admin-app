@@ -344,6 +344,39 @@ export default function App() {
 
 
   // Load LINE Notification config
+  const lineNotifConfigRef = useRef(lineNotifConfig);
+  lineNotifConfigRef.current = lineNotifConfig;
+  const customersRawRef = useRef(customersRaw);
+  customersRawRef.current = customersRaw;
+
+  // 🔔 Helper ค้นหา LINE UID ของลูกค้าสำหรับการส่งแจ้งเตือนการจองคิว
+  const getBookingLineUid = (b) => {
+    if (!b) return null;
+    if (b.lineUid && !String(b.lineUid).includes('mock')) return b.lineUid;
+
+    const bPhone = String(b.customerPhone || b.cleanPhone || b.phone || '').replace(/\D/g, '');
+    const currentCustomers = customersRawRef.current || customersRaw || [];
+    
+    // 1. ค้นหาจาก customerId
+    if (b.customerId) {
+      const match = currentCustomers.find(c => c.id === b.customerId);
+      if (match?.lineUid && !String(match.lineUid).includes('mock')) return match.lineUid;
+    }
+
+    // 2. ค้นหาจากเบอร์โทรศัพท์
+    if (bPhone) {
+      const matches = currentCustomers.filter(c => {
+        const cPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || c.cleanPhone || '').replace(/\D/g, '');
+        return cPhone && (cPhone === bPhone || cPhone.endsWith(bPhone) || bPhone.endsWith(cPhone));
+      });
+      const realUser = matches.find(c => c.lineUid && !String(c.lineUid).includes('mock'));
+      if (realUser) return realUser.lineUid;
+      if (matches[0]?.lineUid) return matches[0].lineUid;
+    }
+
+    return (b.lineUid && !String(b.lineUid).includes('mock')) ? b.lineUid : null;
+  };
+
   useEffect(() => {
     const loadLineConfig = async () => {
       try {
@@ -940,20 +973,26 @@ export default function App() {
                 "สถานะ": "ยกเลิก",
                 cancelReason: 'เลยเวลาจองเกิน 20 นาที และไม่ได้มาเช็คอิน'
             }).then(() => {
-                const c = customersRaw.find(c => (b.customerId && c.id === b.customerId) || (b.customerPhone && String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').trim() === String(b.customerPhone).trim()));
-                if (c && c.lineUid && lineNotifConfig.bookingNotif !== false) sendBookingLineNotification(b, 'ยกเลิก', c.lineUid);
+                const targetLineUid = getBookingLineUid(b);
+                if (targetLineUid && lineNotifConfigRef.current?.bookingNotif !== false) {
+                    sendBookingLineNotification(b, 'ยกเลิก', targetLineUid);
+                }
             }).catch(console.error);
           } else if (st === 'ยืนยันแล้ว' && diffMins <= -19) {
             // Reminders for confirmed bookings
             const minsUntil = -diffMins; 
             if (minsUntil <= 20 && minsUntil > 0 && !b.reminded20m) {
                updateDoc(getDocRef('bookings', b.id), { reminded20m: true, reminded1hr: true }).catch(console.error);
-               const c = customersRaw.find(c => (b.customerId && c.id === b.customerId) || (b.customerPhone && String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').trim() === String(b.customerPhone).trim()));
-               if (c && c.lineUid && lineNotifConfig.queueReminder !== false) sendBookingLineNotification(b, 'เตือนคิว (อีก 20 นาที)', c.lineUid);
+               const targetLineUid = getBookingLineUid(b);
+               if (targetLineUid && lineNotifConfigRef.current?.queueReminder !== false) {
+                   sendBookingLineNotification(b, 'เตือนคิว (อีก 20 นาที)', targetLineUid);
+               }
             } else if (minsUntil <= 60 && minsUntil > 20 && !b.reminded1hr) {
                updateDoc(getDocRef('bookings', b.id), { reminded1hr: true }).catch(console.error);
-               const c = customersRaw.find(c => (b.customerId && c.id === b.customerId) || (b.customerPhone && String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').trim() === String(b.customerPhone).trim()));
-               if (c && c.lineUid && lineNotifConfig.queueReminder !== false) sendBookingLineNotification(b, 'เตือนคิว (อีก 1 ชม.)', c.lineUid);
+               const targetLineUid = getBookingLineUid(b);
+               if (targetLineUid && lineNotifConfigRef.current?.queueReminder !== false) {
+                   sendBookingLineNotification(b, 'เตือนคิว (อีก 1 ชม.)', targetLineUid);
+               }
             }
           }
         }
@@ -2681,13 +2720,9 @@ const flexMessage = {
           showToast(`อัปเดตสถานะเป็น "${newStatus}"`); 
           
           if (targetBooking) {
-              const bPhone = (targetBooking.customerPhone || '').replace(/[^0-9]/g, '');
-              const customer = customersRaw.find(c => {
-                  const cPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3"])).replace(/[^0-9]/g, '');
-                  return cPhone === bPhone || (c.cleanPhone && c.cleanPhone === bPhone);
-              });
-              if (customer && customer.lineUid) {
-                  sendBookingLineNotification(targetBooking, newStatus, customer.lineUid, cancelReason)
+              const targetLineUid = getBookingLineUid(targetBooking);
+              if (targetLineUid && lineNotifConfig.bookingNotif !== false) {
+                  sendBookingLineNotification({ ...targetBooking, ...updates }, newStatus, targetLineUid, cancelReason)
                       .catch(e => console.warn('LINE notification failed (non-critical):', e.message));
               }
           }
@@ -3592,12 +3627,14 @@ const flexMessage = {
       const duration = calculateBookingDuration(courseName, 1, bookingConfig);
       if (isSlotTaken(bookingDateTime, duration, bookingCourseBranch)) return showToast('เวลานี้มีลูกค้าจองคิวไว้แล้ว (คิวเต็ม) กรุณาเลือกเวลาอื่นครับ');
       try { 
-          await addDoc(getCol('bookings'), { 
+          const cPhone = String(getFuzzyKey(bookingCourse, ["เบอร์โทร", "col_1"]) || '');
+          const newBookingData = { 
               courseId: String(bookingCourse?.id || ''), 
               courseRef: String(getFuzzyKey(bookingCourse, ["เลขที่ใบคอส", "col_2"]) || ''), 
               courseName, 
               customerName: String(getFuzzyKey(bookingCourse, ["ผู้ซื้อคอส", "col_9"]) || ''), 
-              customerPhone: String(getFuzzyKey(bookingCourse, ["เบอร์โทร", "col_1"]) || ''), 
+              customerPhone: cPhone, 
+              cleanPhone: cPhone.replace(/\D/g, ''),
               dateTime: String(bookingDateTime), 
               date: String(bookingDateTime).split('T')[0] || '', 
               time: String(bookingDateTime).split('T')[1] || '', 
@@ -3607,7 +3644,16 @@ const flexMessage = {
               duration,
               status: 'ยืนยันแล้ว', 
               createdAt: new Date().toISOString() 
-          }); 
+          }; 
+          const lineUid = getBookingLineUid(newBookingData);
+          if (lineUid) newBookingData.lineUid = lineUid;
+
+          const docRef = await addDoc(getCol('bookings'), newBookingData); 
+          if (lineUid && lineNotifConfig.bookingNotif !== false) {
+              sendBookingLineNotification({ id: docRef.id, ...newBookingData }, 'ยืนยันแล้ว', lineUid)
+                  .catch(e => console.warn('LINE notification error:', e));
+          }
+
           setBookingCourse(null); 
           setBookingDateTime(''); 
           setBookingCourseBranch(globalBranch || 'เฉวง'); 
@@ -3623,12 +3669,14 @@ const flexMessage = {
       try { 
           const isWalkIn = generalBookingForm.isWalkIn;
           const nowIso = new Date().toISOString();
-          await addDoc(getCol('bookings'), { 
+          const cleanPhone = String(generalBookingForm.phone || '').replace(/\D/g, '');
+          const newBookingData = { 
               courseId: '', 
               courseRef: '', 
               courseName: String(generalBookingForm.service || 'บริการทั่วไป'), 
               customerName: String(generalBookingForm.name), 
               customerPhone: String(generalBookingForm.phone), 
+              cleanPhone,
               dateTime: String(generalBookingForm.dateTime), 
               date: String(generalBookingForm.dateTime).split('T')[0] || '', 
               time: String(generalBookingForm.dateTime).split('T')[1] || '', 
@@ -3639,7 +3687,16 @@ const flexMessage = {
               status: isWalkIn ? 'กำลังใช้บริการ' : 'ยืนยันแล้ว', 
               serviceStartTime: isWalkIn ? nowIso : null,
               createdAt: nowIso 
-          }); 
+          }; 
+          const lineUid = getBookingLineUid(newBookingData);
+          if (lineUid) newBookingData.lineUid = lineUid;
+
+          const docRef = await addDoc(getCol('bookings'), newBookingData); 
+          if (lineUid && !isWalkIn && lineNotifConfig.bookingNotif !== false) {
+              sendBookingLineNotification({ id: docRef.id, ...newBookingData }, 'ยืนยันแล้ว', lineUid)
+                  .catch(e => console.warn('LINE notification error:', e));
+          }
+
           setIsGeneralBookingOpen(false); 
           setGeneralBookingForm({ name: '', phone: '', service: '', dateTime: '', branch: globalBranch || 'เฉวง' }); 
           showToast(isWalkIn ? 'เพิ่มคิว Walk-in เข้าใช้บริการสำเร็จ' : 'เพิ่มคิวนัดหมายใหม่ (อนุมัติทันที) สำเร็จ'); 
@@ -6916,11 +6973,13 @@ const flexMessage = {
                  try { 
                      const guestsCount = Math.min(3, Math.max(1, Number(formData.guestsCount || 1)));
                      const duration = calculateBookingDuration(formData.service || 'บริการทั่วไป', guestsCount, bookingConfig);
-                     await addDoc(getCol('bookings'), { 
+                     const cleanPhone = String(formData.phone || '').replace(/\D/g, '');
+                     const newBookingData = { 
                          courseId: '', courseRef: '', 
                          courseName: String(formData.service || 'บริการทั่วไป'), 
                          customerName: String(formData.name), 
                          customerPhone: String(formData.phone), 
+                         cleanPhone,
                          dateTime: String(formData.dateTime),
                          date: String(formData.date || formData.dateTime.split('T')[0]),
                          time: String(formData.time || formData.dateTime.split('T')[1]),
@@ -6930,7 +6989,15 @@ const flexMessage = {
                          duration,
                          status: 'ยืนยันแล้ว', 
                          createdAt: new Date().toISOString() 
-                     }); 
+                     };
+                     const lineUid = getBookingLineUid(newBookingData);
+                     if (lineUid) newBookingData.lineUid = lineUid;
+
+                     const docRef = await addDoc(getCol('bookings'), newBookingData); 
+                     if (lineUid && lineNotifConfig.bookingNotif !== false) {
+                         sendBookingLineNotification({ id: docRef.id, ...newBookingData }, 'ยืนยันแล้ว', lineUid)
+                             .catch(e => console.warn('LINE notification error:', e));
+                     }
                      setIsGeneralBookingOpen(false); 
                      showToast('เพิ่มคิวนัดหมายใหม่สำเร็จ'); 
                  } catch (err) { 

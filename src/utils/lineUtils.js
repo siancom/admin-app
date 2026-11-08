@@ -90,35 +90,227 @@ export const sendOrderLineNotification = async (order, newStatus, lineUid) => {
 };
 
 // 2. Booking Notification
-export const sendBookingLineNotification = async (booking, status, lineUid) => {
-    if (!lineUid) return;
+export const sendBookingLineNotification = async (booking, status, lineUid, cancelReason = null) => {
+    if (!lineUid || String(lineUid).includes('mock')) return;
 
-    const colors = { 'รอการยืนยัน': '#f59e0b', 'ยืนยันแล้ว': '#10b981', 'ยกเลิก': '#ef4444', 'เสร็จสิ้น': '#3b82f6' };
-    const icons = { 'รอการยืนยัน': '📅', 'ยืนยันแล้ว': '✅', 'ยกเลิก': '❌', 'เสร็จสิ้น': '🌟' };
-    const color = colors[status] || '#64748b';
-    const icon = icons[status] || '🔔';
-    const branchName = booking.branch?.replace(/^สาขา/, '').trim() || 'สำนักงานใหญ่';
-    const dateTimeStr = booking.dateTime ? new Date(booking.dateTime).toLocaleString('th-TH') : `${booking.date} ${booking.time} น.`;
+    const statusColors = {
+        'เตือนคิว (อีก 1 ชม.)': '#3b82f6',
+        'เตือนคิว (อีก 20 นาที)': '#ef4444',
+        'รอการยืนยัน': '#f59e0b',
+        'ยืนยันแล้ว': '#14b8a6',
+        'รอรับบริการ': '#14b8a6',
+        'ยกเลิก': '#ef4444',
+        'ยกเลิกฉุกเฉิน': '#dc2626',
+        'ยกเลิกโดยลูกค้า': '#ef4444',
+        'เสร็จสิ้น': '#10b981',
+        'กำลังใช้บริการ': '#f59e0b',
+        'กำลังให้บริการ': '#f59e0b',
+        'ไม่มาตามนัด': '#64748b'
+    };
+
+    const statusIcons = {
+        'เตือนคิว (อีก 1 ชม.)': '⏰',
+        'เตือนคิว (อีก 20 นาที)': '⏰',
+        'รอการยืนยัน': '●',
+        'ยืนยันแล้ว': '✓',
+        'รอรับบริการ': '✓',
+        'ยกเลิก': '✕',
+        'ยกเลิกฉุกเฉิน': '🚨',
+        'ยกเลิกโดยลูกค้า': '✕',
+        'เสร็จสิ้น': '✓',
+        'กำลังใช้บริการ': '—',
+        'กำลังให้บริการ': '—',
+        'ไม่มาตามนัด': '✕'
+    };
+
+    const color = statusColors[status] || '#14b8a6';
+    const icon = statusIcons[status] || '✓';
+    const realCancelReason = cancelReason || booking.cancelReason;
+    const branchName = booking.branch?.replace(/^สาขา/, '').trim() || 'เฉวง';
+
+    let displayTime = booking.time || '-';
+    if (!displayTime.endsWith(' น.') && displayTime !== '-') displayTime += ' น.';
+
+    let displayDate = booking.date || '-';
+    if (booking.dateTime && booking.dateTime.includes('T')) {
+        const d = new Date(booking.dateTime);
+        if (!isNaN(d.getTime())) {
+            displayDate = d.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+            displayTime = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.';
+        }
+    }
+
+    const ticketNumber = String(booking.ticketNo || booking.id || 'NO_ID');
+    const qrData = encodeURIComponent(ticketNumber);
 
     const flexMessage = {
        to: lineUid,
        messages: [{
-           type: "flex", altText: `แจ้งเตือนการจองคิว: ${status}`,
+           type: 'flex',
+           altText: `แจ้งเตือนการจองคิว: ${status}`,
            contents: {
-             type: "bubble", size: "mega",
-             header: { type: "box", layout: "vertical", contents: [{ type: "text", text: `อัปเดตการจองคิว ${icon}`, color: "#ffffff", weight: "bold", size: "md" }], backgroundColor: color, paddingAll: "12px" },
-             body: {
-               type: "box", layout: "vertical",
+             type: 'bubble',
+             size: 'mega',
+             header: {
+               type: 'box',
+               layout: 'vertical',
+               backgroundColor: color,
+               paddingAll: '16px',
                contents: [
-                 { type: "text", text: String(booking.courseName || booking.serviceName || 'บริการทั่วไป'), weight: "bold", size: "xl", wrap: true, margin: "md" },
-                 { type: "box", layout: "vertical", margin: "lg", spacing: "sm",
+                 {
+                   type: 'box',
+                   layout: 'horizontal',
                    contents: [
-                     { type: "box", layout: "baseline", spacing: "sm", contents: [{ type: "text", text: "วัน-เวลา", color: "#aaaaaa", size: "sm", flex: 2 }, { type: "text", text: dateTimeStr, wrap: true, color: "#666666", weight: "bold", size: "sm", flex: 5 }] },
-                     { type: "box", layout: "baseline", spacing: "sm", contents: [{ type: "text", text: "สาขา", color: "#aaaaaa", size: "sm", flex: 2 }, { type: "text", text: branchName, wrap: true, color: "#666666", size: "sm", flex: 5 }] },
-                      { type: "box", layout: "baseline", spacing: "sm", contents: [{ type: "text", text: "จำนวน", color: "#aaaaaa", size: "sm", flex: 2 }, { type: "text", text: `${Number(booking.guestsCount || booking.pax || 1)} ท่าน`, wrap: true, color: "#666666", weight: "bold", size: "sm", flex: 5 }] },
-                     { type: "box", layout: "baseline", spacing: "sm", contents: [{ type: "text", text: "สถานะ", color: "#aaaaaa", size: "sm", flex: 2 }, { type: "text", text: status, wrap: true, color: color, weight: "bold", size: "sm", flex: 5 }] }
+                     {
+                       type: 'text',
+                       text: `${icon} ${status}`,
+                       color: '#ffffff',
+                       weight: 'bold',
+                       size: 'lg',
+                       flex: 1,
+                       wrap: true
+                     }
                    ]
+                 },
+                 {
+                   type: 'text',
+                   text: ['ยกเลิก', 'ยกเลิกฉุกเฉิน', 'ยกเลิกโดยลูกค้า'].includes(status)
+                     ? 'คิวนี้ได้รับการยกเลิกแล้ว'
+                     : 'แสดง E-Ticket นี้ให้พนักงานเมื่อมาถึงสาขา',
+                   size: 'xs',
+                   color: '#ffffff',
+                   margin: 'sm'
                  }
+               ]
+             },
+             body: {
+               type: 'box',
+               layout: 'vertical',
+               paddingAll: '20px',
+               spacing: 'md',
+               contents: [
+                 ...(realCancelReason ? [{
+                   type: 'box',
+                   layout: 'vertical',
+                   backgroundColor: '#fee2e2',
+                   cornerRadius: 'md',
+                   paddingAll: '10px',
+                   margin: 'sm',
+                   contents: [
+                     {
+                       type: 'text',
+                       text: `สาเหตุ: ${realCancelReason}`,
+                       size: 'sm',
+                       color: '#991b1b',
+                       weight: 'bold',
+                       wrap: true
+                     }
+                   ]
+                 }] : []),
+                 {
+                   type: 'box',
+                   layout: 'vertical',
+                   backgroundColor: '#f8fafc',
+                   cornerRadius: 'xl',
+                   paddingAll: '15px',
+                   contents: [
+                     {
+                       type: 'text',
+                       text: '⏰ เวลานัดหมาย',
+                       size: 'xs',
+                       color: '#94a3b8',
+                       weight: 'bold'
+                     },
+                     {
+                       type: 'text',
+                       text: displayTime,
+                       size: 'xxl',
+                       weight: 'bold',
+                       color: color,
+                       margin: 'sm'
+                     },
+                     {
+                       type: 'text',
+                       text: displayDate,
+                       size: 'sm',
+                       color: '#475569',
+                       weight: 'bold',
+                       margin: 'xs'
+                     }
+                   ]
+                 },
+                 { type: 'separator' },
+                 {
+                   type: 'box',
+                   layout: 'vertical',
+                   spacing: 'sm',
+                   contents: [
+                     {
+                       type: 'box',
+                       layout: 'horizontal',
+                       contents: [
+                         { type: 'text', text: 'บริการ', color: '#94a3b8', size: 'sm', flex: 2 },
+                         { type: 'text', text: String(booking.courseName || booking.serviceName || 'บริการทั่วไป'), weight: 'bold', color: '#334155', size: 'sm', flex: 5, wrap: true, align: 'end' }
+                       ]
+                     },
+                     {
+                       type: 'box',
+                       layout: 'horizontal',
+                       contents: [
+                         { type: 'text', text: 'สาขา', color: '#94a3b8', size: 'sm', flex: 2 },
+                         { type: 'text', text: branchName, weight: 'bold', color: '#334155', size: 'sm', flex: 5, align: 'end' }
+                       ]
+                     },
+                     {
+                       type: 'box',
+                       layout: 'horizontal',
+                       contents: [
+                         { type: 'text', text: 'จำนวน', color: '#94a3b8', size: 'sm', flex: 2 },
+                         { type: 'text', text: `${Number(booking.guestsCount || booking.pax || 1)} ท่าน`, weight: 'bold', color: '#334155', size: 'sm', flex: 5, align: 'end' }
+                       ]
+                     },
+                     {
+                       type: 'box',
+                       layout: 'horizontal',
+                       contents: [
+                         { type: 'text', text: 'หมายเลขคิว', color: '#94a3b8', size: 'sm', flex: 3 },
+                         { type: 'text', text: ticketNumber, weight: 'bold', color: '#334155', size: 'xs', flex: 5, align: 'end' }
+                       ]
+                     }
+                   ]
+                 },
+                 { type: 'separator' },
+                 (!['ยกเลิก', 'ยกเลิกฉุกเฉิน', 'ยกเลิกโดยลูกค้า'].includes(status)) ? {
+                   type: 'box',
+                   layout: 'vertical',
+                   paddingTop: '12px',
+                   paddingBottom: '4px',
+                   contents: [
+                     {
+                       type: 'text',
+                       text: 'QR Code สำหรับ Check-in',
+                       size: 'xs',
+                       color: '#94a3b8',
+                       weight: 'bold',
+                       align: 'center'
+                     },
+                     {
+                       type: 'image',
+                       url: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&color=1e293b&bgcolor=ffffff&data=${qrData}`,
+                       size: '150px',
+                       align: 'center',
+                       margin: 'sm'
+                     },
+                     {
+                       type: 'text',
+                       text: ticketNumber,
+                       size: 'xs',
+                       color: '#64748b',
+                       align: 'center',
+                       margin: 'xs'
+                     }
+                   ]
+                 } : { type: 'filler' }
                ]
              }
            }
