@@ -1072,10 +1072,35 @@ export default function App() {
     });
 
     return sortedCourses.map(course => {
-      const courseNo = String(getFuzzyKey(course, ["เลขที่ใบคอส", "col_2"]) || '').trim();
-      const courseName = String(getFuzzyKey(course, ["ชื่อคอส", "col_8"]) || '').trim();
-      const coursePhone = String(getFuzzyKey(course, ["เบอร์โทร", "col_1"]) || '').trim();
-      const courseCustomerName = String(getFuzzyKey(course, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "ชื่อ", "col_9"]) || '').trim();
+      const courseNo = String(getFuzzyKey(course, ["เลขที่ใบคอส", "col_2", "courseRefKey"]) || course.id || '').trim();
+      let courseName = String(getFuzzyKey(course, ["ชื่อคอส", "ชื่อคอร์ส", "col_8", "courseName", "name"]) || '').trim();
+      const coursePhone = String(getFuzzyKey(course, ["เบอร์โทร", "col_1", "phone", "customerPhone"]) || '').trim();
+      let courseCustomerName = String(getFuzzyKey(course, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "ชื่อ", "col_9", "customerName"]) || '').trim();
+
+      // Look up customer name by phone if missing
+      if (!courseCustomerName && coursePhone) {
+        const matchedCust = customersRaw.find(cu => {
+          const cuPhone = String(getFuzzyKey(cu, ["เบอร์โทร", "col_3", "phone"]) || '').trim();
+          return cuPhone && cuPhone === coursePhone;
+        });
+        if (matchedCust) {
+          courseCustomerName = String(matchedCust.computedName || getFuzzyKey(matchedCust, ["ชื่อ", "ชื่อลูกค้า", "col_1", "col_2"]) || '').trim();
+        }
+      }
+
+      // Look up course name from master courses if missing
+      if (!courseName) {
+        const courseCode = String(getFuzzyKey(course, ["รหัสคอส", "col_1", "code", "courseCode"]) || '').trim();
+        if (courseCode) {
+          const matchedMaster = masterCourses.find(mc => {
+            const mcCode = String(getFuzzyKey(mc, ["รหัสคอส", "col_1", "code"]) || '').trim();
+            return mcCode && mcCode === courseCode;
+          });
+          if (matchedMaster) {
+            courseName = String(getFuzzyKey(matchedMaster, ["ชื่อคอส", "col_4", "col_8", "name"]) || '').trim();
+          }
+        }
+      }
 
       const cleanCourseNo = courseNo.replace(new RegExp('\\s', 'g'), '').toLowerCase();
       const cleanCourseName = courseName.replace(new RegExp('\\s', 'g'), '').toLowerCase();
@@ -1330,6 +1355,9 @@ export default function App() {
       return {
         ...course, 
         courseRefKey: courseNo, 
+        computedCustomerName: courseCustomerName || '-',
+        computedCourseName: courseName || '-',
+        computedPhone: coursePhone,
         myHistories,
         computedTotalQty: currentTotal, 
         computedUsedQty: finalUsed, 
@@ -1347,7 +1375,7 @@ export default function App() {
         durationText
       };
     });
-  }, [courses, precomputedHistories, customers]);
+  }, [courses, precomputedHistories, customers, customersRaw, masterCourses]);
 
   const getCustomerCourses = (phone) => processedCourses.filter(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '') === String(phone || ''));
   const getDisplayCourses = (phone) => getCustomerCourses(phone).filter(c => {
@@ -1650,9 +1678,9 @@ export default function App() {
 
   const filteredCourses = useMemo(() => {
     return processedCourses.filter(c => {
-      const courseName = String(getFuzzyKey(c, ["ชื่อคอส", "col_8"]) || '').toLowerCase();
-      const customerName = String(getFuzzyKey(c, ["ผู้ซื้อคอส", "col_9"]) || '');
-      const courseRef = String(getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"]) || '');
+      const courseName = String(c.computedCourseName || getFuzzyKey(c, ["ชื่อคอส", "ชื่อคอร์ส", "col_8", "name"]) || '').toLowerCase();
+      const customerName = String(c.computedCustomerName || getFuzzyKey(c, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "ชื่อ", "col_9"]) || '');
+      const courseRef = String(c.courseRefKey || getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"]) || '');
       
       const matchSearch = customerName.includes(searchTerm) || courseRef.includes(searchTerm) || courseName.includes(searchTerm.toLowerCase());
       const matchStatus = filterStatus === 'all' || c.computedStatus === filterStatus;
@@ -4002,8 +4030,8 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                        {filteredCourses.map((c, i) => (
                            <tr key={i} className="hover:bg-gray-50 border-b border-gray-200">
                                <td className="border border-gray-300 p-2 font-mono text-xs">{c.courseRefKey || String(getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"]) || c.id.substring(0, 7))}</td>
-                               <td className="border border-gray-300 p-2 font-medium">{String(getFuzzyKey(c, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "ชื่อ", "col_9"]) || '-')}</td>
-                               <td className="border border-gray-300 p-2 font-medium">{String(getFuzzyKey(c, ["ชื่อคอส", "ชื่อคอร์ส", "col_8"]) || '-')}</td>
+                               <td className="border border-gray-300 p-2 font-medium">{c.computedCustomerName || String(getFuzzyKey(c, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "ชื่อ", "col_9"]) || '-')}</td>
+                               <td className="border border-gray-300 p-2 font-medium">{c.computedCourseName || String(getFuzzyKey(c, ["ชื่อคอส", "ชื่อคอร์ส", "col_8"]) || '-')}</td>
                                <td className="border border-gray-300 p-2 text-center">{c.computedTotalQty}</td>
                                <td className="border border-gray-300 p-2 text-center">{c.computedUsedQty}</td>
                                <td className="border border-gray-300 p-2 text-center font-bold text-teal-600">{c.computedRemainQty}</td>

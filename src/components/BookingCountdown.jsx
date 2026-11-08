@@ -170,3 +170,4 @@ export default function BookingCountdown({ booking, compact = false, className =
     </span>
   );
 }
+

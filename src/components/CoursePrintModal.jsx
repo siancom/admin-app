@@ -56,10 +56,21 @@ export function CoursePrintSheet({
     '-'
   ).trim();
 
-  const courseCode = String(getFuzzyKey(course, ['รหัสคอส', 'col_1']) || '').trim();
-  const courseName = String(getFuzzyKey(course, ['ชื่อคอส', 'ชื่อคอร์ส', 'col_8']) || '-').trim();
-  const customerName = String(getFuzzyKey(course, ['ผู้ซื้อคอส', 'ชื่อลูกค้า', 'ชื่อ', 'col_9']) || '-').trim();
-  const customerPhone = String(getFuzzyKey(course, ['เบอร์โทร', 'col_1']) || '-').trim();
+  const courseCode = String(getFuzzyKey(course, ['รหัสคอส', 'col_1', 'code', 'courseCode']) || '').trim();
+  let courseName = String(course.computedCourseName || getFuzzyKey(course, ['ชื่อคอส', 'ชื่อคอร์ส', 'col_8', 'courseName', 'name']) || '').trim();
+  let customerName = String(course.computedCustomerName || getFuzzyKey(course, ['ผู้ซื้อคอส', 'ชื่อลูกค้า', 'ชื่อ', 'col_9', 'customerName']) || '').trim();
+  const customerPhone = String(course.computedPhone || getFuzzyKey(course, ['เบอร์โทร', 'col_1', 'phone', 'customerPhone']) || '').trim();
+
+  if ((!courseName || courseName === '-') && courseCode && Array.isArray(masterCourses) && masterCourses.length > 0) {
+    const matchedMaster = masterCourses.find(
+      (m) => String(getFuzzyKey(m, ['รหัสคอส', 'col_1', 'code']) || '').trim() === courseCode
+    );
+    if (matchedMaster) {
+      courseName = String(getFuzzyKey(matchedMaster, ['ชื่อคอส', 'ชื่อคอร์ส', 'col_4', 'col_8', 'name']) || '').trim();
+    }
+  }
+  if (!courseName) courseName = '-';
+  if (!customerName) customerName = '-';
   const purchaseDate = String(getFuzzyKey(course, ['วันที่ซื้อ', 'col_3']) || '-').trim();
   const purchaseBranch = String(getFuzzyKey(course, ['สาขาที่ซื้อ', 'สาขา', 'branch']) || '-').trim();
   const expireDate = String(course.computedExpireDate || getFuzzyKey(course, ['วันหมดอายุ', 'expireDate']) || '-').trim();
