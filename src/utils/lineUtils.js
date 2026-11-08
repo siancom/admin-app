@@ -115,6 +115,7 @@ export const sendBookingLineNotification = async (booking, status, lineUid) => {
                    contents: [
                      { type: "box", layout: "baseline", spacing: "sm", contents: [{ type: "text", text: "วัน-เวลา", color: "#aaaaaa", size: "sm", flex: 2 }, { type: "text", text: dateTimeStr, wrap: true, color: "#666666", weight: "bold", size: "sm", flex: 5 }] },
                      { type: "box", layout: "baseline", spacing: "sm", contents: [{ type: "text", text: "สาขา", color: "#aaaaaa", size: "sm", flex: 2 }, { type: "text", text: branchName, wrap: true, color: "#666666", size: "sm", flex: 5 }] },
+                      { type: "box", layout: "baseline", spacing: "sm", contents: [{ type: "text", text: "จำนวน", color: "#aaaaaa", size: "sm", flex: 2 }, { type: "text", text: `${Number(booking.guestsCount || booking.pax || 1)} ท่าน`, wrap: true, color: "#666666", weight: "bold", size: "sm", flex: 5 }] },
                      { type: "box", layout: "baseline", spacing: "sm", contents: [{ type: "text", text: "สถานะ", color: "#aaaaaa", size: "sm", flex: 2 }, { type: "text", text: status, wrap: true, color: color, weight: "bold", size: "sm", flex: 5 }] }
                    ]
                  }

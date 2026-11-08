@@ -296,7 +296,12 @@ export default function CalendarBookingDashboard({
                                                     <div className="font-black text-slate-800 text-lg">{b.time} น.</div>
                                                     <div className="font-bold text-slate-600 text-sm flex items-center gap-2 mt-1">
                                                         <span className="bg-slate-100 px-2 py-0.5 rounded text-xs">{b.branch}</span>
-                                                        {b.customerName || b.customerPhone}
+                                                        <span>{b.customerName || b.customerPhone}</span>
+                                                        {Number(b.guestsCount || b.pax || 1) > 1 && (
+                                                            <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-[10px] font-black">
+                                                                👥 {b.guestsCount || b.pax} ท่าน
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     <div className="text-xs font-bold text-indigo-600 mt-1">{b.courseName}</div>
                                                 </div>

@@ -53,11 +53,16 @@ export default function TreatmentJobSlipModal({ isOpen, onClose, booking, appSet
 
             {/* Customer Info */}
             <div className="mb-4 border-t border-b border-dashed border-gray-400 py-3">
-              <div className="text-[12px] font-bold mb-1">
-                ลูกค้า: {booking.customerName || 'ไม่ระบุชื่อ'}
+              <div className="text-[12px] font-bold mb-1 flex justify-between items-center">
+                <span>ลูกค้า: {booking.customerName || 'ไม่ระบุชื่อ'}</span>
+                {Number(booking.guestsCount || booking.pax || 1) > 1 && (
+                  <span className="text-[11px] font-black border border-black px-1.5 py-0.2 rounded">
+                    {booking.guestsCount || booking.pax} ท่าน
+                  </span>
+                )}
               </div>
               <div className="text-[10px]">
-                เบอร์โทร: {booking.phone || '---'}
+                เบอร์โทร: {booking.phone || booking.customerPhone || '---'}
               </div>
             </div>
 

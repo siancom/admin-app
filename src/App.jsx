@@ -3551,6 +3551,8 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
               date: String(generalBookingForm.dateTime).split('T')[0] || '', 
               time: String(generalBookingForm.dateTime).split('T')[1] || '', 
               branch: String(generalBookingForm.branch), 
+              guestsCount: Math.min(3, Math.max(1, Number(generalBookingForm.guestsCount || 1))),
+              pax: Math.min(3, Math.max(1, Number(generalBookingForm.guestsCount || 1))),
               status: isWalkIn ? 'กำลังใช้บริการ' : 'ยืนยันแล้ว', 
               serviceStartTime: isWalkIn ? nowIso : null,
               createdAt: nowIso 
@@ -4560,7 +4562,12 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                                        {b.status || 'รอการยืนยัน'}
                                     </span>
                                  </div>
-                                 <p className="text-xs font-bold text-slate-600 truncate">{b.customerName || b.customerPhone}</p>
+                                 <div className="flex items-center gap-1.5 truncate">
+                                    <p className="text-xs font-bold text-slate-600 truncate">{b.customerName || b.customerPhone}</p>
+                                    {Number(b.guestsCount || b.pax || 1) > 1 && (
+                                       <span className="px-1.5 py-0.2 rounded bg-purple-100 text-purple-700 font-black text-[9px] shrink-0">👥 {b.guestsCount || b.pax} ท่าน</span>
+                                    )}
+                                 </div>
                                  <p className="text-[10px] font-bold text-indigo-600 mt-1 line-clamp-2">{b.courseName}</p>
                               </div>
                               <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between">
@@ -4956,6 +4963,11 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                                                                             {picData ? <img src={picData.primary} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => handleProfileImgError(e, picData.fallback, 'block')} /> : <Users size={10} />}
                                                                         </div>
                                                                         <p className="font-bold text-gray-800 text-[11px] leading-tight truncate max-w-[100px]">{String(b.customerName || '-').split(' ')[0]}</p>
+                                                                        {Number(b.guestsCount || b.pax || 1) > 1 && (
+                                                                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700 border border-purple-200 text-[9px] font-black shrink-0" title={`จองบริการพร้อมกัน ${b.guestsCount || b.pax} ท่าน`}>
+                                                                                👥 {b.guestsCount || b.pax} ท่าน
+                                                                            </span>
+                                                                        )}
                                                                     </div>
                                                                     <button onClick={(e) => { e.stopPropagation(); setBookingTicket(b); }} className={`px-2 py-0.5 rounded-full text-[9px] font-bold border transition-all hover:scale-105 active:scale-95 flex items-center gap-1 shadow-xs ${st === 'รอการยืนยัน' ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' : st === 'ยืนยันแล้ว' ? 'bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100' : st === 'กำลังใช้บริการ' ? 'bg-purple-50 text-purple-700 border-purple-300 hover:bg-purple-100 animate-pulse' : st === 'เสร็จสิ้น' ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100' : 'bg-gray-50 text-gray-700 border-gray-300 hover:bg-gray-100'}`} title="แตะเพื่อเปิดหน้าต่างปรับสถานะ">
                                                                         <span>{st}</span>
@@ -6827,6 +6839,8 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                          date: String(formData.date || formData.dateTime.split('T')[0]),
                          time: String(formData.time || formData.dateTime.split('T')[1]),
                          branch: String(formData.branch), 
+                         guestsCount: Math.min(3, Math.max(1, Number(formData.guestsCount || 1))),
+                         pax: Math.min(3, Math.max(1, Number(formData.guestsCount || 1))),
                          status: 'ยืนยันแล้ว', 
                          createdAt: new Date().toISOString() 
                      }); 
@@ -7259,6 +7273,9 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                     <div className="flex flex-wrap items-center gap-2 text-xs">
                       <span className="font-bold text-gray-700 flex items-center gap-1">
                         <User size={13} className="text-gray-400" /> {bookingTicket.customerName || '-'}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 font-black text-[10px] flex items-center gap-1 shadow-xs">
+                        <Users size={11} /> {Number(bookingTicket.guestsCount || bookingTicket.pax || 1)} ท่าน
                       </span>
                       {bookingTicket.customerPhone && (
                         <a href={`tel:${bookingTicket.customerPhone}`} onClick={e => e.stopPropagation()} className="font-mono text-indigo-600 font-bold hover:underline flex items-center gap-0.5">

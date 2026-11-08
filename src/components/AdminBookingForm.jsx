@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { CalendarPlus, User, Phone, Sparkles, MapPin, Loader2, Droplets, Zap, Crosshair, MessageCircle, Package, CalendarDays, Search } from 'lucide-react';
+import { CalendarPlus, User, Users, Phone, Sparkles, MapPin, Loader2, Droplets, Zap, Crosshair, MessageCircle, Package, CalendarDays, Search } from 'lucide-react';
 import { getFuzzyKey } from '../utils/fuzzy';
 
 const BRANCHES = ["เฉวง", "ละไม"];
@@ -25,7 +25,8 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
         service: '',
         branch: initialBranch || BRANCHES[0],
         date: new Date().toLocaleDateString('en-CA'),
-        time: ''
+        time: '',
+        guestsCount: 1
     });
 
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -85,7 +86,7 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
         if (!form.date || !form.time) return alert('กรุณาเลือกวันที่และเวลา');
         const dateTimeStr = `${form.date}T${form.time}`;
         setIsSubmitting(true);
-        await onSubmit({ ...form, dateTime: dateTimeStr });
+        await onSubmit({ ...form, dateTime: dateTimeStr, guestsCount: Math.min(3, Math.max(1, Number(form.guestsCount || 1))) });
         setIsSubmitting(false);
     };
 
@@ -174,6 +175,45 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
                         </button>
                     ))}
                 </div>
+            </div>
+
+            {/* จำนวนผู้เข้ารับบริการ (1-3 ท่าน) */}
+            <div>
+                <div className="flex items-center justify-between mb-2">
+                    <label className="flex items-center gap-1.5 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                        <Users size={14} className="text-teal-600" />
+                        จำนวนผู้เข้ารับบริการ
+                    </label>
+                    <span className="text-[10px] text-teal-600 font-bold bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                        เลือกได้ 1 - 3 ท่าน
+                    </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                    {[1, 2, 3].map((num) => {
+                        const isSelected = (form.guestsCount || 1) === num;
+                        return (
+                            <button
+                                key={num}
+                                type="button"
+                                onClick={() => setForm(prev => ({ ...prev, guestsCount: num }))}
+                                className={`py-3 rounded-2xl text-xs font-black transition-all border-2 flex items-center justify-center gap-1.5 active:scale-95 ${
+                                    isSelected
+                                        ? 'bg-gradient-to-r from-teal-500 to-emerald-500 border-teal-600 text-white shadow-md shadow-teal-500/20 scale-[1.02]'
+                                        : 'bg-white border-gray-100 text-gray-600 hover:border-teal-300 hover:text-teal-700'
+                                }`}
+                            >
+                                <Users size={15} />
+                                <span>{num} ท่าน</span>
+                                {num > 1 && <span className="text-[9px] opacity-80">(พร้อมกัน)</span>}
+                            </button>
+                        );
+                    })}
+                </div>
+                {(form.guestsCount || 1) > 1 && (
+                    <p className="text-[11px] text-teal-700 bg-teal-50/80 p-2.5 rounded-xl border border-teal-200/80 mt-2 font-medium flex items-center gap-1.5">
+                        <span>💡</span> จองบริการพร้อมกัน {form.guestsCount} ท่าน (คลินิกจะจัดเตรียมเตียงและผู้ให้บริการ {form.guestsCount} ท่านไว้รองรับ)
+                    </p>
+                )}
             </div>
 
             {/* วันที่ต้องการจอง */}
