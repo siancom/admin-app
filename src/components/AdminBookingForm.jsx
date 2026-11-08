@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { CalendarPlus, User, Users, Phone, Sparkles, MapPin, Loader2, Droplets, Zap, Crosshair, MessageCircle, Package, CalendarDays, Search } from 'lucide-react';
+import { CalendarPlus, User, Users, Phone, Sparkles, MapPin, Loader2, Droplets, Zap, Crosshair, MessageCircle, Package, CalendarDays, Search, Clock } from 'lucide-react';
 import { getFuzzyKey } from '../utils/fuzzy';
+import { DEFAULT_BOOKING_CONFIG, calculateBookingDuration } from '../utils/bookingConfig';
 
 const BRANCHES = ["เฉวง", "ละไม"];
 
@@ -18,7 +19,7 @@ const SERVICE_CHIPS = [
     { text: 'ใช้คอส', icon: Package }
 ];
 
-export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isSlotTaken, customers = [] }) {
+export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isSlotTaken, customers = [], bookingConfig = DEFAULT_BOOKING_CONFIG }) {
     const [form, setForm] = useState({
         name: '',
         phone: '',
@@ -81,12 +82,22 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
         return list;
     }, []);
 
+    // คำนวณระยะเวลารวมตามบริการที่เลือกและจำนวนท่าน
+    const totalDuration = useMemo(() => {
+        return calculateBookingDuration(form.service, form.guestsCount, bookingConfig);
+    }, [form.service, form.guestsCount, bookingConfig]);
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!form.date || !form.time) return alert('กรุณาเลือกวันที่และเวลา');
         const dateTimeStr = `${form.date}T${form.time}`;
         setIsSubmitting(true);
-        await onSubmit({ ...form, dateTime: dateTimeStr, guestsCount: Math.min(3, Math.max(1, Number(form.guestsCount || 1))) });
+        await onSubmit({ 
+            ...form, 
+            dateTime: dateTimeStr, 
+            duration: totalDuration,
+            guestsCount: Math.min(3, Math.max(1, Number(form.guestsCount || 1))) 
+        });
         setIsSubmitting(false);
     };
 
@@ -244,7 +255,15 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
 
             {/* บริการที่ต้องการ */}
             <div>
-                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2">บริการที่ต้องการ</label>
+                <div className="flex items-center justify-between mb-2">
+                    <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider">บริการที่ต้องการ</label>
+                    {form.service && (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-700 bg-teal-50 px-2.5 py-0.5 rounded-full border border-teal-200 animate-in fade-in">
+                            <Clock size={12} className="text-teal-600" />
+                            เวลารวม: {totalDuration} นาที {totalDuration >= 60 && `(${Math.floor(totalDuration / 60)} ชม.${totalDuration % 60 > 0 ? ` ${totalDuration % 60} น.` : ''})`}
+                        </span>
+                    )}
+                </div>
                 <div className="grid grid-cols-3 gap-2 mb-3">
                     {SERVICE_CHIPS.map(svc => {
                         const currentServices = form.service.split(',').map(s => s.trim()).filter(Boolean);
@@ -284,7 +303,7 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 max-h-48 overflow-y-auto pr-1">
                     {TIME_SLOTS.map(time => {
                         const dateTimeStr = `${form.date}T${time}`;
-                        const disabled = isSlotTaken && isSlotTaken(dateTimeStr);
+                        const disabled = isSlotTaken && isSlotTaken(dateTimeStr, totalDuration, form.branch);
                         return (
                             <button
                                 key={time} type="button" disabled={disabled}

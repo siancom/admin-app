@@ -7,9 +7,10 @@ import {
   Bell, Loader2, Send, X, Ticket, Star, TestTube, ExternalLink,
   Trash2, List, ChevronUp, ChevronDown, MessageSquare,
   FileText, Users, History as HistoryIcon, Calendar, ShoppingCart,
-  Package, Layers, Plus, ShieldAlert
+  Package, Layers, Plus, ShieldAlert, Clock, Timer
 } from 'lucide-react';
 import { ADMIN_FEATURE_GROUPS } from '../App';
+import { DEFAULT_BOOKING_CONFIG, calculateBookingDuration } from '../utils/bookingConfig';
 
 // ─────────────────────────────────────────────
 // SettingsPage — หน้าตั้งค่าระบบ (แยกจาก App.jsx)
@@ -118,6 +119,48 @@ export default function SettingsPage({
       showToast('เกิดข้อผิดพลาด: ' + e.message, 'error');
     }
   };
+  const [bookingConfig, setBookingConfig] = useState(DEFAULT_BOOKING_CONFIG);
+  const [isSavingBookingConfig, setIsSavingBookingConfig] = useState(false);
+  const [customServiceName, setCustomServiceName] = useState('');
+  const [customServiceDuration, setCustomServiceDuration] = useState(45);
+
+  useEffect(() => {
+    const fetchBookingConfig = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'config', 'booking'));
+        if (snap.exists()) {
+          setBookingConfig(prev => ({
+            ...DEFAULT_BOOKING_CONFIG,
+            ...snap.data(),
+            serviceDurations: {
+              ...DEFAULT_BOOKING_CONFIG.serviceDurations,
+              ...(snap.data().serviceDurations || {})
+            }
+          }));
+        }
+      } catch (e) {
+        console.error("Error fetching booking config", e);
+      }
+    };
+    fetchBookingConfig();
+  }, []);
+
+  const saveBookingConfig = async () => {
+    setIsSavingBookingConfig(true);
+    try {
+      await setDoc(doc(db, 'config', 'booking'), {
+        ...bookingConfig,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      showToast('บันทึกการตั้งค่าเวลาบริการสำเร็จแล้ว', 'success');
+    } catch (e) {
+      console.error(e);
+      showToast('เกิดข้อผิดพลาดในการบันทึก: ' + e.message, 'error');
+    } finally {
+      setIsSavingBookingConfig(false);
+    }
+  };
+
   const [omiseConfig, setOmiseConfig] = useState({
     enabled: false, publicKey: '', secretKey: '', installmentMinAmount: 2000,
     enable_promptpay: true, enable_cash: true, enable_credit: true,
@@ -185,6 +228,7 @@ export default function SettingsPage({
   // ─── Tab definitions ───
   const TABS = [
     { k: 'features', l: '🎛️ ฟีเจอร์แอปลูกค้า' },
+    { k: 'booking',  l: '⏱️ เวลาบริการ & สล็อตคิว' },
     { k: 'line',     l: '💬 LINE & แจ้งเตือน' },
     { k: 'system',   l: '🏪 ระบบ & สาขา' },
     { k: 'payment',  l: '💳 การชำระเงิน' },
@@ -284,6 +328,320 @@ export default function SettingsPage({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════
+          ⏱️ TAB: กำหนดเวลาบริการ & สล็อตคิว
+          ═══════════════════════════════════════════ */}
+      {settingsSection === 'booking' && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 sm:p-8 rounded-[32px] shadow-sm border border-gray-100">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b border-gray-100">
+              <div>
+                <h3 className="text-xl font-black text-gray-800 flex items-center">
+                  <Clock className="mr-3 text-teal-600"/>
+                  กำหนดเวลาบริการ & การบล็อกสล็อตคิว
+                </h3>
+                <p className="text-xs sm:text-sm text-gray-500 mt-1">
+                  ตั้งค่าระยะเวลาของแต่ละบริการ (นาที) เพื่อให้ระบบคำนวณสล็อตเวลาว่างทั้งในฝั่งแอดมินและแอปลูกค้าอย่างแม่นยำ
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={saveBookingConfig}
+                disabled={isSavingBookingConfig}
+                className="px-5 py-3 bg-teal-600 hover:bg-teal-700 text-white font-black text-sm rounded-2xl shadow-lg shadow-teal-600/30 active:scale-95 transition-all flex items-center gap-2"
+              >
+                {isSavingBookingConfig ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                บันทึกการตั้งค่า
+              </button>
+            </div>
+
+            {/* 1. บริการแต่ละรายการ */}
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-black text-gray-800 flex items-center gap-2">
+                  <span>💆‍♀️</span> ระยะเวลาของแต่ละบริการ (นาที)
+                </h4>
+                <span className="text-[11px] text-gray-500">ปรับเปลี่ยนได้ตามเวลาจริงของคลินิก</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {Object.entries(bookingConfig.serviceDurations || {}).map(([sName, sMin]) => {
+                  const isDefaultKey = sName === 'default';
+                  const displayLabel = isDefaultKey ? 'บริการทั่วไป / อื่นๆ (ค่าเริ่มต้น)' : sName;
+                  return (
+                    <div key={sName} className="p-3.5 rounded-2xl border border-gray-200 bg-gray-50/60 hover:bg-white hover:border-teal-300 transition-all flex flex-col justify-between shadow-xs">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-bold text-xs text-gray-800 truncate" title={displayLabel}>
+                          {displayLabel}
+                        </span>
+                        {!isDefaultKey && !['ทำหน้า', 'กดสิว', 'IPLรักแร้', 'จี้ไฝ', 'ปรึกษา', 'ใช้คอส'].includes(sName) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = { ...bookingConfig.serviceDurations };
+                              delete next[sName];
+                              setBookingConfig({ ...bookingConfig, serviceDurations: next });
+                            }}
+                            className="p-1 text-gray-400 hover:text-red-500 rounded-lg transition-colors"
+                            title="ลบบริการนี้"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = Number(sMin) || 30;
+                            const nextVal = Math.max(15, cur - 15);
+                            setBookingConfig({
+                              ...bookingConfig,
+                              serviceDurations: { ...bookingConfig.serviceDurations, [sName]: nextVal }
+                            });
+                          }}
+                          className="w-7 h-7 rounded-lg bg-white border border-gray-200 text-gray-600 font-black text-xs hover:bg-gray-100 flex items-center justify-center shrink-0 active:scale-95"
+                        >
+                          -15
+                        </button>
+                        <div className="relative flex-1">
+                          <input
+                            type="number"
+                            min="10"
+                            max="360"
+                            step="5"
+                            value={sMin}
+                            onChange={(e) => {
+                              const val = Math.max(10, Math.min(360, parseInt(e.target.value, 10) || 0));
+                              setBookingConfig({
+                                ...bookingConfig,
+                                serviceDurations: { ...bookingConfig.serviceDurations, [sName]: val }
+                              });
+                            }}
+                            className="w-full text-center font-mono font-black text-sm py-1.5 bg-white border border-gray-300 rounded-lg outline-none focus:border-teal-500"
+                          />
+                        </div>
+                        <span className="text-xs font-bold text-gray-500 shrink-0">นาที</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cur = Number(sMin) || 30;
+                            const nextVal = Math.min(360, cur + 15);
+                            setBookingConfig({
+                              ...bookingConfig,
+                              serviceDurations: { ...bookingConfig.serviceDurations, [sName]: nextVal }
+                            });
+                          }}
+                          className="w-7 h-7 rounded-lg bg-white border border-gray-200 text-gray-600 font-black text-xs hover:bg-gray-100 flex items-center justify-center shrink-0 active:scale-95"
+                        >
+                          +15
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* เพิ่มบริการใหม่ */}
+              <div className="mt-3 p-3 rounded-2xl border border-dashed border-teal-300 bg-teal-50/40 flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="พิมพ์ชื่อบริการใหม่ (เช่น ดริปวิตามิน, โบท็อก)..."
+                  value={customServiceName}
+                  onChange={(e) => setCustomServiceName(e.target.value)}
+                  className="flex-1 min-w-[200px] px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-bold outline-none focus:border-teal-400"
+                />
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="15"
+                    max="240"
+                    step="5"
+                    value={customServiceDuration}
+                    onChange={(e) => setCustomServiceDuration(parseInt(e.target.value, 10) || 30)}
+                    className="w-16 text-center font-mono font-bold text-xs py-2 bg-white border border-gray-200 rounded-xl outline-none"
+                  />
+                  <span className="text-xs font-bold text-gray-500">นาที</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const trimmed = customServiceName.trim();
+                    if (!trimmed) return;
+                    setBookingConfig({
+                      ...bookingConfig,
+                      serviceDurations: {
+                        ...bookingConfig.serviceDurations,
+                        [trimmed]: Number(customServiceDuration) || 45
+                      }
+                    });
+                    setCustomServiceName('');
+                  }}
+                  className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black flex items-center gap-1 active:scale-95 transition-all shadow-xs"
+                >
+                  <Plus size={14} /> เพิ่มบริการ
+                </button>
+              </div>
+            </div>
+
+            {/* 2. การคำนวณเวลาเมื่อเลือกมากกว่า 1 บริการ */}
+            <div className="p-4 sm:p-5 rounded-2xl border border-gray-200 bg-gray-50/50 mb-6">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <h4 className="text-sm font-black text-gray-800 flex items-center gap-2">
+                    <span>➕</span> บวกเวลาเพิ่มเมื่อเลือกมากกว่า 1 บริการ (Multi-service Accumulation)
+                  </h4>
+                  <p className="text-xs text-gray-500">
+                    กรณีลูกค้าเลือกหลายบริการพร้อมกัน (เช่น กดสิว + ทำหน้า) ระบบจะรวมเวลาของทุกบริการเพื่อบล็อกสล็อตเวลาให้เพียงพอ
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBookingConfig({
+                    ...bookingConfig,
+                    enableMultiServiceAddition: !bookingConfig.enableMultiServiceAddition
+                  })}
+                  className="shrink-0 transition-transform active:scale-95"
+                >
+                  {bookingConfig.enableMultiServiceAddition !== false ? (
+                    <ToggleRight size={38} className="text-teal-600" />
+                  ) : (
+                    <ToggleLeft size={38} className="text-gray-400" />
+                  )}
+                </button>
+              </div>
+              <div className="mt-3 pt-3 border-t border-gray-200/80 text-[11px] text-gray-600">
+                {bookingConfig.enableMultiServiceAddition !== false ? (
+                  <span className="text-emerald-700 font-bold">
+                    ✅ เปิดใช้งาน: ลูกค้าเลือกหลายบริการ เวลาจะถูกนำมารวมกัน (เช่น 60 น. + 45 น. = 105 นาที)
+                  </span>
+                ) : (
+                  <span className="text-amber-700 font-bold">
+                    ⚠️ ปิดใช้งาน: ระบบจะยึดเวลาเฉพาะบริการที่ยาวที่สุดเพียงบริการเดียว
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* 3. การคำนวณเวลาเมื่อลูกค้าเลือกมากกว่า 1 ท่าน (1–3 ท่าน) */}
+            <div className="p-4 sm:p-5 rounded-2xl border border-gray-200 bg-gray-50/50 mb-6">
+              <h4 className="text-sm font-black text-gray-800 flex items-center gap-2 mb-1">
+                <span>👥</span> นโยบายเวลาเมื่อจองมากกว่า 1 ท่าน (1 - 3 ท่าน)
+              </h4>
+              <p className="text-xs text-gray-500 mb-4">
+                เลือกรูปแบบการคำนวณเวลาเมื่อลูกค้าจองพร้อมกัน 2 หรือ 3 ท่าน
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between ${
+                  bookingConfig.guestDurationMode === 'consecutive_buffer'
+                    ? 'border-teal-500 bg-teal-50/70 shadow-xs'
+                    : 'border-gray-200 bg-white hover:border-gray-300'
+                }`}>
+                  <div className="flex items-start gap-2 mb-2">
+                    <input
+                      type="radio"
+                      name="guestDurationMode"
+                      value="consecutive_buffer"
+                      checked={bookingConfig.guestDurationMode === 'consecutive_buffer'}
+                      onChange={() => setBookingConfig({ ...bookingConfig, guestDurationMode: 'consecutive_buffer' })}
+                      className="mt-0.5 text-teal-600"
+                    />
+                    <div>
+                      <div className="text-xs font-black text-gray-800">บวกเวลาต่อท่าน (แนะนำ)</div>
+                      <div className="text-[10px] text-gray-500 mt-0.5">บวกเวลาเพิ่มต่อคนพิเศษตามกำหนด</div>
+                    </div>
+                  </div>
+                  {bookingConfig.guestDurationMode === 'consecutive_buffer' && (
+                    <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-teal-200">
+                      <span className="text-[10px] font-bold text-teal-800">บวกเพิ่มท่านละ:</span>
+                      <input
+                        type="number"
+                        min="15"
+                        max="120"
+                        step="15"
+                        value={bookingConfig.extraMinutesPerGuest || 30}
+                        onChange={(e) => setBookingConfig({
+                          ...bookingConfig,
+                          extraMinutesPerGuest: parseInt(e.target.value, 10) || 30
+                        })}
+                        className="w-14 text-center font-mono font-bold text-xs py-1 bg-white border border-teal-300 rounded-lg outline-none"
+                      />
+                      <span className="text-[10px] font-bold text-teal-800">นาที</span>
+                    </div>
+                  )}
+                </label>
+
+                <label className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between ${
+                  bookingConfig.guestDurationMode === 'concurrent'
+                    ? 'border-teal-500 bg-teal-50/70 shadow-xs'
+                    : 'border-gray-200 bg-white hover:border-gray-300'
+                }`}>
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="radio"
+                      name="guestDurationMode"
+                      value="concurrent"
+                      checked={bookingConfig.guestDurationMode === 'concurrent'}
+                      onChange={() => setBookingConfig({ ...bookingConfig, guestDurationMode: 'concurrent' })}
+                      className="mt-0.5 text-teal-600"
+                    />
+                    <div>
+                      <div className="text-xs font-black text-gray-800">ทำพร้อมกัน (เตียงคู่)</div>
+                      <div className="text-[10px] text-gray-500 mt-0.5">ใช้เวลาเท่าเดิม 1 ท่าน (มีพนักงาน/เตียงแยกพร้อมกัน)</div>
+                    </div>
+                  </div>
+                </label>
+
+                <label className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between ${
+                  bookingConfig.guestDurationMode === 'multiply'
+                    ? 'border-teal-500 bg-teal-50/70 shadow-xs'
+                    : 'border-gray-200 bg-white hover:border-gray-300'
+                }`}>
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="radio"
+                      name="guestDurationMode"
+                      value="multiply"
+                      checked={bookingConfig.guestDurationMode === 'multiply'}
+                      onChange={() => setBookingConfig({ ...bookingConfig, guestDurationMode: 'multiply' })}
+                      className="mt-0.5 text-teal-600"
+                    />
+                    <div>
+                      <div className="text-xs font-black text-gray-800">คูณเต็มตามจำนวนคน</div>
+                      <div className="text-[10px] text-gray-500 mt-0.5">คูณเวลาเบส × 2 หรือ × 3 โดยตรง</div>
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* 4. Live Simulation Box */}
+            <div className="p-4 rounded-2xl border border-indigo-200 bg-indigo-50/50 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">💡</span>
+                <div>
+                  <h5 className="text-xs font-black text-indigo-950">ตัวอย่างผลลัพธ์การคำนวณสด</h5>
+                  <p className="text-[11px] text-indigo-700">
+                    จองบริการ "ทำหน้า + กดสิว" สำหรับ 2 ท่าน
+                  </p>
+                </div>
+              </div>
+              <div className="bg-white px-3.5 py-2 rounded-xl border border-indigo-200 shadow-xs text-right">
+                <span className="text-[10px] font-bold text-gray-400 block uppercase">เวลารวมที่ระบบจะบล็อก</span>
+                <span className="text-base font-black text-indigo-600 font-mono">
+                  {calculateBookingDuration('ทำหน้า, กดสิว', 2, bookingConfig)} นาที
+                </span>
+                <span className="text-[10px] text-gray-500 ml-1">
+                  ({Math.floor(calculateBookingDuration('ทำหน้า, กดสิว', 2, bookingConfig) / 60)} ชม. {calculateBookingDuration('ทำหน้า, กดสิว', 2, bookingConfig) % 60} น.)
+                </span>
+              </div>
+            </div>
+
+          </div>
         </div>
       )}
 

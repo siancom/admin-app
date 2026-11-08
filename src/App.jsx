@@ -30,6 +30,7 @@ import EmployeeDashboard from './components/EmployeeDashboard';
 import JobApplicationForm from './components/JobApplicationForm';
 import MapPinModal from './components/MapPinModal';
 import AdminBookingForm from './components/AdminBookingForm';
+import { DEFAULT_BOOKING_CONFIG, calculateBookingDuration } from './utils/bookingConfig';
 import { QRCodeSVG } from 'qrcode.react';
 
 // --- FIREBASE IMPORTS ---
@@ -365,6 +366,24 @@ export default function App() {
     const unsub = onSnapshot(getDocRef('config', 'featureFlags'), (snap) => {
       setFeatureFlags(snap.data() || {});
     }, () => {});
+    return () => unsub();
+  }, []);
+
+  // ⏱️ การตั้งค่าเวลาบริการและสล็อตคิว — ฟังแบบเรียลไทม์จาก config/booking
+  const [bookingConfig, setBookingConfig] = useState(DEFAULT_BOOKING_CONFIG);
+  useEffect(() => {
+    const unsub = onSnapshot(getDocRef('config', 'booking'), (snap) => {
+      if (snap.exists()) {
+        setBookingConfig(prev => ({
+          ...DEFAULT_BOOKING_CONFIG,
+          ...snap.data(),
+          serviceDurations: {
+            ...DEFAULT_BOOKING_CONFIG.serviceDurations,
+            ...(snap.data().serviceDurations || {})
+          }
+        }));
+      }
+    }, (err) => console.error("Error loading bookingConfig:", err));
     return () => unsub();
   }, []);
 
@@ -3431,7 +3450,43 @@ const flexMessage = {
 
   const BRANCHES = ['เฉวง', 'ละไม'];
 
-const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) === datetimeInput && getBookingStatus(b) !== 'ยกเลิก' && getBookingStatus(b) !== 'เสร็จสิ้น');
+  const isSlotTaken = (datetimeInput, requestedDuration = 60, branch = null) => {
+    if (!datetimeInput) return false;
+    const parts = datetimeInput.split('T');
+    const datePart = parts[0];
+    const timePart = parts[1];
+    if (!datePart || !timePart) return false;
+
+    const [h, m] = timePart.split(':').map(Number);
+    if (isNaN(h) || isNaN(m)) return false;
+    const reqStart = h * 60 + m;
+    const reqEnd = reqStart + Number(requestedDuration || 60);
+
+    return bookings.some(b => {
+      const status = getBookingStatus(b);
+      if (status === 'ยกเลิก' || status === 'เสร็จสิ้น') return false;
+
+      if (branch && b.branch && normalizeBranchName(b.branch) !== normalizeBranchName(branch)) {
+        return false;
+      }
+
+      const safeDt = getSafeDateTime(b);
+      const bDate = b.date || (safeDt ? safeDt.split('T')[0] : '');
+      if (bDate !== datePart) return false;
+
+      const bTime = b.time || (safeDt ? safeDt.split('T')[1] : '');
+      if (!bTime) return false;
+
+      const [bh, bm] = bTime.split(':').map(Number);
+      if (isNaN(bh) || isNaN(bm)) return false;
+
+      const bStart = bh * 60 + bm;
+      const bDur = Number(b.duration || calculateBookingDuration(b.courseName || b.service || '', b.guestsCount || 1, bookingConfig) || 60);
+      const bEnd = bStart + bDur;
+
+      return Math.max(reqStart, bStart) < Math.min(reqEnd, bEnd);
+    });
+  };
 
   // --- CUSTOMER ACTIONS ---
   const handleAddCustomer = async (e) => { e.preventDefault(); try { await addDoc(getCol('customers'), { "ชื่อ": String(newCustomerForm.name), "เบอร์โทร": String(newCustomerForm.phone), "ปัญหาผิวหน้า": String(newCustomerForm.issue), "หมายเลขใบสะสม": `Irismember${Math.floor(Math.random()*10000)}`, "ยอดสะสม": "0", "สถานะสมาชิก": "ยังไม่สะสมยอด" }); setIsAddCustomerOpen(false); setNewCustomerForm({ name: '', phone: '', issue: '' }); showToast('เพิ่มลูกค้าใหม่สำเร็จ!'); } catch (err) { showToast(`ข้อผิดพลาด: ${err.message}`); } };
@@ -3532,12 +3587,39 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
   const handleCreateCourse = async (e) => { e.preventDefault(); try { await addDoc(getCol('courses'), { "เบอร์โทร": String(newCourseForm.phone), "เลขที่ใบคอส": `IC${Date.now().toString().slice(-6)}`, "วันที่ซื้อ": new Date().toLocaleDateString('th-TH'), "ผู้ซื้อคอส": customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(newCourseForm.phone || '')) ? String(getFuzzyKey(customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(newCourseForm.phone || '')), ["ชื่อ", "col_1"])) : 'ลูกค้าทั่วไป', "ชื่อคอส": String(newCourseForm.name), "สาขาที่ซื้อ": String(newCourseForm.branch), "ราคา": String(newCourseForm.price || "0"), "เครดิตที่ได้รับ": String(newCourseForm.credit !== '' && newCourseForm.credit !== undefined ? newCourseForm.credit : "0"), "จำนวนครั้งที่ได้": String(newCourseForm.qty || "1"), "ยอดค้างชำระ": String(newCourseForm.pending || "0"), "ยอดชำระแล้วทั้งหมด": String(parseNumber(newCourseForm.price) - parseNumber(newCourseForm.pending)), "ครั้งที่ใช้": "0", "ครั้งที่เหลือดิบ": String(newCourseForm.qty || "1"), "สถานะ": "ยังคงเหลือ", "ประเภทการชำระ": parseNumber(newCourseForm.pending) > 0 ? "ผ่อนชำระ" : "จ่ายเต็ม" }); setIsAddCourseOpen(false); setNewCourseForm({ phone: '', name: '', qty: '1', price: '', credit: '', pending: '0', branch: globalBranch || 'เฉวง' }); showToast(`เปิดใบคอร์สใหม่สำเร็จ!`); } catch (err) { showToast('ข้อผิดพลาด: ' + err.message); } };
   
   const submitCourseBooking = async (e) => { 
-      e.preventDefault(); if (isSlotTaken(bookingDateTime)) return showToast('เวลานี้มีลูกค้าจองคิวไว้แล้ว (คิวเต็ม) กรุณาเลือกเวลาอื่นครับ');
-      try { await addDoc(getCol('bookings'), { courseId: String(bookingCourse?.id || ''), courseRef: String(getFuzzyKey(bookingCourse, ["เลขที่ใบคอส", "col_2"]) || ''), courseName: String(getFuzzyKey(bookingCourse, ["ชื่อคอส", "col_8"]) || 'ไม่ระบุคอร์ส'), customerName: String(getFuzzyKey(bookingCourse, ["ผู้ซื้อคอส", "col_9"]) || ''), customerPhone: String(getFuzzyKey(bookingCourse, ["เบอร์โทร", "col_1"]) || ''), dateTime: String(bookingDateTime), date: String(bookingDateTime).split('T')[0] || '', time: String(bookingDateTime).split('T')[1] || '', branch: String(bookingCourseBranch), status: 'ยืนยันแล้ว', createdAt: new Date().toISOString() }); setBookingCourse(null); setBookingDateTime(''); setBookingCourseBranch(globalBranch || 'เฉวง'); showToast('จองคิวสำเร็จ ได้รับการยืนยันทันที'); } catch (err) { showToast('ข้อผิดพลาด: ' + err.message); } 
+      e.preventDefault(); 
+      const courseName = String(getFuzzyKey(bookingCourse, ["ชื่อคอส", "col_8"]) || 'ใช้คอส');
+      const duration = calculateBookingDuration(courseName, 1, bookingConfig);
+      if (isSlotTaken(bookingDateTime, duration, bookingCourseBranch)) return showToast('เวลานี้มีลูกค้าจองคิวไว้แล้ว (คิวเต็ม) กรุณาเลือกเวลาอื่นครับ');
+      try { 
+          await addDoc(getCol('bookings'), { 
+              courseId: String(bookingCourse?.id || ''), 
+              courseRef: String(getFuzzyKey(bookingCourse, ["เลขที่ใบคอส", "col_2"]) || ''), 
+              courseName, 
+              customerName: String(getFuzzyKey(bookingCourse, ["ผู้ซื้อคอส", "col_9"]) || ''), 
+              customerPhone: String(getFuzzyKey(bookingCourse, ["เบอร์โทร", "col_1"]) || ''), 
+              dateTime: String(bookingDateTime), 
+              date: String(bookingDateTime).split('T')[0] || '', 
+              time: String(bookingDateTime).split('T')[1] || '', 
+              branch: String(bookingCourseBranch), 
+              guestsCount: 1,
+              pax: 1,
+              duration,
+              status: 'ยืนยันแล้ว', 
+              createdAt: new Date().toISOString() 
+          }); 
+          setBookingCourse(null); 
+          setBookingDateTime(''); 
+          setBookingCourseBranch(globalBranch || 'เฉวง'); 
+          showToast('จองคิวสำเร็จ ได้รับการยืนยันทันที'); 
+      } catch (err) { showToast('ข้อผิดพลาด: ' + err.message); } 
   };
   
   const submitGeneralBooking = async (e) => { 
-      e.preventDefault(); if (isSlotTaken(generalBookingForm.dateTime)) return showToast('เวลานี้มีลูกค้าจองคิวไว้แล้ว (คิวเต็ม) กรุณาเลือกเวลาอื่นครับ');
+      e.preventDefault(); 
+      const gCount = Math.min(3, Math.max(1, Number(generalBookingForm.guestsCount || 1)));
+      const duration = calculateBookingDuration(generalBookingForm.service || 'บริการทั่วไป', gCount, bookingConfig);
+      if (isSlotTaken(generalBookingForm.dateTime, duration, generalBookingForm.branch)) return showToast('เวลานี้มีลูกค้าจองคิวไว้แล้ว (คิวเต็ม) กรุณาเลือกเวลาอื่นครับ');
       try { 
           const isWalkIn = generalBookingForm.isWalkIn;
           const nowIso = new Date().toISOString();
@@ -3551,8 +3633,9 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
               date: String(generalBookingForm.dateTime).split('T')[0] || '', 
               time: String(generalBookingForm.dateTime).split('T')[1] || '', 
               branch: String(generalBookingForm.branch), 
-              guestsCount: Math.min(3, Math.max(1, Number(generalBookingForm.guestsCount || 1))),
-              pax: Math.min(3, Math.max(1, Number(generalBookingForm.guestsCount || 1))),
+              guestsCount: gCount,
+              pax: gCount,
+              duration,
               status: isWalkIn ? 'กำลังใช้บริการ' : 'ยืนยันแล้ว', 
               serviceStartTime: isWalkIn ? nowIso : null,
               createdAt: nowIso 
@@ -6827,9 +6910,12 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
              customers={customers}
              initialBranch={globalBranch || 'เฉวง'}
              isSlotTaken={isSlotTaken}
+             bookingConfig={bookingConfig}
              onClose={() => setIsGeneralBookingOpen(false)}
              onSubmit={async (formData) => {
                  try { 
+                     const guestsCount = Math.min(3, Math.max(1, Number(formData.guestsCount || 1)));
+                     const duration = calculateBookingDuration(formData.service || 'บริการทั่วไป', guestsCount, bookingConfig);
                      await addDoc(getCol('bookings'), { 
                          courseId: '', courseRef: '', 
                          courseName: String(formData.service || 'บริการทั่วไป'), 
@@ -6839,8 +6925,9 @@ const isSlotTaken = (datetimeInput) => bookings.some(b => getSafeDateTime(b) ===
                          date: String(formData.date || formData.dateTime.split('T')[0]),
                          time: String(formData.time || formData.dateTime.split('T')[1]),
                          branch: String(formData.branch), 
-                         guestsCount: Math.min(3, Math.max(1, Number(formData.guestsCount || 1))),
-                         pax: Math.min(3, Math.max(1, Number(formData.guestsCount || 1))),
+                         guestsCount,
+                         pax: guestsCount,
+                         duration,
                          status: 'ยืนยันแล้ว', 
                          createdAt: new Date().toISOString() 
                      }); 
