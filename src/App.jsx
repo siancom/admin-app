@@ -2539,7 +2539,9 @@ const flexMessage = {
                   },
                   {
                     type: "text",
-                    text: newStatus === 'ยกเลิกฉุกเฉิน' ? "ขออภัยในความไม่สะดวก ทางเราจำเป็นต้องยกเลิกคิวนี้" : "แสดง E-Ticket นี้ให้พนักงานเมื่อมาถึงสาขา",
+                    text: ['ยกเลิก', 'ยกเลิกฉุกเฉิน', 'ยกเลิกโดยลูกค้า'].includes(newStatus)
+                      ? (realCancelReason ? `สาเหตุ: ${realCancelReason}` : "คิวนี้ได้รับการยกเลิกแล้ว")
+                      : "แสดง E-Ticket นี้ให้พนักงานเมื่อมาถึงสาขา",
                     size: "xs",
                     color: "#ffffff",
                     margin: "sm"
@@ -2635,7 +2637,7 @@ const flexMessage = {
                     ]
                   },
                   { type: "separator" },
-                  (!['ยกเลิก', 'ยกเลิกฉุกเฉิน'].includes(newStatus)) ? {
+                  {
                     type: "box",
                     layout: "vertical",
                     paddingTop: "12px",
@@ -2643,7 +2645,9 @@ const flexMessage = {
                     contents: [
                       {
                         type: "text",
-                        text: "QR Code สำหรับ Check-in",
+                        text: ['ยกเลิก', 'ยกเลิกฉุกเฉิน', 'ยกเลิกโดยลูกค้า'].includes(newStatus)
+                          ? "QR Code หมายเลขคิว"
+                          : "QR Code สำหรับ Check-in",
                         size: "xs",
                         color: "#94a3b8",
                         weight: "bold",
@@ -2651,21 +2655,24 @@ const flexMessage = {
                       },
                       {
                         type: "image",
-                        url: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&color=1e293b&bgcolor=ffffff&data=${encodeURIComponent(String(booking.ticketNo || booking.id || 'NO_ID'))}`,
-                        size: "150px",
+                        url: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(String(booking.ticketNo || booking.id || 'NO_ID'))}`,
+                        size: "xl",
+                        aspectRatio: "1:1",
+                        aspectMode: "cover",
                         align: "center",
-                        margin: "sm"
+                        margin: "md"
                       },
                       {
                         type: "text",
                         text: String(booking.ticketNo || booking.id || "-"),
                         size: "xs",
                         color: "#64748b",
+                        weight: "bold",
                         align: "center",
                         margin: "xs"
                       }
                     ]
-                  } : { type: "filler" }
+                  }
                 ]
               }
             }

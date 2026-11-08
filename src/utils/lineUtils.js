@@ -280,37 +280,42 @@ export const sendBookingLineNotification = async (booking, status, lineUid, canc
                    ]
                  },
                  { type: 'separator' },
-                 (!['ยกเลิก', 'ยกเลิกฉุกเฉิน', 'ยกเลิกโดยลูกค้า'].includes(status)) ? {
-                   type: 'box',
-                   layout: 'vertical',
-                   paddingTop: '12px',
-                   paddingBottom: '4px',
-                   contents: [
-                     {
-                       type: 'text',
-                       text: 'QR Code สำหรับ Check-in',
-                       size: 'xs',
-                       color: '#94a3b8',
-                       weight: 'bold',
-                       align: 'center'
-                     },
-                     {
-                       type: 'image',
-                       url: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&color=1e293b&bgcolor=ffffff&data=${qrData}`,
-                       size: '150px',
-                       align: 'center',
-                       margin: 'sm'
-                     },
-                     {
-                       type: 'text',
-                       text: ticketNumber,
-                       size: 'xs',
-                       color: '#64748b',
-                       align: 'center',
-                       margin: 'xs'
-                     }
-                   ]
-                 } : { type: 'filler' }
+                 {
+                    type: 'box',
+                    layout: 'vertical',
+                    paddingTop: '12px',
+                    paddingBottom: '4px',
+                    contents: [
+                      {
+                        type: 'text',
+                        text: ['ยกเลิก', 'ยกเลิกฉุกเฉิน', 'ยกเลิกโดยลูกค้า'].includes(status)
+                          ? 'QR Code หมายเลขคิว'
+                          : 'QR Code สำหรับ Check-in',
+                        size: 'xs',
+                        color: '#94a3b8',
+                        weight: 'bold',
+                        align: 'center'
+                      },
+                      {
+                        type: 'image',
+                        url: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${qrData}`,
+                        size: 'xl',
+                        aspectRatio: '1:1',
+                        aspectMode: 'cover',
+                        align: 'center',
+                        margin: 'md'
+                      },
+                      {
+                        type: 'text',
+                        text: ticketNumber,
+                        size: 'xs',
+                        color: '#64748b',
+                        weight: 'bold',
+                        align: 'center',
+                        margin: 'xs'
+                      }
+                    ]
+                  }
                ]
              }
            }
