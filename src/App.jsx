@@ -8,7 +8,8 @@ import {
   CalendarPlus, UserPlus, Sparkles, Trash2, AlertTriangle, Layers, Database,
   Camera, Image as ImageIcon, ShieldCheck, ShieldAlert, RefreshCcw, PenTool,
   Bell, List, LayoutGrid, ScanLine, CalendarDays, ChevronLeft, ChevronUp, ChevronDown, BarChart3, Store, UserCheck, Wallet, Loader2, Scissors, Ticket, Gift,
-  Send, MessageSquare, ToggleLeft, ToggleRight, TestTube, ExternalLink, Zap, Target, Droplet, Syringe, Pill, Truck, Star
+  Send, MessageSquare, ToggleLeft, ToggleRight, TestTube, ExternalLink, Zap, Target, Droplet, Syringe, Pill, Truck, Star,
+  Filter, RotateCcw
 } from 'lucide-react';
 
 // --- SERVICE TYPE HELPER ---
@@ -51,6 +52,38 @@ import {
 } from './utils/courseUtils';
 import { handleProfileImgError, parseImageUrl, getProfilePicData } from './utils/imageUtils';
 import { getSafeDateTime, getBookingStatus, getOrderStatus } from './utils/dateUtils';
+
+export const getHistoryCategoryInfo = (h) => {
+  if (!h) return { id: 'other', label: 'ทั่วไป / อื่นๆ', color: 'text-slate-700 bg-slate-50 border-slate-200', icon: Activity };
+  const typeStr = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '').toLowerCase();
+  const itemStr = `${String(getFuzzyKey(h, ["สินค้า", "ชื่อคอส", "รายการ", "col_18", "col_16", "col_23"]) || '')} ${typeStr} ${String(getFuzzyKey(h, ["รายการที่ทำ", "หมายเหตุ", "col_10", "col_11", "col_12"]) || '')}`.toLowerCase();
+  
+  if (isMoleHistoryRecord(h) || itemStr.includes('ไฝ') || itemStr.includes('ขี้แมลงวัน') || itemStr.includes('ติ่งเนื้อ')) {
+    return { id: 'mole', label: 'จี้ไฝ / ติ่งเนื้อ', color: 'text-rose-700 bg-rose-50 border-rose-200', icon: Target };
+  }
+  if (itemStr.includes('ฉีด') || itemStr.includes('botox') || itemStr.includes('โบท็อก') || itemStr.includes('ฟิลเลอร์') || itemStr.includes('filler') || itemStr.includes('แฟต') || itemStr.includes('fat') || itemStr.includes('meso') || itemStr.includes('เมโส')) {
+    return { id: 'injection', label: 'ฉีด / โบท็อกซ์ / ฟิลเลอร์', color: 'text-pink-700 bg-pink-50 border-pink-200', icon: Syringe };
+  }
+  if (itemStr.includes('ดริป') || itemStr.includes('วิตามิน') || itemStr.includes('vitamin') || itemStr.includes('drip') || itemStr.includes('ผิวขาว')) {
+    return { id: 'vitamin', label: 'ดริปวิตามินผิว', color: 'text-emerald-700 bg-emerald-50 border-emerald-200', icon: Pill };
+  }
+  if (itemStr.includes('ipl') || itemStr.includes('เลเซอร์') || itemStr.includes('laser') || itemStr.includes('กำจัดขน') || itemStr.includes('รักแร้')) {
+    return { id: 'laser', label: 'IPL / เลเซอร์', color: 'text-amber-800 bg-amber-50 border-amber-200', icon: Zap };
+  }
+  if (itemStr.includes('สิว') || itemStr.includes('มาร์ค') || itemStr.includes('มาส์ก') || itemStr.includes('acne') || itemStr.includes('เคลียร์สิว') || itemStr.includes('กดสิว')) {
+    return { id: 'acne', label: 'กดสิว / เคลียร์สิว / มาส์ก', color: 'text-blue-700 bg-blue-50 border-blue-200', icon: Droplet };
+  }
+  if (itemStr.includes('หน้า') || itemStr.includes('ทรีท') || itemStr.includes('นวด') || itemStr.includes('treatment') || itemStr.includes('facial') || itemStr.includes('บำรุง') || itemStr.includes('ลงเครื่อง')) {
+    return { id: 'facial', label: 'ทำหน้า / ทรีทเม้นท์', color: 'text-orange-700 bg-orange-50 border-orange-200', icon: Sparkles };
+  }
+  if (typeStr.includes('ซื้อ') || itemStr.includes('สินค้า') || itemStr.includes('ครีม') || itemStr.includes('เซรั่ม') || itemStr.includes('ยา') || itemStr.includes('เบิกสินค้า') || itemStr.includes('product')) {
+    return { id: 'product', label: 'ซื้อสินค้า / เวชสำอาง', color: 'text-purple-700 bg-purple-50 border-purple-200', icon: ShoppingBag };
+  }
+  if (isFreeUsage(h) || itemStr.includes('ฟรี') || itemStr.includes('แถม')) {
+    return { id: 'free', label: 'ของแถม / ฟรี', color: 'text-teal-700 bg-teal-50 border-teal-200', icon: Gift };
+  }
+  return { id: 'other', label: 'บริการทั่วไป / อื่นๆ', color: 'text-slate-700 bg-slate-50 border-slate-200', icon: Activity };
+};
 
 // --- COMPONENTS ---
 import SidebarItem from './components/SidebarItem';
@@ -226,6 +259,15 @@ export default function App() {
   const [filterBookingStatus, setFilterBookingStatus] = useState('today_upcoming'); 
   const [filterBookingBranch, setFilterBookingBranch] = useState('all'); 
   const [filterOrderStatus, setFilterOrderStatus] = useState('รออนุมัติ'); 
+  // --- HISTORY FILTERS ---
+  const [historyPeriodFilter, setHistoryPeriodFilter] = useState('all'); 
+  const [historyStartDate, setHistoryStartDate] = useState('');
+  const [historyEndDate, setHistoryEndDate] = useState('');
+  const [historyCategoryFilter, setHistoryCategoryFilter] = useState('all'); 
+  const [historyBranchFilter, setHistoryBranchFilter] = useState('all'); 
+  const [historyActionTypeFilter, setHistoryActionTypeFilter] = useState('all'); 
+  const [historySortBy, setHistorySortBy] = useState('newest'); 
+  const [historyLimit, setHistoryLimit] = useState(60); 
   const [bookingViewMode, setBookingViewMode] = useState('timeline');
   const [customerViewMode, setCustomerViewMode] = useState('grid'); 
   const [customerSortBy, setCustomerSortBy] = useState('accumulated');
@@ -1648,19 +1690,88 @@ export default function App() {
 
   const productStats = useMemo(() => ({ outOfStock: products.filter(p => !p.isStoreUseOnly && getTotalStock(p, branches) <= 0).length }), [products, branches]);
 
-  const sortedHistories = useMemo(() => {
+  const filteredHistories = useMemo(() => {
     return histories.filter(h => {
-      const searchStr = `${String(getFuzzyKey(h, ["ชื่อลูกค้า", "col_2"]) || '')} ${String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '')} ${String(getFuzzyKey(h, ["สินค้า", "ชื่อคอส", "รายการ", "col_18", "col_16", "col_23"]) || '')} ${String(getFuzzyKey(h, ["หมายเลขคำสั่งซื้อ", "เลขที่บิล", "เลขที่", "col_3"]) || '')} ${String(getFuzzyKey(h, ["เลขที่ใบคอส", "อ้างอิง", "col_6"]) || '')}`.toLowerCase();
-      return searchTerm === '' || searchStr.includes(searchTerm.toLowerCase());
+      // 1. Cancelled filter
+      if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '').trim() === 'ยกเลิก') return false;
+
+      // 2. Search filter
+      if (searchTerm) {
+        const searchStr = `${String(getFuzzyKey(h, ["ชื่อลูกค้า", "col_2"]) || '')} ${String(getFuzzyKey(h, ["เบอร์โทร", "phone", "col_1"]) || '')} ${String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '')} ${String(getFuzzyKey(h, ["สินค้า", "ชื่อคอส", "รายการ", "col_18", "col_16", "col_23"]) || '')} ${String(getFuzzyKey(h, ["หมายเลขคำสั่งซื้อ", "เลขที่บิล", "เลขที่", "col_3"]) || '')} ${String(getFuzzyKey(h, ["เลขที่ใบคอส", "อ้างอิง", "col_6"]) || '')} ${String(getFuzzyKey(h, ["ผู้ให้บริการ", "พนักงาน", "staff"]) || '')}`.toLowerCase();
+        if (!searchStr.includes(searchTerm.toLowerCase())) return false;
+      }
+
+      // 3. Period / Date filter
+      if (historyPeriodFilter !== 'all') {
+        const dateKey = getHistoryDateKey(h);
+        const today = getLocalYYYYMMDD();
+        if (historyPeriodFilter === 'today' && dateKey !== today) return false;
+        if (historyPeriodFilter === 'yesterday') {
+          const y = new Date(); y.setDate(y.getDate() - 1);
+          if (dateKey !== getLocalYYYYMMDD(y)) return false;
+        }
+        if (historyPeriodFilter === '7days') {
+          const d = new Date(); d.setDate(d.getDate() - 7);
+          const start = getLocalYYYYMMDD(d);
+          if (dateKey < start || dateKey > today) return false;
+        }
+        if (historyPeriodFilter === '30days') {
+          const d = new Date(); d.setDate(d.getDate() - 30);
+          const start = getLocalYYYYMMDD(d);
+          if (dateKey < start || dateKey > today) return false;
+        }
+        if (historyPeriodFilter === 'this_month') {
+          if (!dateKey || !dateKey.startsWith(today.slice(0, 7))) return false;
+        }
+        if (historyPeriodFilter === 'last_month') {
+          const d = new Date(); d.setMonth(d.getMonth() - 1);
+          if (!dateKey || !dateKey.startsWith(getLocalYYYYMMDD(d).slice(0, 7))) return false;
+        }
+        if (historyPeriodFilter === 'custom') {
+          if (historyStartDate && dateKey < historyStartDate) return false;
+          if (historyEndDate && dateKey > historyEndDate) return false;
+        }
+      }
+
+      // 4. Branch filter
+      if (historyBranchFilter !== 'all') {
+        const br = getHistoryBranch(h).replace(/^สาขา/, '').trim();
+        const targetBr = historyBranchFilter.replace(/^สาขา/, '').trim();
+        if (br !== targetBr) return false;
+      }
+
+      // 5. Category filter
+      if (historyCategoryFilter !== 'all') {
+        const cat = getHistoryCategoryInfo(h).id;
+        if (cat !== historyCategoryFilter) return false;
+      }
+
+      // 6. Action Type filter
+      if (historyActionTypeFilter !== 'all') {
+        const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '');
+        if (historyActionTypeFilter === 'usage' && !isUsageType(type)) return false;
+        if (historyActionTypeFilter === 'purchase' && !type.includes('ซื้อ') && !type.includes('เปิด')) return false;
+        if (historyActionTypeFilter === 'add' && !isAddType(type)) return false;
+        if (historyActionTypeFilter === 'free' && !isFreeUsage(h)) return false;
+        if (historyActionTypeFilter === 'credit' && !type.includes('เครดิต') && !type.includes('โอน') && !type.includes('หักเงิน')) return false;
+      }
+
+      return true;
     }).sort((a, b) => {
-      const valA = String(getFuzzyKey(a, ["หมายเลขคำสั่งซื้อ", "เลขที่บิล", "เลขที่", "col_3"]) || '');
-      const valB = String(getFuzzyKey(b, ["หมายเลขคำสั่งซื้อ", "เลขที่บิล", "เลขที่", "col_3"]) || '');
-      const numA = parseNumber(valA.replace(new RegExp('[^0-9]', 'g'), ''));
-      const numB = parseNumber(valB.replace(new RegExp('[^0-9]', 'g'), ''));
-      if(numA !== numB) return numB - numA;
-      return valB.localeCompare(valA);
+      if (historySortBy === 'oldest') {
+        return getHistorySortTime(a) - getHistorySortTime(b);
+      }
+      if (historySortBy === 'amount_desc') {
+        const amtA = parseNumber(getFuzzyKey(a, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดเบิก", "ยอด", "col_19"]));
+        const amtB = parseNumber(getFuzzyKey(b, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดเบิก", "ยอด", "col_19"]));
+        return amtB - amtA;
+      }
+      // default: newest first
+      return getHistorySortTime(b) - getHistorySortTime(a);
     });
-  }, [histories, searchTerm]);
+  }, [histories, searchTerm, historyPeriodFilter, historyStartDate, historyEndDate, historyBranchFilter, historyCategoryFilter, historyActionTypeFilter, historySortBy]);
+
+  const sortedHistories = filteredHistories;
 
   const stats = useMemo(() => {
     const activeCoursesList = processedCourses.filter(c => c.computedRemainQty > 0);
@@ -1747,6 +1858,96 @@ export default function App() {
     Object.keys(branches).forEach(br => { branches[br].items.sort((a, b) => getHistorySortTime(b) - getHistorySortTime(a)); });
     return { branches, totalCount, totalQty, totalAmount };
   }, [histories]);
+
+  const historyCategoryCounts = useMemo(() => {
+    const counts = { all: 0, facial: 0, acne: 0, laser: 0, mole: 0, injection: 0, vitamin: 0, product: 0, free: 0, other: 0 };
+    histories.forEach(h => {
+      if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '').trim() === 'ยกเลิก') return;
+      
+      // Match period & branch
+      if (historyPeriodFilter !== 'all') {
+        const dateKey = getHistoryDateKey(h);
+        const today = getLocalYYYYMMDD();
+        if (historyPeriodFilter === 'today' && dateKey !== today) return;
+        if (historyPeriodFilter === 'yesterday') {
+          const y = new Date(); y.setDate(y.getDate() - 1);
+          if (dateKey !== getLocalYYYYMMDD(y)) return;
+        }
+        if (historyPeriodFilter === '7days') {
+          const d = new Date(); d.setDate(d.getDate() - 7);
+          const start = getLocalYYYYMMDD(d);
+          if (dateKey < start || dateKey > today) return;
+        }
+        if (historyPeriodFilter === '30days') {
+          const d = new Date(); d.setDate(d.getDate() - 30);
+          const start = getLocalYYYYMMDD(d);
+          if (dateKey < start || dateKey > today) return;
+        }
+        if (historyPeriodFilter === 'this_month') {
+          if (!dateKey || !dateKey.startsWith(today.slice(0, 7))) return;
+        }
+        if (historyPeriodFilter === 'last_month') {
+          const d = new Date(); d.setMonth(d.getMonth() - 1);
+          if (!dateKey || !dateKey.startsWith(getLocalYYYYMMDD(d).slice(0, 7))) return;
+        }
+        if (historyPeriodFilter === 'custom') {
+          if (historyStartDate && dateKey < historyStartDate) return;
+          if (historyEndDate && dateKey > historyEndDate) return;
+        }
+      }
+
+      if (historyBranchFilter !== 'all') {
+        const br = getHistoryBranch(h).replace(/^สาขา/, '').trim();
+        const targetBr = historyBranchFilter.replace(/^สาขา/, '').trim();
+        if (br !== targetBr) return;
+      }
+
+      counts.all++;
+      const cat = getHistoryCategoryInfo(h).id;
+      if (counts[cat] !== undefined) counts[cat]++;
+      else counts.other++;
+    });
+    return counts;
+  }, [histories, historyPeriodFilter, historyStartDate, historyEndDate, historyBranchFilter]);
+
+  const historyFilteredSummary = useMemo(() => {
+    const branches = {};
+    let totalCount = 0;
+    let totalQty = 0;
+    let totalAmount = 0;
+    const uniqueCustomers = new Set();
+
+    filteredHistories.forEach(h => {
+      const branch = getHistoryBranch(h);
+      if (!branches[branch]) branches[branch] = { count: 0, qty: 0, amount: 0, items: [] };
+      const qty = extractHistoryQty(h);
+      const amount = parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดเบิก", "ยอด", "col_19"]));
+      
+      branches[branch].count++;
+      branches[branch].qty += qty;
+      branches[branch].amount += amount;
+      branches[branch].items.push(h);
+
+      totalCount++;
+      totalQty += qty;
+      totalAmount += amount;
+
+      const cust = String(getFuzzyKey(h, ["ชื่อลูกค้า", "col_2", "เบอร์โทร", "phone"]) || '').trim();
+      if (cust) uniqueCustomers.add(cust);
+    });
+
+    Object.keys(branches).forEach(br => { 
+      branches[br].items.sort((a, b) => getHistorySortTime(b) - getHistorySortTime(a)); 
+    });
+
+    return { 
+      branches, 
+      totalCount, 
+      totalQty, 
+      totalAmount, 
+      uniqueCustomerCount: uniqueCustomers.size 
+    };
+  }, [filteredHistories]);
 
   const filteredCourses = useMemo(() => {
     return processedCourses.filter(c => {
@@ -5947,71 +6148,278 @@ const flexMessage = {
           )}
 
           {activeTab === 'histories' && (
-            <div className="flex flex-col h-full space-y-4 max-w-7xl mx-auto">
-              <div className="p-4 bg-white rounded-3xl shadow-sm border border-gray-100 flex justify-between items-center">
-                 <div className="flex items-center w-full max-w-md">
-                    <Search size={20} className="text-gray-400 ml-2" />
-                    <input type="text" placeholder="ค้นหาประวัติ..." value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="w-full mx-2 outline-none text-sm" />
+            <div className="flex flex-col h-full space-y-4 max-w-7xl mx-auto pb-12">
+              {/* --- 1. FILTER & SEARCH TOOLBAR --- */}
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-4 sm:p-5 space-y-3">
+                 <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+                    {/* Search Input */}
+                    <div className="flex items-center flex-1 bg-gray-50 rounded-2xl px-3 py-2 border border-gray-200 focus-within:border-teal-500 focus-within:ring-2 focus-within:ring-teal-100 transition-all">
+                       <Search size={18} className="text-gray-400 shrink-0" />
+                       <input 
+                          type="text" 
+                          placeholder="ค้นหาชื่อลูกค้า, เบอร์โทร, ชื่อคอร์ส/สินค้า, เลขบิล, Ref, ผู้ให้บริการ..." 
+                          value={searchInput} 
+                          onChange={(e) => setSearchInput(e.target.value)} 
+                          className="w-full mx-2 outline-none text-xs sm:text-sm bg-transparent text-gray-800 placeholder-gray-400" 
+                       />
+                       {searchInput && (
+                          <button onClick={() => setSearchInput('')} className="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-200">
+                             <X size={14} />
+                          </button>
+                       )}
+                    </div>
+
+                    {/* Quick Filters Group */}
+                    <div className="flex flex-wrap items-center gap-2">
+                       {/* Period Filter Dropdown */}
+                       <div className="relative">
+                          <select 
+                             value={historyPeriodFilter} 
+                             onChange={(e) => setHistoryPeriodFilter(e.target.value)} 
+                             className="bg-gray-50 hover:bg-gray-100 rounded-xl px-3 py-2 text-xs font-bold outline-none border border-gray-200 text-gray-700 cursor-pointer transition-colors"
+                          >
+                             <option value="all">📅 ทุกช่วงเวลา</option>
+                             <option value="today">⚡ ประจำวันนี้</option>
+                             <option value="yesterday">⏮️ เมื่อวานนี้</option>
+                             <option value="7days">🗓️ 7 วันล่าสุด</option>
+                             <option value="30days">🗓️ 30 วันล่าสุด</option>
+                             <option value="this_month">📆 ประจำเดือนนี้</option>
+                             <option value="last_month">📆 เดือนที่แล้ว</option>
+                             <option value="custom">✏️ กำหนดช่วงวันที่เอง</option>
+                          </select>
+                       </div>
+
+                       {/* Branch Filter Dropdown */}
+                       <div className="relative">
+                          <select 
+                             value={historyBranchFilter} 
+                             onChange={(e) => setHistoryBranchFilter(e.target.value)} 
+                             className="bg-gray-50 hover:bg-gray-100 rounded-xl px-3 py-2 text-xs font-bold outline-none border border-gray-200 text-gray-700 cursor-pointer transition-colors"
+                          >
+                             <option value="all">🏢 ทุกสาขา</option>
+                             {Array.from(new Set([...branches.map(b => b.name), 'เฉวง', 'ละไม'].map(br => String(br).replace(/^สาขา/,'').trim()))).filter(Boolean).map(br => (
+                                <option key={br} value={br}>สาขา{br}</option>
+                             ))}
+                          </select>
+                       </div>
+
+                       {/* Action Type Dropdown */}
+                       <div className="relative">
+                          <select 
+                             value={historyActionTypeFilter} 
+                             onChange={(e) => setHistoryActionTypeFilter(e.target.value)} 
+                             className="bg-gray-50 hover:bg-gray-100 rounded-xl px-3 py-2 text-xs font-bold outline-none border border-gray-200 text-gray-700 cursor-pointer transition-colors"
+                          >
+                             <option value="all">📋 ทุกประเภทรายการ</option>
+                             <option value="usage">✂️ ตัดคอร์ส / รับบริการ</option>
+                             <option value="purchase">🛒 ซื้อคอร์ส / สินค้า</option>
+                             <option value="add">➕ เพิ่มครั้ง / อัปคอร์ส</option>
+                             <option value="free">🎁 บริการฟรี / ของแถม</option>
+                             <option value="credit">💳 หักเครดิต / โอน</option>
+                          </select>
+                       </div>
+
+                       {/* Sort Dropdown */}
+                       <div className="relative">
+                          <select 
+                             value={historySortBy} 
+                             onChange={(e) => setHistorySortBy(e.target.value)} 
+                             className="bg-gray-50 hover:bg-gray-100 rounded-xl px-3 py-2 text-xs font-bold outline-none border border-gray-200 text-gray-700 cursor-pointer transition-colors"
+                          >
+                             <option value="newest">⏱️ ใหม่ล่าสุดก่อน</option>
+                             <option value="oldest">⏳ เก่าสุดก่อน</option>
+                             <option value="amount_desc">💰 ยอดเงินสูงสุด</option>
+                          </select>
+                       </div>
+
+                       {/* Reset Filter Button */}
+                       {(historyPeriodFilter !== 'all' || historyBranchFilter !== 'all' || historyCategoryFilter !== 'all' || historyActionTypeFilter !== 'all' || searchInput !== '' || historyStartDate !== '' || historyEndDate !== '') && (
+                          <button 
+                             onClick={() => {
+                                setHistoryPeriodFilter('all');
+                                setHistoryBranchFilter('all');
+                                setHistoryCategoryFilter('all');
+                                setHistoryActionTypeFilter('all');
+                                setHistorySortBy('newest');
+                                setSearchInput('');
+                                setHistoryStartDate('');
+                                setHistoryEndDate('');
+                                setHistoryLimit(60);
+                             }}
+                             className="px-2.5 py-2 rounded-xl text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors flex items-center gap-1 shrink-0"
+                             title="ล้างตัวกรองทั้งหมด"
+                          >
+                             <RotateCcw size={12} /> ล้างตัวกรอง
+                          </button>
+                       )}
+                    </div>
                  </div>
+
+                 {/* Custom Date Range Picker (shown when custom is selected) */}
+                 {historyPeriodFilter === 'custom' && (
+                    <div className="pt-2 border-t border-gray-100 flex flex-wrap items-center gap-2 animate-in fade-in duration-200">
+                       <span className="text-xs font-bold text-gray-500">ระบุช่วงวันที่:</span>
+                       <div className="flex items-center gap-1.5">
+                          <label className="text-[11px] font-bold text-gray-400">ตั้งแต่</label>
+                          <input 
+                             type="date" 
+                             value={historyStartDate} 
+                             onChange={(e) => setHistoryStartDate(e.target.value)} 
+                             className="bg-gray-50 rounded-xl px-2.5 py-1.5 text-xs font-bold border border-gray-200 outline-none" 
+                          />
+                       </div>
+                       <div className="flex items-center gap-1.5">
+                          <label className="text-[11px] font-bold text-gray-400">ถึง</label>
+                          <input 
+                             type="date" 
+                             value={historyEndDate} 
+                             onChange={(e) => setHistoryEndDate(e.target.value)} 
+                             className="bg-gray-50 rounded-xl px-2.5 py-1.5 text-xs font-bold border border-gray-200 outline-none" 
+                          />
+                       </div>
+                    </div>
+                 )}
               </div>
 
-              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5 sm:p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-black text-gray-800 flex items-center text-sm sm:text-base">
-                    <Activity className="mr-2 text-teal-500" size={18} />
-                    ประวัติการใช้บริการ ประจำวันนี้
-                    <span className="ml-2 text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}</span>
-                  </h3>
-                  <div className="flex items-center gap-3 text-[10px] sm:text-xs">
-                    <span className="font-bold text-gray-500">รวม: <span className="text-teal-600 font-black">{todayUsageByBranch.totalCount}</span> รายการ</span>
-                    <span className="font-bold text-gray-500">ครั้ง: <span className="text-indigo-600 font-black">{todayUsageByBranch.totalQty}</span></span>
-                    {todayUsageByBranch.totalAmount > 0 && (
-                      <span className="font-bold text-gray-500">มูลค่า: <span className="text-orange-600 font-black">฿{todayUsageByBranch.totalAmount.toLocaleString()}</span></span>
+              {/* --- 2. CATEGORY FILTER CHIPS BANNER --- */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 px-1 hide-scrollbar">
+                 {[
+                    { id: 'all', label: 'ทั้งหมด', icon: Activity, count: historyCategoryCounts.all, activeColor: 'bg-teal-600 text-white shadow-teal-200 ring-2 ring-teal-300' },
+                    { id: 'facial', label: '✨ ทำหน้า / ทรีทเม้นท์', icon: Sparkles, count: historyCategoryCounts.facial, activeColor: 'bg-orange-500 text-white shadow-orange-200 ring-2 ring-orange-300' },
+                    { id: 'acne', label: '💧 กดสิว / เคลียร์สิว', icon: Droplet, count: historyCategoryCounts.acne, activeColor: 'bg-blue-600 text-white shadow-blue-200 ring-2 ring-blue-300' },
+                    { id: 'laser', label: '⚡ IPL / เลเซอร์', icon: Zap, count: historyCategoryCounts.laser, activeColor: 'bg-amber-500 text-white shadow-amber-200 ring-2 ring-amber-300' },
+                    { id: 'mole', label: '🎯 จี้ไฝ / ติ่งเนื้อ', icon: Target, count: historyCategoryCounts.mole, activeColor: 'bg-rose-600 text-white shadow-rose-200 ring-2 ring-rose-300' },
+                    { id: 'injection', label: '💉 ฉีด / โบท็อกซ์ / ฟิลเลอร์', icon: Syringe, count: historyCategoryCounts.injection, activeColor: 'bg-pink-600 text-white shadow-pink-200 ring-2 ring-pink-300' },
+                    { id: 'vitamin', label: '💊 ดริปวิตามินผิว', icon: Pill, count: historyCategoryCounts.vitamin, activeColor: 'bg-emerald-600 text-white shadow-emerald-200 ring-2 ring-emerald-300' },
+                    { id: 'product', label: '🛍️ ซื้อสินค้า / เวชสำอาง', icon: ShoppingBag, count: historyCategoryCounts.product, activeColor: 'bg-purple-600 text-white shadow-purple-200 ring-2 ring-purple-300' },
+                    { id: 'free', label: '🎁 ของแถม / ฟรี', icon: Gift, count: historyCategoryCounts.free, activeColor: 'bg-teal-700 text-white shadow-teal-200 ring-2 ring-teal-300' },
+                 ].map(cat => {
+                    const isSelected = historyCategoryFilter === cat.id;
+                    const IconComponent = cat.icon;
+                    return (
+                       <button
+                          key={cat.id}
+                          onClick={() => setHistoryCategoryFilter(cat.id)}
+                          className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0 ${isSelected ? cat.activeColor : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'}`}
+                       >
+                          <IconComponent size={14} className={isSelected ? 'text-white' : 'text-gray-400'} />
+                          <span>{cat.label}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                             {cat.count}
+                          </span>
+                       </button>
+                    );
+                 })}
+              </div>
+
+              {/* --- 3. DYNAMIC SUMMARY KPI BOX --- */}
+              <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-5 sm:p-6 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded-2xl bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
+                       <Activity size={20} />
+                    </div>
+                    <div>
+                       <h3 className="font-black text-gray-800 text-sm sm:text-base flex items-center gap-2">
+                         <span>ประวัติการใช้บริการ</span>
+                         <span className="text-xs font-bold text-teal-700 bg-teal-50 px-2.5 py-0.5 rounded-full border border-teal-100">
+                           {historyPeriodFilter === 'today' && `ประจำวันนี้ (${new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })})`}
+                           {historyPeriodFilter === 'yesterday' && `เมื่อวานนี้ (${new Date(Date.now() - 86400000).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })})`}
+                           {historyPeriodFilter === '7days' && '7 วันล่าสุด'}
+                           {historyPeriodFilter === '30days' && '30 วันล่าสุด'}
+                           {historyPeriodFilter === 'this_month' && `ประจำเดือนนี้ (${new Date().toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })})`}
+                           {historyPeriodFilter === 'last_month' && `ประจำเดือนที่แล้ว`}
+                           {historyPeriodFilter === 'custom' && `ช่วง ${historyStartDate || '...'} ถึง ${historyEndDate || '...'}`}
+                           {historyPeriodFilter === 'all' && 'ทุกช่วงเวลาทั้งหมด'}
+                         </span>
+                       </h3>
+                       <p className="text-[11px] text-gray-400 font-medium mt-0.5">
+                         {historyBranchFilter === 'all' ? 'ทุกสาขา' : `สาขา${historyBranchFilter}`} • {historyCategoryFilter === 'all' ? 'ทุกหมวดหมู่บริการ' : getHistoryCategoryInfo({ [getFuzzyKey({}, ["ประเภท"])]: historyCategoryFilter }).label}
+                       </p>
+                    </div>
+                  </div>
+
+                  {/* Summary Metrics Chips */}
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <div className="bg-teal-50 border border-teal-100 px-3 py-1.5 rounded-xl font-bold text-teal-700 flex items-center gap-1">
+                       <span className="text-[10px] text-teal-600">รวม</span>
+                       <span className="text-sm font-black">{historyFilteredSummary.totalCount}</span>
+                       <span className="text-[10px]">รายการ</span>
+                    </div>
+                    <div className="bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded-xl font-bold text-indigo-700 flex items-center gap-1">
+                       <span className="text-[10px] text-indigo-600">รวม</span>
+                       <span className="text-sm font-black">{historyFilteredSummary.totalQty}</span>
+                       <span className="text-[10px]">ครั้ง</span>
+                    </div>
+                    {historyFilteredSummary.totalAmount > 0 && (
+                      <div className="bg-orange-50 border border-orange-100 px-3 py-1.5 rounded-xl font-bold text-orange-700 flex items-center gap-1">
+                         <span className="text-[10px] text-orange-600">มูลค่า</span>
+                         <span className="text-sm font-black">฿{historyFilteredSummary.totalAmount.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {historyFilteredSummary.uniqueCustomerCount > 0 && (
+                      <div className="bg-purple-50 border border-purple-100 px-3 py-1.5 rounded-xl font-bold text-purple-700 flex items-center gap-1">
+                         <Users size={12} className="text-purple-600" />
+                         <span className="text-sm font-black">{historyFilteredSummary.uniqueCustomerCount}</span>
+                         <span className="text-[10px]">ลูกค้า</span>
+                      </div>
                     )}
                   </div>
                 </div>
 
-                {todayUsageByBranch.totalCount === 0 ? (
-                  <div className="text-center py-8 bg-gray-50/50 rounded-2xl border-2 border-dashed border-gray-200">
-                    <HistoryIcon size={32} className="mx-auto text-gray-300 mb-2" />
-                    <p className="text-gray-400 font-bold text-sm">ยังไม่มีประวัติการใช้บริการในวันนี้</p>
+                {/* Per Branch Cards Breakdown */}
+                {historyFilteredSummary.totalCount === 0 ? (
+                  <div className="text-center py-10 bg-gray-50/60 rounded-2xl border-2 border-dashed border-gray-200">
+                    <HistoryIcon size={36} className="mx-auto text-gray-300 mb-2" />
+                    <p className="text-gray-600 font-black text-sm mb-1">ยังไม่มีประวัติการใช้บริการตามช่วงเวลาหรือตัวกรองที่เลือก</p>
+                    <p className="text-gray-400 text-xs mb-3">ลองปรับตัวกรองช่วงเวลา เช่น "7 วันล่าสุด", "เดือนนี้" หรือ "ทุกช่วงเวลา"</p>
+                    {historyPeriodFilter !== 'all' && (
+                       <button 
+                          onClick={() => setHistoryPeriodFilter('all')} 
+                          className="px-3.5 py-1.5 bg-teal-50 text-teal-700 hover:bg-teal-100 rounded-xl text-xs font-bold transition-colors border border-teal-200"
+                       >
+                          ดูประวัติทั้งหมดทุกช่วงเวลา
+                       </button>
+                    )}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {Object.entries(todayUsageByBranch.branches).map(([branch, data]) => (
-                      <div key={branch} className="bg-gradient-to-br from-gray-50 to-white rounded-2xl border border-gray-100 p-4 relative overflow-hidden">
+                    {Object.entries(historyFilteredSummary.branches).map(([branch, data]) => (
+                      <div key={branch} className="bg-gradient-to-br from-gray-50/80 to-white rounded-2xl border border-gray-100 p-4 relative overflow-hidden shadow-xs">
                         <div className="absolute top-0 left-0 w-1 h-full bg-teal-400"></div>
                         <div className="flex items-center justify-between mb-3 pl-2">
                           <div className="flex items-center gap-2">
                             <MapPin size={14} className="text-teal-500" />
                             <span className="font-black text-gray-800 text-sm">{branch}</span>
                           </div>
-                          <span className="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full">{data.count} รายการ</span>
+                          <span className="text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-100 px-2 py-0.5 rounded-full">{data.count} รายการ</span>
                         </div>
                         <div className="flex gap-3 mb-3 pl-2 text-[10px]">
-                          <span className="text-gray-500 font-bold">ครั้ง: <span className="text-indigo-600">{data.qty}</span></span>
+                          <span className="text-gray-500 font-bold">จำนวนครั้ง: <span className="text-indigo-600 font-black">{data.qty}</span></span>
                           {data.amount > 0 && (
-                            <span className="text-gray-500 font-bold">มูลค่า: <span className="text-orange-600">฿{data.amount.toLocaleString()}</span></span>
+                            <span className="text-gray-500 font-bold">มูลค่า: <span className="text-orange-600 font-black">฿{data.amount.toLocaleString()}</span></span>
                           )}
                         </div>
-                        <div className="space-y-1.5 max-h-40 overflow-y-auto hide-scrollbar pl-2">
+                        <div className="space-y-1.5 max-h-44 overflow-y-auto hide-scrollbar pl-2">
                           {data.items.slice(0, 10).map((item, iIdx) => {
                             const customerName = String(getFuzzyKey(item, ["ชื่อลูกค้า", "col_2"]) || '-');
                             const itemName = String(getFuzzyKey(item, ["สินค้า", "ชื่อคอส", "รายการ", "col_18", "col_16", "col_23"]) || '-');
                             const timeStr = getFuzzyKey(item, ["เวลา", "time"]) || '';
                             const sortTime = getHistorySortTime(item);
+                            const catInfo = getHistoryCategoryInfo(item);
                             return (
-                              <div key={iIdx} className="flex items-center gap-2 text-[10px] bg-white rounded-lg px-2 py-1.5 border border-gray-50">
+                              <div key={iIdx} className="flex items-center gap-2 text-[10px] bg-white rounded-xl px-2.5 py-1.5 border border-gray-100 shadow-2xs hover:bg-teal-50/30 transition-colors">
                                 <span className="font-mono text-gray-400 shrink-0 w-10">
                                   {sortTime ? new Date(sortTime).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : timeStr}
                                 </span>
                                 <span className="font-bold text-gray-700 truncate flex-1">{customerName}</span>
+                                <span className={`text-[9px] px-1.5 py-0.2 rounded border font-bold shrink-0 ${catInfo.color}`}>{catInfo.label.split(' / ')[0]}</span>
                                 <span className="text-gray-400 truncate max-w-[80px]" title={itemName}>{itemName}</span>
                               </div>
                             );
                           })}
                           {data.items.length > 10 && (
-                            <p className="text-[9px] text-gray-400 text-center font-bold">แสดง 10 จาก {data.items.length} รายการ</p>
+                            <p className="text-[9px] text-gray-400 text-center font-bold pt-1">แสดง 10 จาก {data.items.length} รายการ</p>
                           )}
                         </div>
                       </div>
@@ -6020,25 +6428,164 @@ const flexMessage = {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 pb-10">
-                {sortedHistories.slice(0, 100).map((h, idx) => (
-                  <div key={idx} className="bg-white border border-gray-100 rounded-[24px] p-5 shadow-sm">
-                     <div className="flex justify-between items-start mb-3">
-                        <span className="text-[10px] bg-indigo-50 text-indigo-600 font-bold px-2 py-0.5 rounded border border-indigo-100">{String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '-')}</span>
-                        <span className="font-mono text-[10px] text-gray-500">{String(getFuzzyKey(h, ["วันที่", "col_1"]) || '-')} {h.เวลา || ''}</span>
-                     </div>
-                     <p className="font-black text-sm text-gray-900 mb-1">{String(getFuzzyKey(h, ["ชื่อลูกค้า", "col_2"]) || '-')}</p>
-                     <p className="text-xs text-gray-600 line-clamp-2">{String(getFuzzyKey(h, ["สินค้า", "ชื่อคอส", "รายการ", "col_18", "col_16", "col_23"]) || '-')}</p>
-                     
-                     <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-50">
-                        <span className="text-[10px] text-gray-400 font-mono">Ref: {String(getFuzzyKey(h, ["อ้างอิง", "เลขที่ใบคอส", "col_6"]) || '-')}</span>
-                        {parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอด", "col_19"])) > 0 && (
-                            <span className="font-black text-xs text-orange-500">฿{parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอด", "col_19"])).toLocaleString()}</span>
-                        )}
-                     </div>
-                  </div>
-                ))}
-                {sortedHistories.length === 0 && <div className="col-span-full text-center py-20"><HistoryIcon size={64} className="mx-auto text-gray-200 mb-4"/><p className="text-base font-black text-gray-800 mb-1">ไม่พบข้อมูลประวัติบริการ</p></div>}
+              {/* --- 4. DETAILED HISTORY CARDS LIST --- */}
+              <div className="space-y-3">
+                 <div className="flex justify-between items-center px-1">
+                    <span className="text-xs font-bold text-gray-500">
+                       พบ <strong className="text-teal-600">{filteredHistories.length}</strong> รายการบริการ
+                       {filteredHistories.length > historyLimit && ` (แสดง ${historyLimit} รายการแรก)`}
+                    </span>
+                    <span className="text-[11px] font-bold text-gray-400">
+                       เรียงตาม: {historySortBy === 'newest' ? 'ใหม่ล่าสุดก่อน' : historySortBy === 'oldest' ? 'เก่าสุดก่อน' : 'ยอดเงินสูงสุด'}
+                    </span>
+                 </div>
+
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+                    {filteredHistories.slice(0, historyLimit).map((h, idx) => {
+                       const catInfo = getHistoryCategoryInfo(h);
+                       const CatIcon = catInfo.icon;
+                       const customerName = String(getFuzzyKey(h, ["ชื่อลูกค้า", "col_2"]) || '-');
+                       const customerPhone = String(getFuzzyKey(h, ["เบอร์โทร", "phone", "col_1"]) || '').trim();
+                       const serviceName = String(getFuzzyKey(h, ["สินค้า", "ชื่อคอส", "รายการ", "col_18", "col_16", "col_23"]) || '-');
+                       const typeStr = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '-');
+                       const branchName = getHistoryBranch(h);
+                       const refKey = String(getFuzzyKey(h, ["อ้างอิง", "เลขที่ใบคอส", "col_6", "courseRefKey"]) || '-');
+                       const staffName = String(getFuzzyKey(h, ["ผู้ให้บริการ", "พนักงาน", "staff", "col_20", "col_21"]) || '').trim();
+                       const billNo = String(getFuzzyKey(h, ["หมายเลขคำสั่งซื้อ", "เลขที่บิล", "เลขที่", "col_3"]) || '').trim();
+                       const amount = parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดเบิก", "ยอด", "col_19"]));
+                       const qty = extractHistoryQty(h);
+                       const sortTime = getHistorySortTime(h);
+                       const dateStr = sortTime 
+                          ? new Date(sortTime).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) 
+                          : String(getFuzzyKey(h, ["วันที่", "col_1"]) || '-');
+                       const timeStr = sortTime 
+                          ? new Date(sortTime).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) 
+                          : String(getFuzzyKey(h, ["เวลา", "time"]) || '');
+
+                       return (
+                          <div key={h.id || idx} className="bg-white border border-gray-100 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between relative group overflow-hidden">
+                             <div className="space-y-2.5">
+                                {/* Top Header: Category Badge + Date Time */}
+                                <div className="flex justify-between items-start gap-2">
+                                   <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-xl border ${catInfo.color}`}>
+                                      <CatIcon size={12} strokeWidth={2.5} />
+                                      {catInfo.label}
+                                   </span>
+                                   <div className="text-right shrink-0">
+                                      <span className="font-mono text-[10px] font-bold text-gray-500 block">{dateStr}</span>
+                                      {timeStr && <span className="font-mono text-[9px] text-gray-400 block">{timeStr} น.</span>}
+                                   </div>
+                                </div>
+
+                                {/* Customer Info */}
+                                <div>
+                                   <h4 
+                                      onClick={() => {
+                                         if (customerPhone) {
+                                            const matched = customersRaw.find(cu => String(getFuzzyKey(cu, ["เบอร์โทร", "col_3", "phone"]) || '').trim() === customerPhone);
+                                            if (matched) setSelectedCustomer(matched);
+                                         }
+                                      }}
+                                      className="font-black text-sm text-gray-900 line-clamp-1 hover:text-teal-600 transition-colors cursor-pointer flex items-center gap-1.5"
+                                      title={customerPhone ? `คลิกดูข้อมูลลูกค้า: ${customerName}` : customerName}
+                                   >
+                                      <User size={14} className="text-gray-400 shrink-0" />
+                                      <span>{customerName}</span>
+                                      {customerPhone && <span className="text-[10px] text-gray-400 font-mono font-normal">({customerPhone})</span>}
+                                   </h4>
+                                </div>
+
+                                {/* Service / Course / Product Name */}
+                                <div className="bg-gray-50/70 p-3 rounded-2xl border border-gray-100">
+                                   <p className="text-[10px] font-bold text-gray-400 mb-0.5">บริการ / รายการที่ทำ</p>
+                                   <p className="text-xs font-black text-gray-800 line-clamp-2 leading-relaxed" title={serviceName}>
+                                      {serviceName}
+                                   </p>
+                                   {qty > 1 && (
+                                      <span className="inline-block mt-1 text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.2 rounded-md">
+                                         ใช้งาน {qty} ครั้ง
+                                      </span>
+                                   )}
+                                </div>
+
+                                {/* Meta Tags: Branch, Type, Staff */}
+                                <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                                   <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-lg font-bold flex items-center gap-1">
+                                      <MapPin size={10} className="text-gray-400" />
+                                      {branchName}
+                                   </span>
+                                   <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-lg font-bold border border-indigo-100">
+                                      {typeStr}
+                                   </span>
+                                   {staffName && (
+                                      <span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-lg font-bold border border-amber-100" title={`ผู้ให้บริการ: ${staffName}`}>
+                                         👤 {staffName}
+                                      </span>
+                                   )}
+                                </div>
+                             </div>
+
+                             {/* Bottom Footer: Ref & Amount */}
+                             <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-100 text-[10px]">
+                                <div className="text-gray-400 font-mono truncate max-w-[160px]" title={`Ref: ${refKey} ${billNo ? `| บิล: ${billNo}` : ''}`}>
+                                   <span>Ref: {refKey !== '-' ? refKey : billNo || '-'}</span>
+                                </div>
+                                {amount > 0 ? (
+                                   <span className="font-black text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded-lg border border-orange-100">
+                                      ฿{amount.toLocaleString()}
+                                   </span>
+                                ) : (
+                                   <span className="text-[10px] text-gray-400 font-bold">
+                                      {isFreeUsage(h) ? '🎁 บริการฟรี' : 'ตัดจากคอร์ส'}
+                                   </span>
+                                )}
+                             </div>
+                          </div>
+                       );
+                    })}
+                 </div>
+
+                 {/* Empty State */}
+                 {filteredHistories.length === 0 && (
+                    <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-gray-200 p-8 shadow-sm">
+                       <HistoryIcon size={56} className="mx-auto text-gray-200 mb-3" />
+                       <h4 className="text-base font-black text-gray-800 mb-1">ไม่พบข้อมูลประวัติบริการ</h4>
+                       <p className="text-xs text-gray-400 max-w-md mx-auto mb-4">
+                          ไม่พบประวัติการใช้บริการที่ตรงกับตัวกรองที่เลือก ลองเปลี่ยนช่วงเวลา หมวดหมู่ หรือคำค้นหาใหม่
+                       </p>
+                       <button
+                          onClick={() => {
+                             setHistoryPeriodFilter('all');
+                             setHistoryBranchFilter('all');
+                             setHistoryCategoryFilter('all');
+                             setHistoryActionTypeFilter('all');
+                             setSearchInput('');
+                          }}
+                          className="px-4 py-2 bg-teal-50 hover:bg-teal-100 text-teal-700 rounded-xl text-xs font-bold transition-colors border border-teal-200"
+                       >
+                          ล้างตัวกรองเพื่อดูทั้งหมด
+                       </button>
+                    </div>
+                 )}
+
+                 {/* Load More Button */}
+                 {filteredHistories.length > historyLimit && (
+                    <div className="text-center pt-4 pb-6 flex items-center justify-center gap-3">
+                       <button
+                          onClick={() => setHistoryLimit(prev => prev + 60)}
+                          className="px-6 py-2.5 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 font-bold text-xs rounded-2xl shadow-sm hover:shadow transition-all active:scale-95 flex items-center gap-1.5"
+                       >
+                          <span>โหลดเพิ่มอีก 60 รายการ</span>
+                          <span className="text-[10px] text-gray-400 font-mono">({Math.min(filteredHistories.length, historyLimit + 60)} / {filteredHistories.length})</span>
+                       </button>
+                       <button
+                          onClick={() => setHistoryLimit(filteredHistories.length)}
+                          className="px-4 py-2.5 bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-700 font-bold text-xs rounded-2xl transition-all active:scale-95"
+                       >
+                          แสดงทั้งหมด ({filteredHistories.length})
+                       </button>
+                    </div>
+                 )}
               </div>
             </div>
           )}
