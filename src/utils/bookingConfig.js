@@ -69,3 +69,4 @@ export function calculateBookingDuration(serviceText, guestsCount = 1, config = 
   const maxCap = Number(cfg.maxBookingDuration || 180);
   return Math.min(maxCap, Math.max(15, totalDuration));
 }
+
