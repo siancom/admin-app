@@ -1594,6 +1594,10 @@ export default function App() {
           const br = String(rawBr).replace(/^สาขา/g, '').trim();
           
           if(!stats[br]) stats[br] = { total: 0, pending: 0, in_progress: 0, completed: 0 };
+          const rawSt = String(b.status || b["สถานะ"] || '').trim().toLowerCase();
+          const isCancelled = b.isCancelled || rawSt.includes('ยกเลิก') || rawSt.includes('cancel');
+          if (isCancelled) return;
+
           stats[br].total++;
           const st = getBookingStatus(b);
           if(st === 'รอการยืนยัน' || st === 'ยืนยันแล้ว') stats[br].pending++;
@@ -1607,7 +1611,17 @@ export default function App() {
   
   const bookingStats = useMemo(() => {
     const todayStr = getLocalYYYYMMDD(); 
+    const isCancelledBooking = (b) => {
+        if (!b) return true;
+        if (b.isCancelled) return true;
+        const rawSt = String(b.status || b["สถานะ"] || '').trim().toLowerCase();
+        if (rawSt.includes('ยกเลิก') || rawSt.includes('cancel')) return true;
+        const st = getBookingStatus(b);
+        return st === 'ยกเลิก';
+    };
+
     const todayUpcoming = bookings.filter(b => {
+        if (isCancelledBooking(b)) return false;
         const dt = getSafeDateTime(b);
         const st = getBookingStatus(b);
         const isToday = dt && dt.startsWith(todayStr);
@@ -1616,16 +1630,16 @@ export default function App() {
     }).length;
 
     const todayAll = bookings.filter(b => {
+        if (isCancelledBooking(b)) return false;
         const dt = getSafeDateTime(b);
-        const st = getBookingStatus(b);
         const isToday = dt && dt.startsWith(todayStr);
-        return isToday && st !== 'ยกเลิก' && st !== 'ยกเลิกฉุกเฉิน' && st !== 'ยกเลิกโดยลูกค้า';
+        return isToday;
     }).length;
 
     return { 
-        total: bookings.length, 
-        pending: bookings.filter(b => getBookingStatus(b) === 'รอการยืนยัน').length, 
-        confirmed: bookings.filter(b => getBookingStatus(b) === 'ยืนยันแล้ว').length, 
+        total: bookings.filter(b => !isCancelledBooking(b)).length, 
+        pending: bookings.filter(b => !isCancelledBooking(b) && getBookingStatus(b) === 'รอการยืนยัน').length, 
+        confirmed: bookings.filter(b => !isCancelledBooking(b) && getBookingStatus(b) === 'ยืนยันแล้ว').length, 
         today: todayAll,
         todayUpcoming: todayUpcoming,
         badgeCount: todayUpcoming // ป้ายแจ้งเตือนแสดงเฉพาะคิวทั้งหมดของวันที่ปัจจุบันที่ยังไม่ถึงคิว!
