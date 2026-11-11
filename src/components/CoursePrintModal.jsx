@@ -1,9 +1,10 @@
-import React, { useRef, useEffect } from 'react';
-import { Printer, X, ShieldCheck, QrCode, FileText } from 'lucide-react';
+import React, { useRef, useEffect, useState } from 'react';
+import { Printer, X, ShieldCheck, QrCode, FileText, Database } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useReactToPrint } from 'react-to-print';
 import { getFuzzyKey } from '../utils/fuzzy';
 import { parseNumber, parseQty } from '../utils/parse';
+import CourseDataInspectorModal from './CourseDataInspectorModal';
 import {
   isUsageType,
   isAddType,
@@ -91,9 +92,17 @@ export function CoursePrintSheet({
     Number(course.computedRemainQty ?? (totalSessions - usedSessions))
   );
 
-  const totalCredit = Number(course.computedTotalCredit || 0);
-  const usedCredit = Number(course.computedUsedCredit || 0);
-  const remainCredit = Number(course.computedRemainCredit || 0);
+  let totalCredit = Number(course.computedTotalCredit || 0);
+  // 🛡️ Fallback sanity check:
+  // If totalCredit equals totalSessions (<= 20) or is less than 50, and course is not explicitly a credit program,
+  // ignore accidental session count stored in credit column in legacy sheets
+  const cleanName = String(courseName).toLowerCase();
+  const isCashCredit = cleanName.includes('เครดิต') || cleanName.includes('วงเงิน') || cleanName.includes('voucher') || cleanName.includes('บัตรกำนัล');
+  if (totalCredit > 0 && !isCashCredit && ((totalCredit <= 20 && totalCredit === totalSessions) || totalCredit < 50)) {
+    totalCredit = 0;
+  }
+  const usedCredit = totalCredit > 0 ? Number(course.computedUsedCredit || 0) : 0;
+  const remainCredit = totalCredit > 0 ? Number(course.computedRemainCredit || (totalCredit - usedCredit)) : 0;
 
   let includedItemsRaw = String(getFuzzyKey(course, ['รายการที่ได้รับ', 'col_11']) || '').trim();
   if (!includedItemsRaw && Array.isArray(masterCourses) && masterCourses.length > 0) {
@@ -688,6 +697,7 @@ export default function CoursePrintModal({
   onBack
 }) {
   const printContainerRef = useRef(null);
+  const [inspectorCourse, setInspectorCourse] = useState(null);
 
   const firstRef = courses[0] ? getCourseQrValue(courses[0]) : 'Course';
   const docTitle = courses.length > 1
@@ -759,6 +769,15 @@ export default function CoursePrintModal({
         <div className="flex items-center gap-2.5">
           <button
             type="button"
+            onClick={() => setInspectorCourse(courses[0])}
+            className="px-3.5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors border border-indigo-200"
+            title="ตรวจสอบที่มาของข้อมูลใบคอร์สและฟิลด์ในฐานข้อมูล"
+          >
+            <Database size={15} />
+            <span>ที่มาข้อมูลใบคอร์ส</span>
+          </button>
+          <button
+            type="button"
             onClick={() => handlePrint()}
             className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-black text-sm flex items-center gap-2 shadow-md shadow-teal-600/20 active:scale-95 transition-all"
           >
@@ -790,6 +809,14 @@ export default function CoursePrintModal({
           ))}
         </div>
       </div>
+
+      {/* 🌟 Data Origin & Source Inspector Modal 🌟 */}
+      <CourseDataInspectorModal
+        isOpen={!!inspectorCourse}
+        course={inspectorCourse}
+        masterCourses={masterCourses}
+        onClose={() => setInspectorCourse(null)}
+      />
     </div>
   );
 }

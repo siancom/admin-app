@@ -122,6 +122,7 @@ import IShipBookingModal from './components/IShipBookingModal';
 import ShippingLabelModal from './components/ShippingLabelModal';
 import CoursePrintModal from './components/CoursePrintModal';
 import CloseCourseModal from './components/CloseCourseModal';
+import CourseDataInspectorModal from './components/CourseDataInspectorModal';
 import AddressManagerModal from './components/AddressManagerModal';
 import { fetch17Track } from './utils/wooProxy';
 // 📦 17TRACK — แปลงสถานะพัสดุเป็นไทย (ใช้ร่วมทุกหน้าที่แสดง trackingInfo)
@@ -287,6 +288,7 @@ export default function App() {
   const [isSelectCoursesToPrintOpen, setIsSelectCoursesToPrintOpen] = useState(false);
   const [selectedCoursesForPrint, setSelectedCoursesForPrint] = useState([]);
   const [closeCourseModalData, setCloseCourseModalData] = useState({ isOpen: false, course: null });
+  const [inspectorCourse, setInspectorCourse] = useState(null);
 
   const [bookingTicket, setBookingTicket] = useState(null);
   const [orderTicket, setOrderTicket] = useState(null);
@@ -1435,15 +1437,33 @@ export default function App() {
 
       if (String(getFuzzyKey(course, "สถานะ") || '') === 'หมดอายุ') status = "หมดอายุ";
 
-      const rawExplicitCredit = getFuzzyKey(course, ["เครดิตที่ได้รับ", "เครดิตที่ได้", "เครดิตทั้งหมด", "ยอดเครดิต", "วงเงินคอร์ส", "เครดิต", "วงเงิน", "วงเงินที่ได้รับ", "มูลค่าเครดิต", "col_14"]);
+      const rawExplicitCredit = getFuzzyKey(course, ["เครดิตที่ได้รับ", "เครดิตที่ได้", "เครดิตทั้งหมด", "ยอดเครดิต", "วงเงินคอร์ส", "เครดิต", "วงเงิน", "วงเงินที่ได้รับ", "มูลค่าเครดิต"]);
       const coursePrice = parseNumber(getFuzzyKey(course, ["ราคา", "ราคาคอร์ส", "ยอดเต็ม", "ยอดเงิน", "จำนวนเงิน", "ยอดสุทธิ", "ราคาขาย", "col_13"]));
       
       let initialCredit = rawExplicitCredit !== undefined && rawExplicitCredit !== '' ? parseNumber(rawExplicitCredit) : 0;
       
-      if (initialCredit === 0 && coursePrice > 0) {
-          if (cleanCourseName.includes('เครดิต') || cleanCourseName.includes('วงเงิน') || cleanCourseName.includes('voucher') || cleanCourseName.includes('บัตรกำนัล') || cleanCourseName.includes('เติมเงิน') || cleanCourseName.includes('ฝากเงิน')) {
-              initialCredit = coursePrice;
-          }
+      const isExplicitCashCreditProgram = 
+        cleanCourseName.includes('เครดิต') || 
+        cleanCourseName.includes('วงเงิน') || 
+        cleanCourseName.includes('voucher') || 
+        cleanCourseName.includes('บัตรกำนัล') || 
+        cleanCourseName.includes('เติมเงิน') || 
+        cleanCourseName.includes('ฝากเงิน');
+
+      if (initialCredit === 0 && coursePrice > 0 && isExplicitCashCreditProgram) {
+        initialCredit = coursePrice;
+      }
+
+      // 🛡️ Auto-sanitize accidental session counts stored in credit column
+      // e.g. "หน้าใสครบขั้นตอน 3ครั้ง798" having credit = 3, or "ริดพิกเม้น 10ครั้ง" having credit = 10
+      const isAccidentalSessionCredit = initialCredit > 0 && !isExplicitCashCreditProgram && (
+        (initialCredit <= 20 && initialCredit === currentTotal) || 
+        initialCredit < 50
+      );
+
+      const rawCreditBeforeSanitize = initialCredit;
+      if (isAccidentalSessionCredit) {
+        initialCredit = 0;
       }
       
       const courseOldBerq = parseNumber(getFuzzyKey(course, ["ยอดเบิกดิบ", "เบิกไปแล้ว", "ยอดเบิก", "ใช้เครดิต", "หักเครดิต", "col_15"]));
@@ -1485,6 +1505,9 @@ export default function App() {
         computedTotalCredit: initialCredit, 
         computedUsedCredit: finalBerqAmount, 
         computedRemainCredit: remainingCredit, 
+        rawExplicitCredit,
+        rawCreditBeforeSanitize,
+        isAccidentalSessionCredit,
         computedRealPrice: coursePrice,
         computedPendingAmount: pendingAmt,
         computedExpireDate: expireStr || '-', 
@@ -6952,13 +6975,43 @@ const flexMessage = {
           <div className="bg-white w-full max-w-3xl rounded-[32px] shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-in zoom-in-95 border border-gray-100">
              <div className="p-6 sm:p-8 border-b border-gray-100 flex justify-between items-start bg-gradient-to-r from-teal-500 to-emerald-500 text-white relative">
                 <div className="absolute right-0 top-0 w-48 h-48 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl pointer-events-none"></div>
-                <div className="relative z-10">
-                   <h2 className="text-2xl sm:text-3xl font-black mb-1 pr-8">{String(getFuzzyKey(selectedCourse, ["ชื่อคอส", "col_8"]) || '-')}</h2>
-                   <p className="font-mono text-white/80">Ref: {String(getFuzzyKey(selectedCourse, ["เลขที่ใบคอส", "col_2"]) || '-')}</p>
+                <div className="relative z-10 flex-1 min-w-0 pr-4">
+                   <div className="flex items-center gap-2.5 flex-wrap mb-1">
+                     <h2 className="text-2xl sm:text-3xl font-black">{String(getFuzzyKey(selectedCourse, ["ชื่อคอส", "col_8"]) || '-')}</h2>
+                     <button
+                       onClick={() => setInspectorCourse(selectedCourse)}
+                       className="bg-white/20 hover:bg-white/30 text-white px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all backdrop-blur-sm border border-white/20 active:scale-95 shadow-2xs"
+                       title="ดูที่มาของข้อมูลใบคอร์สและฟิลด์ดิบในฐานข้อมูล"
+                     >
+                       <Database size={13} />
+                       <span>ที่มาข้อมูลใบคอร์ส</span>
+                     </button>
+                   </div>
+                   <p className="font-mono text-white/80 text-xs">Ref: {String(getFuzzyKey(selectedCourse, ["เลขที่ใบคอส", "col_2"]) || '-')}</p>
                 </div>
                 <button onClick={() => setSelectedCourse(null)} className="p-2 bg-white/10 rounded-full hover:bg-white/20 relative z-10 shrink-0"><X size={20}/></button>
              </div>
              <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-gray-50/50">
+                {/* 🌟 Informative banner if accidental session credit detected 🌟 */}
+                {selectedCourse.isAccidentalSessionCredit && (
+                  <div className="mb-6 bg-amber-50/90 border border-amber-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-2xs">
+                    <div className="flex items-start gap-2.5">
+                      <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-black text-amber-950 text-sm">ตรวจพบที่มาของวงเงินเครดิต ฿{selectedCourse.rawExplicitCredit} บาท (มาจากจำนวนครั้ง)</p>
+                        <p className="text-xs text-amber-800 mt-0.5">
+                          ใบคอร์สนี้เป็นคอร์สบริการ {selectedCourse.computedTotalQty} ครั้ง ซึ่งในระบบเดิม (AppSheet) มีการกรอกเลข {selectedCourse.rawExplicitCredit} ซ้ำในช่อง "เครดิตที่ได้รับ" ระบบใหม่ได้ปรับตัดเป็น ฿0 ให้แล้ว
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setInspectorCourse(selectedCourse)}
+                      className="px-3.5 py-1.5 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold shrink-0 shadow-2xs transition-colors"
+                    >
+                      ดูที่มา / ล้างฟิลด์ใน DB
+                    </button>
+                  </div>
+                )}
                 {/* 🌟 Closed Course Banner 🌟 */}
                 {(selectedCourse.isClosed || selectedCourse.computedStatus === 'ปิดคอร์สแล้ว') && (
                   <div className="mb-6 bg-gradient-to-r from-rose-50 via-red-50 to-amber-50 border-2 border-rose-300 rounded-3xl p-5 shadow-sm relative overflow-hidden">
@@ -8912,6 +8965,18 @@ const flexMessage = {
             setSelectedCourse(prev => ({ ...prev, ...updatedCourse }));
           }
         }}
+        showToast={showToast}
+      />
+      <CourseDataInspectorModal
+        isOpen={!!inspectorCourse}
+        course={inspectorCourse}
+        masterCourses={masterCourses}
+        onCourseUpdated={(updatedCourse) => {
+          if (selectedCourse && (selectedCourse.id === updatedCourse.id || selectedCourse.courseRefKey === updatedCourse.courseRefKey)) {
+            setSelectedCourse(prev => ({ ...prev, ...updatedCourse }));
+          }
+        }}
+        onClose={() => setInspectorCourse(null)}
         showToast={showToast}
       />
     </div>
