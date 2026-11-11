@@ -9,7 +9,7 @@ import {
   Camera, Image as ImageIcon, ShieldCheck, ShieldAlert, RefreshCcw, PenTool,
   Bell, List, LayoutGrid, ScanLine, CalendarDays, ChevronLeft, ChevronUp, ChevronDown, BarChart3, Store, UserCheck, Wallet, Loader2, Scissors, Ticket, Gift,
   Send, MessageSquare, ToggleLeft, ToggleRight, TestTube, ExternalLink, Zap, Target, Droplet, Syringe, Pill, Truck, Star,
-  Filter, RotateCcw
+  Filter, RotateCcw, Lock, Unlock
 } from 'lucide-react';
 
 // --- SERVICE TYPE HELPER ---
@@ -121,6 +121,7 @@ import CreditManagementModal from './components/CreditManagementModal';
 import IShipBookingModal from './components/IShipBookingModal';
 import ShippingLabelModal from './components/ShippingLabelModal';
 import CoursePrintModal from './components/CoursePrintModal';
+import CloseCourseModal from './components/CloseCourseModal';
 import AddressManagerModal from './components/AddressManagerModal';
 import { fetch17Track } from './utils/wooProxy';
 // 📦 17TRACK — แปลงสถานะพัสดุเป็นไทย (ใช้ร่วมทุกหน้าที่แสดง trackingInfo)
@@ -285,6 +286,7 @@ export default function App() {
   const [isPrintCourseSummaryMode, setIsPrintCourseSummaryMode] = useState(false);
   const [isSelectCoursesToPrintOpen, setIsSelectCoursesToPrintOpen] = useState(false);
   const [selectedCoursesForPrint, setSelectedCoursesForPrint] = useState([]);
+  const [closeCourseModalData, setCloseCourseModalData] = useState({ isOpen: false, course: null });
 
   const [bookingTicket, setBookingTicket] = useState(null);
   const [orderTicket, setOrderTicket] = useState(null);
@@ -1324,8 +1326,19 @@ export default function App() {
       finalUsed = Math.min(currentTotal, finalUsed);
       let remaining = Math.max(0, currentTotal - finalUsed);
       
+      const isCourseClosed = Boolean(
+        course.isClosed || 
+        String(getFuzzyKey(course, ["สถานะ", "status"]) || '').trim() === 'ปิดคอร์สแล้ว' || 
+        String(getFuzzyKey(course, ["สถานะ", "status"]) || '').trim() === 'ปิดคอร์ส'
+      );
+      if (isCourseClosed && (course.closeReason === 'ใช้บริการครบแล้วในใบคอร์สกระดาษเดิม' || Number(course.paperUsedQty) >= currentTotal)) {
+        finalUsed = currentTotal;
+        remaining = 0;
+      }
+
       let status = getFuzzyKey(course, "สถานะ") || "ยังคงเหลือ";
       if (remaining <= 0 && currentTotal > 0) status = "ใช้ครบแล้ว";
+      if (isCourseClosed) status = "ปิดคอร์สแล้ว";
       
       let expireStr = getFuzzyKey(course, ["วันหมดอายุ", "expireDate", "วันที่สิ้นสุด"]);
       const purchaseDateStr = getFuzzyKey(course, ["วันที่ซื้อ", "col_3"]);
@@ -1463,6 +1476,12 @@ export default function App() {
         computedUsedQty: finalUsed, 
         computedRemainQty: remaining, 
         computedStatus: status, 
+        isClosed: isCourseClosed,
+        closeReason: course.closeReason || (isCourseClosed ? 'ปิดคอร์สแล้ว' : null),
+        closeNote: course.closeNote || '',
+        closedAt: course.closedAt || null,
+        closedBy: course.closedBy || null,
+        paperCoursePhotos: Array.isArray(course.paperCoursePhotos) ? course.paperCoursePhotos : (course.paperCoursePhotoUrl ? [course.paperCoursePhotoUrl] : []),
         computedTotalCredit: initialCredit, 
         computedUsedCredit: finalBerqAmount, 
         computedRemainCredit: remainingCredit, 
@@ -1774,17 +1793,19 @@ export default function App() {
   const sortedHistories = filteredHistories;
 
   const stats = useMemo(() => {
-    const activeCoursesList = processedCourses.filter(c => c.computedRemainQty > 0);
+    const activeCoursesList = processedCourses.filter(c => c.computedRemainQty > 0 && !c.isClosed && c.computedStatus !== 'ปิดคอร์สแล้ว');
     const activeCustomersSet = new Set(activeCoursesList.map(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '')).filter(Boolean));
     return {
       total: processedCourses.length, active: activeCoursesList.length,
       totalCustomers: customers.length, completed: processedCourses.filter(c => c.computedStatus === 'ใช้ครบแล้ว').length,
-      expired: processedCourses.filter(c => c.computedStatus === 'หมดอายุ').length, activeCustomers: activeCustomersSet.size
+      expired: processedCourses.filter(c => c.computedStatus === 'หมดอายุ').length, 
+      closed: processedCourses.filter(c => c.computedStatus === 'ปิดคอร์สแล้ว').length,
+      activeCustomers: activeCustomersSet.size
     };
   }, [processedCourses, customers]);
 
   const courseSummaryStats = useMemo(() => {
-    const makeCounts = () => ({ active: 0, completed: 0, expired: 0, total: 0 });
+    const makeCounts = () => ({ active: 0, completed: 0, closed: 0, expired: 0, total: 0 });
     const ipl = makeCounts();
     const rakrae = makeCounts();
     const longKreung = makeCounts();
@@ -1803,11 +1824,13 @@ export default function App() {
       const status = c.computedStatus;
       const isActive = status === 'ยังคงเหลือ';
       const isCompleted = status === 'ใช้ครบแล้ว';
+      const isClosed = status === 'ปิดคอร์สแล้ว';
       const isExpired = status === 'หมดอายุ';
       
       // Helper to increment counts for a category
       const increment = (obj) => {
         if (isActive) obj.active++;
+        else if (isClosed) obj.closed++;
         else if (isCompleted) obj.completed++;
         else if (isExpired) obj.expired++;
         obj.total++;
@@ -5859,7 +5882,13 @@ const flexMessage = {
                         <option value="pos">ระบบใหม่ (POS)</option>
                         <option value="legacy">ระบบเก่า</option>
                     </select>
-                    <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="bg-gray-50 rounded-xl px-3 py-2 text-sm font-bold flex-1 sm:w-auto min-w-[120px] outline-none border border-gray-200"><option value="all">สถานะทั้งหมด</option><option value="ยังคงเหลือ">ยังคงเหลือ</option><option value="ใช้ครบแล้ว">ใช้ครบแล้ว</option><option value="หมดอายุ">หมดอายุ</option></select>
+                    <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="bg-gray-50 rounded-xl px-3 py-2 text-sm font-bold flex-1 sm:w-auto min-w-[120px] outline-none border border-gray-200">
+                      <option value="all">สถานะทั้งหมด</option>
+                      <option value="ยังคงเหลือ">ยังคงเหลือ</option>
+                      <option value="ใช้ครบแล้ว">ใช้ครบแล้ว</option>
+                      <option value="ปิดคอร์สแล้ว">ปิดคอร์สแล้ว</option>
+                      <option value="หมดอายุ">หมดอายุ</option>
+                    </select>
                     <div className="flex items-center gap-1.5 flex-1 sm:flex-initial min-w-[120px]">
                         <input type="date" value={courseDateFilter.from} onChange={(e) => setCourseDateFilter(prev => ({ ...prev, from: e.target.value }))} className="bg-amber-50 text-amber-700 rounded-xl px-2 py-2 text-xs font-bold w-full sm:w-auto outline-none border border-amber-200" title="วันที่ซื้อ - ตั้งแต่" />
                         <span className="text-gray-400 text-xs font-bold shrink-0">—</span>
@@ -5873,14 +5902,33 @@ const flexMessage = {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 pb-10">
                 {filteredCourses.slice(0, 100).map((course, idx) => {
                   const isPendingPayment = course.computedPendingAmount > 0;
+                  const isClosed = course.isClosed || course.computedStatus === 'ปิดคอร์สแล้ว';
+                  const isCompleted = course.computedStatus === 'ใช้ครบแล้ว';
                   const courseCustomerPhone = String(getFuzzyKey(course, ["เบอร์โทร", "col_1"]) || '');
                   const picData = getProfilePicData({customerPhone: courseCustomerPhone}, customersRaw);
                   return (
-                    <div key={idx} className={`bg-white border-2 ${isPendingPayment ? 'border-red-100 shadow-red-100/50' : 'border-gray-100'} rounded-[24px] p-5 shadow-sm hover:shadow-lg transition-all cursor-pointer relative overflow-hidden group flex flex-col`} onClick={() => setSelectedCourse(course)}>
-                       <div className={`absolute top-0 left-0 w-1.5 h-full ${isPendingPayment ? 'bg-red-400' : course.computedStatus === 'ยังคงเหลือ' ? 'bg-gradient-to-b from-teal-400 to-emerald-500' : course.computedStatus === 'หมดอายุ' ? 'bg-gradient-to-b from-rose-400 to-red-500' : 'bg-gray-300'}`}></div>
+                    <div key={idx} className={`bg-white border-2 ${isClosed ? 'border-rose-100 bg-rose-50/10' : isPendingPayment ? 'border-red-100 shadow-red-100/50' : 'border-gray-100'} rounded-[24px] p-5 shadow-sm hover:shadow-lg transition-all cursor-pointer relative overflow-hidden group flex flex-col`} onClick={() => setSelectedCourse(course)}>
+                       <div className={`absolute top-0 left-0 w-1.5 h-full ${isClosed ? 'bg-gradient-to-b from-rose-600 to-red-700' : isPendingPayment ? 'bg-red-400' : course.computedStatus === 'ยังคงเหลือ' ? 'bg-gradient-to-b from-teal-400 to-emerald-500' : course.computedStatus === 'หมดอายุ' ? 'bg-gradient-to-b from-rose-400 to-red-500' : 'bg-gray-300'}`}></div>
+                       
+                       {/* 🌟 Watermark Stamp Overlay 🌟 */}
+                       {isClosed && (
+                         <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10 select-none overflow-hidden">
+                           <div className="border-[3px] border-rose-600/35 text-rose-600/40 font-black text-sm tracking-widest px-3 py-1 rounded-xl rotate-[-18deg] uppercase select-none shadow-sm backdrop-blur-[0.5px]">
+                             ปิดคอร์สแล้ว
+                           </div>
+                         </div>
+                       )}
+                       {!isClosed && isCompleted && (
+                         <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-10 select-none overflow-hidden">
+                           <div className="border-[3px] border-blue-600/25 text-blue-600/30 font-black text-sm tracking-widest px-3 py-1 rounded-xl rotate-[-18deg] uppercase select-none shadow-sm">
+                             ใช้ครบแล้ว
+                           </div>
+                         </div>
+                       )}
+
                        <div className="flex justify-between items-start mb-3 pl-2 relative">
                           <div className="font-bold text-teal-700 text-sm line-clamp-1 pr-6">{String(getFuzzyKey(course, ["ชื่อคอส", "col_8"]) || '-')}</div>
-                          <span className={`px-2 py-1 rounded-lg text-[9px] font-black shrink-0 absolute right-0 top-0 ${course.computedStatus === 'ยังคงเหลือ' ? 'bg-teal-50 text-teal-700 border border-teal-200' : course.computedStatus === 'ใช้ครบแล้ว' ? 'bg-blue-50 text-blue-700 border border-blue-200' : course.computedStatus === 'หมดอายุ' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-gray-100 text-gray-600 border border-gray-200'}`}>{course.computedStatus}</span>
+                          <span className={`px-2 py-1 rounded-lg text-[9px] font-black shrink-0 absolute right-0 top-0 ${isClosed ? 'bg-rose-50 text-rose-700 border border-rose-300 shadow-sm' : course.computedStatus === 'ยังคงเหลือ' ? 'bg-teal-50 text-teal-700 border border-teal-200' : course.computedStatus === 'ใช้ครบแล้ว' ? 'bg-blue-50 text-blue-700 border border-blue-200' : course.computedStatus === 'หมดอายุ' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-gray-100 text-gray-600 border border-gray-200'}`}>{course.computedStatus}</span>
                        </div>
                         <div className="pl-2 flex-1">
                             <div className="flex items-center gap-2 mb-2">
@@ -5899,12 +5947,17 @@ const flexMessage = {
                                     </button>
                                 )}
                             </div>
-                            <div className="text-[10px] text-gray-500 font-mono mb-2 flex items-center gap-2">
+                            <div className="text-[10px] text-gray-500 font-mono mb-2 flex items-center gap-1.5 flex-wrap">
                                 <span>{courseCustomerPhone || '-'}</span>
                                 {String(course.courseRefKey || '').startsWith('IC') ? (
                                     <span className="text-[8px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">POS</span>
                                 ) : (
                                     <span className="text-[8px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-bold">เก่า</span>
+                                )}
+                                {course.paperCoursePhotos?.length > 0 && (
+                                    <span className="text-[8px] bg-teal-50 text-teal-700 border border-teal-200 px-1.5 py-0.5 rounded font-bold flex items-center gap-0.5" title="มีรูปถ่ายใบคอร์สกระดาษเดิมแนบไว้">
+                                        <Camera size={9} /> ใบกระดาษ ({course.paperCoursePhotos.length})
+                                    </span>
                                 )}
                             </div>
                             <div className="flex flex-wrap gap-1 mb-2">
@@ -5931,7 +5984,11 @@ const flexMessage = {
                         </div>
                         <div className="flex justify-between items-center mt-auto pt-3 border-t border-gray-50 pl-2">
                            <p className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded-md">ใช้ไป {course.computedUsedQty}/{course.computedTotalQty}</p>
-                           <p className="text-sm font-bold text-teal-600">เหลือ {course.computedRemainQty}</p>
+                           {isClosed ? (
+                             <p className="text-sm font-black text-rose-600">ปิดคอร์สแล้ว</p>
+                           ) : (
+                             <p className="text-sm font-bold text-teal-600">เหลือ {course.computedRemainQty}</p>
+                           )}
                         </div>
                     </div>
                   )
@@ -6902,6 +6959,96 @@ const flexMessage = {
                 <button onClick={() => setSelectedCourse(null)} className="p-2 bg-white/10 rounded-full hover:bg-white/20 relative z-10 shrink-0"><X size={20}/></button>
              </div>
              <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-gray-50/50">
+                {/* 🌟 Closed Course Banner 🌟 */}
+                {(selectedCourse.isClosed || selectedCourse.computedStatus === 'ปิดคอร์สแล้ว') && (
+                  <div className="mb-6 bg-gradient-to-r from-rose-50 via-red-50 to-amber-50 border-2 border-rose-300 rounded-3xl p-5 shadow-sm relative overflow-hidden">
+                    <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
+                      <div className="flex items-start gap-3.5">
+                        <div className="w-11 h-11 rounded-2xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-md">
+                          <Lock size={22} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-black text-rose-900 text-base">ใบคอร์สนี้ถูกปิดคอร์สแล้ว (Closed)</h3>
+                            <span className="text-[10px] font-bold bg-rose-200 text-rose-800 px-2 py-0.5 rounded-full">จบคอร์สสมบูรณ์</span>
+                          </div>
+                          <p className="text-xs text-rose-700 font-bold mt-1">
+                            สาเหตุการปิดคอร์ส: <span className="font-black text-rose-950 underline">{selectedCourse.closeReason || 'ปิดคอร์ส'}</span>
+                          </p>
+                          {selectedCourse.closeNote && (
+                            <p className="text-xs text-rose-800 mt-1.5 bg-white/80 p-2.5 rounded-xl border border-rose-200 font-medium">
+                              📝 หมายเหตุ: {selectedCourse.closeNote}
+                            </p>
+                          )}
+                          <div className="text-[11px] text-rose-600/90 mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                            {selectedCourse.closedAt && <span>📅 ปิดเมื่อ: {new Date(selectedCourse.closedAt).toLocaleString('th-TH')}</span>}
+                            {selectedCourse.closedBy && <span>👤 ผู้ดำเนินการ: {selectedCourse.closedBy}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => setCloseCourseModalData({ isOpen: true, course: selectedCourse })}
+                        className="bg-white hover:bg-rose-100 text-rose-700 border border-rose-300 px-3.5 py-2 rounded-xl text-xs font-black shadow-sm transition-all shrink-0 active:scale-95"
+                      >
+                        จัดการ / เปิดคอร์สใหม่
+                      </button>
+                    </div>
+
+                    {/* Paper Photos Gallery Preview */}
+                    {selectedCourse.paperCoursePhotos && selectedCourse.paperCoursePhotos.length > 0 && (
+                      <div className="mt-4 pt-3.5 border-t border-rose-200">
+                        <p className="text-xs font-black text-rose-900 mb-2 flex items-center gap-1.5">
+                          <Camera size={14} className="text-rose-700" />
+                          รูปถ่ายใบคอร์สกระดาษเดิมที่แนบไว้ ({selectedCourse.paperCoursePhotos.length} รูป):
+                        </p>
+                        <div className="flex flex-wrap gap-2.5">
+                          {selectedCourse.paperCoursePhotos.map((url, pIdx) => (
+                            <a 
+                              key={pIdx} 
+                              href={url} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="w-20 h-20 rounded-2xl border-2 border-rose-200 overflow-hidden shadow-sm hover:scale-105 transition-all block relative group bg-white"
+                              title="คลิกเพื่อดูรูปขนาดเต็ม"
+                            >
+                              <img src={url} alt={`Paper ${pIdx + 1}`} className="w-full h-full object-cover" />
+                              <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                                <Eye size={18} />
+                              </div>
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Paper Photos banner if course is not closed but has paper photos attached */}
+                {!(selectedCourse.isClosed || selectedCourse.computedStatus === 'ปิดคอร์สแล้ว') && selectedCourse.paperCoursePhotos && selectedCourse.paperCoursePhotos.length > 0 && (
+                  <div className="mb-6 bg-teal-50/70 border border-teal-200 rounded-2xl p-4 shadow-sm flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Camera size={20} className="text-teal-600" />
+                      <div>
+                        <p className="text-xs font-black text-teal-900">มีรูปถ่ายใบคอร์สกระดาษเดิม ({selectedCourse.paperCoursePhotos.length} รูป)</p>
+                        <p className="text-[10px] text-teal-700">สามารถคลิกดูรูปหรือกดจัดการปิดคอร์สเพื่ออัปเดตสถานะได้</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex -space-x-2 overflow-hidden">
+                        {selectedCourse.paperCoursePhotos.slice(0, 3).map((url, i) => (
+                          <img key={i} src={url} alt="Paper" className="inline-block h-8 w-8 rounded-full ring-2 ring-white object-cover" />
+                        ))}
+                      </div>
+                      <button 
+                        onClick={() => setCloseCourseModalData({ isOpen: true, course: selectedCourse })}
+                        className="bg-white hover:bg-teal-100 text-teal-800 border border-teal-300 px-3 py-1.5 rounded-xl text-xs font-bold shadow-sm"
+                      >
+                        ดูรูป / ปิดคอร์ส
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
                       {(() => {
@@ -6922,7 +7069,13 @@ const flexMessage = {
                    </div>
                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 text-right flex flex-col justify-center">
                       <p className="text-[10px] font-bold text-gray-400 uppercase">สถานะปัจจุบัน</p>
-                      <p className={`font-black text-2xl ${selectedCourse.computedRemainQty > 0 ? 'text-teal-600' : 'text-gray-500'}`}>{selectedCourse.computedStatus}</p>
+                      <p className={`font-black text-2xl ${
+                        selectedCourse.isClosed || selectedCourse.computedStatus === 'ปิดคอร์สแล้ว'
+                          ? 'text-rose-600'
+                          : selectedCourse.computedRemainQty > 0 
+                            ? 'text-teal-600' 
+                            : 'text-gray-500'
+                      }`}>{selectedCourse.computedStatus}</p>
                    </div>
                 </div>
                 
@@ -6963,14 +7116,53 @@ const flexMessage = {
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-                   <button onClick={() => {
-                     setPosPreselectedCustomer(selectedCustomer);
-                     setActiveTab('pos');
-                     setSelectedCustomer(null);
-                     window.scrollTo({ top: 0, behavior: 'smooth' });
-                   }} className="bg-teal-500 hover:bg-teal-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-teal-500/30 flex items-center justify-center text-lg active:scale-95 transition-all"><CheckCircle className="mr-2"/> รับบริการ / เบิกสินค้า (POS)</button>
-                   <button onClick={() => setIsPrintSingleCourseMode(true)} className="bg-gray-900 hover:bg-gray-800 text-white py-4 rounded-2xl font-black shadow-lg flex items-center justify-center text-lg active:scale-95 transition-all"><Printer className="mr-2"/> พิมพ์ใบคอร์ส</button>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
+                   <button 
+                     disabled={selectedCourse.isClosed || selectedCourse.computedStatus === 'ปิดคอร์สแล้ว'}
+                     onClick={() => {
+                       if (selectedCourse.isClosed || selectedCourse.computedStatus === 'ปิดคอร์สแล้ว') {
+                         showToast('คอร์สนี้ถูกปิดแล้ว ไม่สามารถตัดใช้บริการได้', 'error');
+                         return;
+                       }
+                       setPosPreselectedCustomer(selectedCustomer);
+                       setActiveTab('pos');
+                       setSelectedCustomer(null);
+                       window.scrollTo({ top: 0, behavior: 'smooth' });
+                     }} 
+                     className={`py-3.5 rounded-2xl font-black shadow-lg flex items-center justify-center text-sm active:scale-95 transition-all ${
+                       selectedCourse.isClosed || selectedCourse.computedStatus === 'ปิดคอร์สแล้ว'
+                         ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+                         : 'bg-teal-500 hover:bg-teal-600 text-white shadow-teal-500/30'
+                     }`}
+                   >
+                     <CheckCircle className="mr-1.5" size={18} /> รับบริการ / เบิก (POS)
+                   </button>
+
+                   <button 
+                     onClick={() => setIsPrintSingleCourseMode(true)} 
+                     className="bg-gray-900 hover:bg-gray-800 text-white py-3.5 rounded-2xl font-black shadow-lg flex items-center justify-center text-sm active:scale-95 transition-all"
+                   >
+                     <Printer className="mr-1.5" size={18} /> พิมพ์ใบคอร์ส
+                   </button>
+
+                   <button 
+                     onClick={() => setCloseCourseModalData({ isOpen: true, course: selectedCourse })}
+                     className={`py-3.5 rounded-2xl font-black shadow-sm border flex items-center justify-center text-sm active:scale-95 transition-all ${
+                       selectedCourse.isClosed || selectedCourse.computedStatus === 'ปิดคอร์สแล้ว'
+                         ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                         : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300'
+                     }`}
+                   >
+                     {selectedCourse.isClosed || selectedCourse.computedStatus === 'ปิดคอร์สแล้ว' ? (
+                       <>
+                         <Lock className="mr-1.5" size={18} /> จัดการปิดคอร์ส / ใบกระดาษ
+                       </>
+                     ) : (
+                       <>
+                         <Lock className="mr-1.5 text-rose-600" size={18} /> ปิดคอร์ส / แนบใบกระดาษ
+                       </>
+                     )}
+                   </button>
                 </div>
 
                 {(() => {
@@ -8709,6 +8901,18 @@ const flexMessage = {
         isOpen={isAddressManagerOpen} 
         onClose={() => setIsAddressManagerOpen(false)} 
         customers={customers} 
+      />
+      <CloseCourseModal 
+        isOpen={closeCourseModalData.isOpen} 
+        course={closeCourseModalData.course} 
+        activeStaff={activeStaff} 
+        onClose={() => setCloseCourseModalData({ isOpen: false, course: null })} 
+        onSuccess={(updatedCourse) => {
+          if (selectedCourse && (selectedCourse.id === updatedCourse.id || selectedCourse.courseRefKey === updatedCourse.courseRefKey)) {
+            setSelectedCourse(prev => ({ ...prev, ...updatedCourse }));
+          }
+        }}
+        showToast={showToast}
       />
     </div>
   );

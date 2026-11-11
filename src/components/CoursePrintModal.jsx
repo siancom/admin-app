@@ -258,8 +258,50 @@ export function CoursePrintSheet({
         breakAfter: pageBreakAfter ? 'page' : 'auto',
         fontFamily: "'Sarabun', 'Prompt', -apple-system, BlinkMacSystemFont, sans-serif"
       }}
-      className="course-a4-sheet w-[210mm] min-h-[297mm] mx-auto bg-white text-slate-900 box-border px-[10mm] py-[9mm] shadow-xl mb-6 print:shadow-none print:mb-0 print:w-[210mm] print:min-h-[297mm] flex flex-col justify-between border border-slate-200 print:border-0"
+      className="course-a4-sheet w-[210mm] min-h-[297mm] mx-auto bg-white text-slate-900 box-border px-[10mm] py-[9mm] shadow-xl mb-6 print:shadow-none print:mb-0 print:w-[210mm] print:min-h-[297mm] flex flex-col justify-between border border-slate-200 print:border-0 relative overflow-hidden"
     >
+      {/* 🌟 Watermark Stamp on Printable Sheet 🌟 */}
+      {(course.isClosed || statusText === 'ปิดคอร์สแล้ว' || statusText === 'ปิดคอร์ส') && (
+        <div 
+          className="absolute inset-0 pointer-events-none flex items-center justify-center z-20 select-none overflow-hidden"
+          style={{ opacity: 0.18 }}
+        >
+          <div 
+            className="border-[8px] border-rose-700 text-rose-700 font-black text-center px-10 py-5 rounded-3xl"
+            style={{ transform: 'rotate(-26deg)' }}
+          >
+            <div className="text-[54px] tracking-widest uppercase leading-none font-black">
+              ปิดคอร์สแล้ว
+            </div>
+            <div className="text-[22px] tracking-[0.25em] font-extrabold mt-1 text-rose-800 uppercase">
+              CLOSED • จบคอร์สสมบูรณ์
+            </div>
+            {course.closeReason && (
+              <div className="text-[13px] font-bold mt-1 text-slate-700">
+                ({course.closeReason})
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {!(course.isClosed || statusText === 'ปิดคอร์สแล้ว' || statusText === 'ปิดคอร์ส') && (statusText === 'ใช้ครบแล้ว' || (remainSessions === 0 && totalSessions > 0)) && (
+        <div 
+          className="absolute inset-0 pointer-events-none flex items-center justify-center z-20 select-none overflow-hidden"
+          style={{ opacity: 0.15 }}
+        >
+          <div 
+            className="border-[8px] border-blue-700 text-blue-700 font-black text-center px-10 py-5 rounded-3xl"
+            style={{ transform: 'rotate(-26deg)' }}
+          >
+            <div className="text-[50px] tracking-widest uppercase leading-none font-black">
+              ใช้บริการครบแล้ว
+            </div>
+            <div className="text-[20px] tracking-[0.25em] font-extrabold mt-1 text-blue-800 uppercase">
+              COMPLETED
+            </div>
+          </div>
+        </div>
+      )}
       <div>
         {/* 1. Header with Clinic Title & QR Code */}
         <div className="flex items-start justify-between gap-4 pb-2.5 border-b-2 border-slate-800">
@@ -612,13 +654,25 @@ export function CoursePrintSheet({
 
       {/* 4. Footer */}
       <div
-        className="pt-2 mt-2 border-t border-slate-300 flex items-center justify-between text-[9px] text-slate-500"
+        className="pt-2 mt-2 border-t border-slate-300 text-[9px] text-slate-500 flex flex-col gap-1"
         style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
       >
-        <div>
-          * กรุณานำใบคอร์สนี้มาแสดงหรือสแกน QR Code ทุกครั้งที่เข้ารับบริการ • กรณีใช้เอกสารกระดาษต้องมีลายเซ็นลูกค้าและพนักงานครบถ้วนทุกครั้ง
+        {course.paperCoursePhotos && course.paperCoursePhotos.length > 0 && (
+          <div className="flex items-center justify-between bg-teal-50/80 px-2.5 py-1 rounded border border-teal-200 text-teal-900 font-bold text-[9.5px]">
+            <span>📸 มีรูปถ่ายใบคอร์สกระดาษเดิมแนบในระบบ ({course.paperCoursePhotos.length} รูป)</span>
+            {course.closedAt && (
+              <span className="text-[9px] text-teal-700 font-medium">
+                ปิดคอร์สเมื่อ: {new Date(course.closedAt).toLocaleDateString('th-TH')} {course.closedBy ? `(โดย ${course.closedBy})` : ''}
+              </span>
+            )}
+          </div>
+        )}
+        <div className="flex items-center justify-between">
+          <div>
+            * กรุณานำใบคอร์สนี้มาแสดงหรือสแกน QR Code ทุกครั้งที่เข้ารับบริการ • กรณีใช้เอกสารกระดาษต้องมีลายเซ็นลูกค้าและพนักงานครบถ้วนทุกครั้ง
+          </div>
+          <div className="font-mono shrink-0 ml-3">พิมพ์เมื่อ: {new Date().toLocaleString('th-TH')}</div>
         </div>
-        <div className="font-mono shrink-0 ml-3">พิมพ์เมื่อ: {new Date().toLocaleString('th-TH')}</div>
       </div>
     </div>
   );
