@@ -591,6 +591,127 @@ export default function POSSystem({
     return '1000'; // Default fallback
   }, [dailySales, globalBranch]);
 
+  const availableStaffList = useMemo(() => {
+    const normGb = normalizeBranchName(globalBranch);
+    const filterFn = (emp) => {
+      if (!emp || emp.status === 'inactive') return false;
+      if (!normGb) return true;
+      const empBranch = normalizeBranchName(emp.branch || '');
+      return !empBranch || empBranch === normGb || empBranch === 'สำนักงานใหญ่';
+    };
+
+    let list = (clockedInEmployees || []).filter(filterFn);
+    // If no clocked-in employees found for this branch, fall back to all active branch employees
+    if (list.length === 0) {
+      list = (employees || []).filter(filterFn);
+    }
+    // If still empty (e.g. branch mismatch), fall back to all active employees
+    if (list.length === 0) {
+      list = (employees || []).filter(emp => emp && emp.status !== 'inactive');
+    }
+    // Final fallback to all employees
+    if (list.length === 0 && employees && employees.length > 0) {
+      list = employees;
+    }
+    return list;
+  }, [clockedInEmployees, employees, globalBranch]);
+
+  // Auto-select staff if only 1 available and none selected yet
+  useEffect(() => {
+    if (!paymentStaff && availableStaffList.length === 1 && availableStaffList[0]?.name) {
+      setPaymentStaff(availableStaffList[0].name);
+    }
+  }, [availableStaffList, paymentStaff]);
+
+  const renderStaffSelection = (isServiceStep = false) => {
+    return (
+      <div className="mb-4 bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-xs font-bold text-slate-700">
+            {isServiceStep ? 'พนักงานผู้ให้บริการ' : 'พนักงานที่ให้บริการ / ขายคอร์ส (เลือกได้หลายคนเพื่อแบ่งคอม)'} <span className="text-red-500">*</span>
+          </label>
+          {paymentStaff && (
+            <span className="text-[11px] font-bold text-indigo-700 bg-indigo-100 px-2.5 py-0.5 rounded-full border border-indigo-200">
+              เลือก: {paymentStaff}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {availableStaffList.length === 0 ? (
+            <p className="text-xs text-rose-500 font-medium">ไม่พบรายชื่อพนักงานในระบบ กรุณาตรวจสอบเมนูพนักงาน</p>
+          ) : (
+            availableStaffList.map(emp => {
+              const isSelected = paymentStaff && paymentStaff.split('/').map(s => s.trim()).includes(emp.name);
+              return (
+                <button
+                  key={emp.id}
+                  type="button"
+                  onClick={() => {
+                    let currentStaffList = paymentStaff ? paymentStaff.split('/').map(s => s.trim()).filter(Boolean) : [];
+                    if (isSelected) {
+                      currentStaffList = currentStaffList.filter(s => s !== emp.name);
+                    } else {
+                      currentStaffList.push(emp.name);
+                    }
+                    setPaymentStaff(currentStaffList.join(' / '));
+                  }}
+                  className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold border-2 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 ${
+                    isSelected 
+                      ? 'bg-indigo-600 border-indigo-600 text-white shadow-indigo-200' 
+                      : 'bg-white border-slate-200 text-slate-700 hover:border-indigo-300 hover:bg-slate-50'
+                  }`}
+                >
+                  {isSelected ? <CheckCircle size={14} className="text-white" /> : <User size={14} className="text-slate-400" />}
+                  {emp.name}
+                </button>
+              );
+            })
+          )}
+        </div>
+        {paymentStaff && !isServiceStep && (
+          <div className="mt-3 p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-2">
+            <p className="text-[11px] text-indigo-800 font-bold">ยอดค่าคอมมิชชั่นโดยประมาณจากบิลนี้ (แยกตามประเภท):</p>
+            {paymentStaff.split('/').map(s => s.trim()).filter(Boolean).map((staffName, idx, arr) => {
+               const emp = employees.find(e => e.name === staffName);
+               const courseRate = parseFloat(emp?.commissionRate) || 0;
+               const prodRate = parseFloat(emp?.productCommissionRate) || 0;
+               
+               let prodGross = 0;
+               let courseGross = 0;
+               cart.forEach(item => {
+                 if (item.type === 'product' || item.type === 'claim_item') {
+                   prodGross += (item.price || 0) * (item.qty || 1);
+                 } else {
+                   courseGross += (item.price || 0) * (item.qty || 1);
+                 }
+               });
+
+               const courseComm = (courseGross * (courseRate / 100)) / arr.length;
+               const prodComm = (prodGross * (prodRate / 100)) / arr.length;
+               const totalComm = courseComm + prodComm;
+
+               return (
+                 <div key={idx} className="flex flex-col gap-1 text-xs text-indigo-700 bg-white px-3 py-2 rounded-lg shadow-sm border border-indigo-50">
+                   <div className="flex justify-between items-center w-full">
+                     <span className="font-semibold flex items-center gap-1.5">
+                       <div className="w-1.5 h-1.5 rounded-full bg-indigo-400"></div>
+                       {staffName}
+                     </span>
+                     <span className="font-black text-emerald-600">฿{totalComm.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</span>
+                   </div>
+                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-3 text-[10px] text-indigo-400 mt-0.5">
+                     <span>คอร์ส/บริการ ({courseRate}%): ฿{courseComm.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+                     <span>สินค้า ({prodRate}%): ฿{prodComm.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+                   </div>
+                 </div>
+               );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   useEffect(() => {
     setEodData(prev => ({ ...prev, floatCash: latestFloat }));
   }, [latestFloat]);
@@ -4680,6 +4801,8 @@ export default function POSSystem({
             </div>
           )}
 
+          {cart.some(i => i.type === 'usage') && checkoutStep === 1 && renderStaffSelection(true)}
+
           {(!cart.some(i => i.type === 'usage') || checkoutStep === 2) && (
 
             <>
@@ -4777,73 +4900,8 @@ export default function POSSystem({
                 </div>
               )}
               
-              {/* 3. Staff Selection (Moved here to be visible for all sales/usages) */}
-              <div className="mb-6 bg-slate-50 border border-slate-100 p-4 rounded-2xl">
-                <label className="block text-xs font-bold text-slate-500 mb-2">พนักงานที่ให้บริการ / ขายคอร์ส (เลือกได้หลายคนเพื่อแบ่งคอม) <span className="text-red-500">*</span></label>
-                <div className="flex flex-wrap gap-2">
-                  {clockedInEmployees.filter(emp => !globalBranch || emp.branch === globalBranch || emp.branch === 'สำนักงานใหญ่').map(emp => {
-                     const isSelected = paymentStaff && paymentStaff.split('/').map(s => s.trim()).includes(emp.name);
-                     return (
-                        <button
-                          key={emp.id}
-                          type="button"
-                          onClick={() => {
-                             let currentStaffList = paymentStaff ? paymentStaff.split('/').map(s => s.trim()).filter(Boolean) : [];
-                             if (isSelected) {
-                                 currentStaffList = currentStaffList.filter(s => s !== emp.name);
-                             } else {
-                                 currentStaffList.push(emp.name);
-                             }
-                             setPaymentStaff(currentStaffList.join(' / '));
-                          }}
-                          className={`px-3 py-2 rounded-xl text-sm font-bold border-2 transition-colors ${isSelected ? 'bg-indigo-100 border-indigo-500 text-indigo-700' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'}`}
-                        >
-                          {emp.name}
-                        </button>
-                     );
-                  })}
-                </div>
-                {paymentStaff && (
-                  <div className="mt-3 p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-2">
-                    <p className="text-[11px] text-indigo-800 font-bold">ยอดค่าคอมมิชชั่นโดยประมาณจากบิลนี้ (แยกตามประเภท):</p>
-                    {paymentStaff.split('/').map(s => s.trim()).filter(Boolean).map((staffName, idx, arr) => {
-                       const emp = employees.find(e => e.name === staffName);
-                       const courseRate = parseFloat(emp?.commissionRate) || 0;
-                       const prodRate = parseFloat(emp?.productCommissionRate) || 0;
-                       
-                       let prodGross = 0;
-                       let courseGross = 0;
-                       cart.forEach(item => {
-                         if (item.type === 'product' || item.type === 'claim_item') {
-                           prodGross += (item.price || 0) * (item.qty || 1);
-                         } else {
-                           courseGross += (item.price || 0) * (item.qty || 1);
-                         }
-                       });
-
-                       const courseComm = (courseGross * (courseRate / 100)) / arr.length;
-                       const prodComm = (prodGross * (prodRate / 100)) / arr.length;
-                       const totalComm = courseComm + prodComm;
-
-                       return (
-                         <div key={idx} className="flex flex-col gap-1 text-xs text-indigo-700 bg-white px-3 py-2 rounded-lg shadow-sm border border-indigo-50">
-                           <div className="flex justify-between items-center w-full">
-                             <span className="font-semibold flex items-center gap-1.5">
-                               <div className="w-1.5 h-1.5 rounded-full bg-indigo-400"></div>
-                               {staffName}
-                             </span>
-                             <span className="font-black text-emerald-600">฿{totalComm.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</span>
-                           </div>
-                           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-3 text-[10px] text-indigo-400 mt-0.5">
-                             <span>คอร์ส/บริการ ({courseRate}%): ฿{courseComm.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
-                             <span>สินค้า ({prodRate}%): ฿{prodComm.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
-                           </div>
-                         </div>
-                       );
-                    })}
-                  </div>
-                )}
-              </div>
+              {/* 3. Staff Selection */}
+              {renderStaffSelection(false)}
 
               <div className="text-center mb-6">
                 <div className="text-sm text-slate-500 mb-1">ยอดสุทธิที่ต้องชำระ</div>
@@ -5179,7 +5237,7 @@ export default function POSSystem({
               })()}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                  <SignaturePad canvasRef={custSigRef} label="ลายเซ็นลูกค้า" />
-                 <SignaturePad canvasRef={staffSigRef} label="ลายเซ็นพนักงาน" />
+                 <SignaturePad canvasRef={staffSigRef} label={`ลายเซ็นพนักงาน${paymentStaff ? ` (${paymentStaff})` : ''}`} />
               </div>
             </div>
 
