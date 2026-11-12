@@ -1,4 +1,13 @@
-# Logs
+# Firebase
+.firebase/
+
+# Scratch & temporary scripts
+scratch/
+extract_broken.cjs
+test_recover.cjs
+test_reverse.cjs
+encode_test.cjs
+
 logs
 *.log
 npm-debug.log*
