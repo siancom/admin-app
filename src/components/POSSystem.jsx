@@ -39,6 +39,88 @@ const CosmeticsIcon = ({ size = 24, className = "" }) => (
   </svg>
 );
 
+export const getPosProductImageUrl = (p, wooImagesMap) => {
+  if (!p) return null;
+  const productName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || p.name || '').trim();
+  const productCode = String(getFuzzyKey(p, ["รหัส", "col_1"]) || p.code || '').trim();
+
+  // 1. Prioritize WooCommerce API map (if available)
+  if (wooImagesMap && wooImagesMap instanceof Map) {
+    const wooImg = (productCode ? wooImagesMap.get(productCode.toUpperCase()) : null) || 
+                   (productName ? wooImagesMap.get(productName.toLowerCase()) : null);
+    if (wooImg && typeof wooImg === 'string' && wooImg.startsWith('http')) {
+      const first = wooImg.split(',')[0].trim();
+      if (first.startsWith('http')) return first;
+    }
+  }
+
+  // 2. Direct web photo in 'รูปภาพ' / 'image' / 'imageUrl' (WordPress / WooCommerce media uploads)
+  const rawPicture = getFuzzyKey(p, ["รูปภาพ", "image", "imageUrl", "img"]);
+  if (rawPicture && typeof rawPicture === 'string') {
+    const first = rawPicture.split(',')[0].trim();
+    if (first.startsWith('http://') || first.startsWith('https://')) {
+      return first;
+    }
+  }
+
+  // 3. 'รูปสินค้า' (AppSheet CRM legacy path or full url)
+  const rawProductImg = p["รูปสินค้า"];
+  if (rawProductImg && typeof rawProductImg === 'string' && rawProductImg.trim()) {
+    const first = rawProductImg.split(',')[0].trim();
+    if (first.startsWith('http://') || first.startsWith('https://')) {
+      return first;
+    }
+    let clean = first.replace(/^\/+/, '');
+    if (clean.startsWith('สินค้า_Images/')) {
+      clean = clean.replace(/^สินค้า_Images\//, '');
+    }
+    try { clean = decodeURIComponent(clean); } catch(e) {}
+    return `https://crm.irisnatures.com/สินค้า_Images/${encodeURI(clean)}`;
+  }
+
+  // 4. Any other key containing image file extension or '.รูปสินค้า.'
+  for (const key of Object.keys(p)) {
+    const val = String(p[key] || '').trim();
+    if (val.match(/\.(jpeg|jpg|gif|png|webp)$/i) || val.includes('.รูปสินค้า.')) {
+      const first = val.split(',')[0].trim();
+      if (first.startsWith('http://') || first.startsWith('https://')) return first;
+      let clean = first.replace(/^\/+/, '');
+      if (clean.startsWith('สินค้า_Images/')) {
+        clean = clean.replace(/^สินค้า_Images\//, '');
+      }
+      try { clean = decodeURIComponent(clean); } catch(e) {}
+      return `https://crm.irisnatures.com/สินค้า_Images/${encodeURI(clean)}`;
+    }
+  }
+
+  // 5. Fallback to product name
+  if (productName) {
+    return `https://crm.irisnatures.com/สินค้า_Images/${encodeURIComponent(productName)}.jpg`;
+  }
+
+  return null;
+};
+
+export const getProductFallbackUrl = (p) => {
+  if (!p) return null;
+  // If primary was crm, try web 'รูปภาพ'
+  const rawPicture = getFuzzyKey(p, ["รูปภาพ", "image", "imageUrl", "img"]);
+  if (rawPicture && typeof rawPicture === 'string') {
+    const first = rawPicture.split(',')[0].trim();
+    if (first.startsWith('http://') || first.startsWith('https://')) return first;
+  }
+  // If primary was web, try crm 'รูปสินค้า'
+  const rawProductImg = p["รูปสินค้า"];
+  if (rawProductImg && typeof rawProductImg === 'string' && rawProductImg.trim()) {
+    const first = rawProductImg.split(',')[0].trim();
+    let clean = first.replace(/^\/+/, '');
+    if (clean.startsWith('สินค้า_Images/')) clean = clean.replace(/^สินค้า_Images\//, '');
+    try { clean = decodeURIComponent(clean); } catch(e) {}
+    return `https://crm.irisnatures.com/สินค้า_Images/${encodeURI(clean)}`;
+  }
+  return null;
+};
+
 export default function POSSystem({ 
   products = [], 
   branches = [],
@@ -3462,39 +3544,7 @@ export default function POSSystem({
                 const fullPrice = parseNumber(getFuzzyKey(p, ["ราคาขายเต็ม", "col_6"]));
                 const displayPrice = computeFinalPrice(p, isVipCustomer);
                 
-                let imgFilename = null;
-                // 1. Prioritize WooCommerce API images
-                const wooImg = (productCode ? wooImagesMap.get(productCode.trim().toUpperCase()) : null) || wooImagesMap.get(productName.toLowerCase());
-                if (wooImg) {
-                  imgFilename = wooImg;
-                } else {
-                  // 2. Fallback to Firestore explicitly named fields
-                  imgFilename = p["รูปสินค้า"] || p["image"] || p["imageUrl"] || p["รูปภาพ"] || p["img"];
-                }
-                if (!imgFilename) {
-                  for (const key of Object.keys(p)) {
-                    const val = String(p[key] || '').trim();
-                    if (val.match(/\.(jpeg|jpg|gif|png|webp)$/i) || val.includes('.รูปสินค้า.')) {
-                      imgFilename = val;
-                      break;
-                    }
-                  }
-                }
-                if (!imgFilename) {
-                    imgFilename = String(getFuzzyKey(p, ["รูปสินค้า", "image", "imageUrl", "รูปภาพ", "img"]) || '');
-                }
-                let imageUrl = null;
-                if (imgFilename && imgFilename !== 'undefined') {
-                  if (imgFilename.startsWith('http')) {
-                    imageUrl = imgFilename;
-                  } else {
-                    let finalFilename = imgFilename.replace(/^\/+/, '');
-                    try { finalFilename = decodeURIComponent(finalFilename); } catch(e) {}
-                    imageUrl = `https://crm.irisnatures.com/สินค้า_Images/${encodeURI(finalFilename)}`;
-                  }
-                } else if (productName) {
-                  imageUrl = `https://crm.irisnatures.com/สินค้า_Images/${encodeURIComponent(productName)}.jpg`;
-                }
+                const imageUrl = getPosProductImageUrl(p, wooImagesMap);
 
                 const isOwnerPurchase = isStockMode && globalRole === 'owner';
                 const isBranchReq = isRequisitionMode && globalRole !== 'owner';
@@ -3519,6 +3569,11 @@ export default function POSSystem({
                         className="absolute inset-0 w-full h-full object-contain mix-blend-multiply transition-transform duration-300 group-hover:scale-110"
                         loading="lazy"
                         onError={(e) => { 
+                          const fallback = getProductFallbackUrl(p);
+                          if (fallback && e.target.src !== fallback) {
+                            e.target.src = fallback;
+                            return;
+                          }
                           e.target.onerror = null; 
                           e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="%23cbd5e1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>';
                           e.target.className = "w-1/2 h-1/2 object-contain m-auto mt-4 opacity-50 transition-transform duration-300 group-hover:scale-110";
@@ -4161,32 +4216,7 @@ export default function POSSystem({
               {cart.map((item) => {
                 let imgUrl = null;
                 if (item.type === 'product' && item.originalItem) {
-                  let p = item.originalItem;
-                  const productName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || item.name);
-                  const productCode = String(getFuzzyKey(p, ["รหัส", "col_1"]) || '');
-                  
-                  const wooImg = (productCode ? wooImagesMap.get(productCode.trim().toUpperCase()) : null) || wooImagesMap.get(productName.toLowerCase());
-                  
-                  if (wooImg) {
-                      imgUrl = wooImg;
-                  } else {
-                      let imgFilename = p["รูปสินค้า"] || p["image"] || p["imageUrl"] || p["รูปภาพ"] || p["img"];
-                      if (!imgFilename) {
-                        for (const key of Object.keys(p)) {
-                          const val = String(p[key] || '').trim();
-                          if (val.match(/\.(jpeg|jpg|gif|png|webp)$/i) || val.includes('.รูปสินค้า.')) {
-                            imgFilename = val;
-                            break;
-                          }
-                        }
-                      }
-                      if (imgFilename) {
-                         if (imgFilename.startsWith('http')) imgUrl = imgFilename;
-                         else imgUrl = `https://crm.irisnatures.com/สินค้า_Images/${encodeURI(imgFilename.replace(/^\/+/, ''))}`;
-                      } else {
-                         imgUrl = `https://crm.irisnatures.com/สินค้า_Images/${encodeURIComponent(item.name)}.jpg`;
-                      }
-                  }
+                  imgUrl = getPosProductImageUrl(item.originalItem, wooImagesMap);
                 }
 
                 return (
@@ -4194,7 +4224,19 @@ export default function POSSystem({
                   
                   <div className="flex-1 min-w-0 pr-1 flex items-center gap-2">
                     {imgUrl ? (
-                      <img src={imgUrl} onError={(e) => { e.target.onerror = null; e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>'; }} className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover border border-slate-200 shrink-0 bg-slate-50 p-[2px]" />
+                      <img 
+                        src={imgUrl} 
+                        onError={(e) => { 
+                          const fallback = getProductFallbackUrl(item.originalItem);
+                          if (fallback && e.target.src !== fallback) {
+                            e.target.src = fallback;
+                            return;
+                          }
+                          e.target.onerror = null; 
+                          e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>'; 
+                        }} 
+                        className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover border border-slate-200 shrink-0 bg-slate-50 p-[2px]" 
+                      />
                     ) : item.type === 'service' ? (
                       <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-orange-100 flex items-center justify-center shrink-0 border border-orange-200">
                         <Scissors size={20} className="text-orange-500" />
