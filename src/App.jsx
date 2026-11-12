@@ -1485,8 +1485,36 @@ export default function App() {
          }
       }
 
+      // 🎁 Automatically exclude items where the claim history was cancelled ("คืนสิทธิ์")
+      const cancelledClaimItems = [];
+      myHistories.forEach(h => {
+        if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '').trim() === 'ยกเลิก') {
+          const hType = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '');
+          if (hType.includes('เบิก')) {
+            const hItem = String(getFuzzyKey(h, ["รายการ", "สินค้า", "col_23", "col_18"]) || '').trim();
+            if (hItem) {
+              const qty = Math.max(1, parseQty(getFuzzyKey(h, ["จำนวน", "col_15"])) || 1);
+              for (let i = 0; i < qty; i++) cancelledClaimItems.push(hItem);
+            }
+          }
+        }
+      });
+
+      let effectiveClaimedItems = Array.isArray(course.claimedItems) ? [...course.claimedItems] : [];
+      cancelledClaimItems.forEach(itemToUnclaim => {
+        const cleanTarget = itemToUnclaim.replace(/\s+/g, '').toLowerCase();
+        const idx = effectiveClaimedItems.findIndex(c => {
+          const cleanC = String(c || '').replace(/\s+/g, '').toLowerCase();
+          return cleanC.includes(cleanTarget) || cleanTarget.includes(cleanC);
+        });
+        if (idx !== -1) {
+          effectiveClaimedItems.splice(idx, 1);
+        }
+      });
+
       return {
         ...course, 
+        claimedItems: effectiveClaimedItems,
         courseRefKey: courseNo, 
         computedCustomerName: courseCustomerName || '-',
         computedCourseName: courseName || '-',
@@ -3260,22 +3288,68 @@ const flexMessage = {
       setActionConfirmModal({ 
         isOpen: true, 
         title: 'ยืนยันการคืนสิทธิ์ (ยกเลิก)', 
-        message: `ประวัติการใช้นี้จะถูกยกเลิกและจำนวนครั้งจะถูกคืนกลับไปยังใบคอร์ส แน่ใจหรือไม่?`, 
-        confirmText: 'ยืนยันการคืนคอร์ส', 
+        message: `ประวัติการใช้นี้จะถูกยกเลิกและจำนวนครั้ง/สิทธิ์การเบิกจะถูกคืนกลับไปยังใบคอร์ส แน่ใจหรือไม่?`, 
+        confirmText: 'ยืนยันการคืนคอร์ส/คืนสิทธิ์', 
         confirmColor: 'bg-orange-500 hover:bg-orange-600', 
         action: async () => { 
           try { 
             const batch = writeBatch(db);
             batch.update(getDocRef('histories', historyItem.id), { isCancelled: true, "สถานะ": "ยกเลิก" });
             
-            if (historyItem.courseUpdatedDirectly && historyItem.courseId) {
-               const course = processedCourses.find(c => c.id === historyItem.courseId);
-               if (course) {
+            const hType = String(getFuzzyKey(historyItem, ["ประเภท", "col_4"]) || '');
+            const isClaim = hType.includes('เบิก') || hType === 'เบิกสินค้าจากคอร์ส';
+            const claimedItemName = String(getFuzzyKey(historyItem, ["รายการ", "สินค้า", "col_23", "col_18"]) || '').trim();
+            const qtyToRevert = Math.max(1, parseQty(getFuzzyKey(historyItem, ["จำนวน", "col_15"])) || extractHistoryQty(historyItem) || 1);
+
+            // Locate target course
+            const targetCourseId = historyItem.courseId || historyItem["อ้างอิง"] || historyItem["เลขที่ใบคอส"];
+            let course = targetCourseId ? (processedCourses.find(c => c.id === targetCourseId || c.courseRefKey === targetCourseId)) : null;
+            if (!course && isClaim) {
+               const histPhone = String(getFuzzyKey(historyItem, ["เบอร์โทร", "col_3", "cleanPhone"]) || '').replace(/\D/g, '');
+               course = processedCourses.find(c => {
+                  const cPhone = String(c.computedPhone || getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').replace(/\D/g, '');
+                  return cPhone && cPhone === histPhone && Array.isArray(c.claimedItems) && c.claimedItems.some(ci => ci.includes(claimedItemName) || claimedItemName.includes(ci));
+               });
+            }
+
+            if (course && course.id) {
+               if (isClaim) {
+                  // Revert claimed items from course
+                  const currentClaimed = Array.isArray(course.claimedItems) ? [...course.claimedItems] : [];
+                  for (let i = 0; i < qtyToRevert; i++) {
+                     const cleanTarget = claimedItemName.replace(/\s+/g, '').toLowerCase();
+                     const idx = currentClaimed.findIndex(c => {
+                        const cleanC = String(c || '').replace(/\s+/g, '').toLowerCase();
+                        return cleanC.includes(cleanTarget) || cleanTarget.includes(cleanC);
+                     });
+                     if (idx !== -1) currentClaimed.splice(idx, 1);
+                  }
+                  batch.update(getDocRef('courses', course.id), {
+                     claimedItems: currentClaimed
+                  });
+
+                  // Restore product stock if it was a physical product
+                  const prod = products.find(p => String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim() === claimedItemName) ||
+                     products.find(p => {
+                        const pName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim();
+                        return pName.length >= 3 && (claimedItemName.includes(pName) || pName.includes(claimedItemName));
+                     });
+                  if (prod) {
+                     const branch = normalizeBranchName(historyItem.branch || historyItem["สาขา"] || globalBranch || 'เฉวง') || 'เฉวง';
+                     const curStock = parseQty(getBranchStock(prod, branch));
+                     const nextStockByBranch = { ...(prod.stock_by_branch || {}) };
+                     nextStockByBranch[branch] = curStock + qtyToRevert;
+                     const nextTotal = Object.values(nextStockByBranch).reduce((sum, v) => sum + (Number(v) || 0), 0);
+                     batch.update(getDocRef('products', prod.id), {
+                        stock_by_branch: nextStockByBranch,
+                        "จำนวนคงเหลือ": String(nextTotal)
+                     });
+                  }
+               } else {
+                  // Revert regular service usage count
                   const currentUsed = parseNumber(getFuzzyKey(course, ["ครั้งที่ใช้", "col_5"]));
-                  const qtyToRevert = extractHistoryQty(historyItem);
                   const newUsed = Math.max(0, currentUsed - qtyToRevert);
-                  
-                  batch.update(getDocRef('courses', historyItem.courseId), {
+                  batch.update(getDocRef('courses', course.id), {
                      "ครั้งที่ใช้": String(newUsed),
                      "สถานะ": "ยังคงเหลือ"
                   });
@@ -3283,10 +3357,10 @@ const flexMessage = {
             }
             
             await batch.commit();
-            showToast('คืนคอร์สสำเร็จ! ยอดกลับคืนสู่ใบคอร์สแล้ว'); 
+            showToast('คืนสิทธิ์สำเร็จ! ยอด/สิทธิ์การเบิกกลับคืนสู่ใบคอร์สแล้ว'); 
             setSelectedCourse(null); 
           } catch (err) { 
-            showToast('เกิดข้อผิดพลาดในการคืนคอร์ส: ' + err.message); 
+            showToast('เกิดข้อผิดพลาดในการคืนสิทธิ์: ' + err.message); 
           } 
         } 
       });

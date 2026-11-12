@@ -138,6 +138,41 @@ export default function SalesHistoryModal({
             }
           } else if (item.type === 'usage' && item.id) {
             courseDeltaMap.set(item.id, (courseDeltaMap.get(item.id) || 0) + (Number(item.qty) || 1));
+          } else if (item.type === 'claim_item') {
+            const courseId = item.courseId;
+            const cleanClaimName = String(item.itemName || item.name || '').replace('[เบิกของแถม]', '').trim();
+            const qty = Number(item.qty) || 1;
+            
+            // Restore product stock if it was a physical product
+            const prod = products.find(p => String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim() === cleanClaimName) ||
+              products.find(p => {
+                const pName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim();
+                return pName.length >= 3 && (cleanClaimName.includes(pName) || pName.includes(cleanClaimName));
+              });
+            if (prod) {
+              const entry = getWorkingStockObj(prod);
+              const curTarget = entry.stockByBranch[targetBranch] !== undefined
+                ? Number(entry.stockByBranch[targetBranch]) || 0
+                : getBranchStock(entry.prodData, targetBranch);
+              entry.stockByBranch[targetBranch] = curTarget + qty;
+            }
+
+            // Restore claimedItems on course
+            if (courseId) {
+              const courseRef = doc(getCol('courses'), courseId);
+              const courseSnap = await getDoc(courseRef);
+              if (courseSnap.exists()) {
+                const cData = courseSnap.data();
+                let curClaimed = [...(cData.claimedItems || [])];
+                for (let i = 0; i < qty; i++) {
+                  const idx = curClaimed.lastIndexOf(cleanClaimName) !== -1
+                    ? curClaimed.lastIndexOf(cleanClaimName)
+                    : curClaimed.findIndex(c => c && (c.includes(cleanClaimName) || cleanClaimName.includes(c)));
+                  if (idx !== -1) curClaimed.splice(idx, 1);
+                }
+                batch.update(courseRef, { claimedItems: curClaimed });
+              }
+            }
           }
         }
 

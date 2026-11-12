@@ -7792,7 +7792,29 @@ export default function POSSystem({
                        </div>
                        <div className="space-y-2">
                           {items.map((item, idx) => {
-                             const claimedCount = (selectedCourseForUsage.claimedItems || []).filter(c => c === item.name).length;
+                             const cleanItemName = item.name.replace(/\s+/g, '').toLowerCase();
+                             const courseHistories = (selectedCourseForUsage.myHistories || (histories || []).filter(h => {
+                                const hCourseId = h.courseId;
+                                const hCourseRef = String(getFuzzyKey(h, ["เลขที่ใบคอส", "รหัสใบคอส", "อ้างอิง", "col_6"]) || '').trim();
+                                const targetNo = String(getFuzzyKey(selectedCourseForUsage, ["เลขที่ใบคอส", "col_2", "col_3", "courseNo"]) || selectedCourseForUsage.id || '').trim();
+                                return (hCourseId && hCourseId === selectedCourseForUsage.id) || (targetNo && hCourseRef && hCourseRef === targetNo);
+                             }));
+
+                             const cancelledClaimCount = courseHistories.filter(h => {
+                                const isCanc = h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '').trim() === 'ยกเลิก';
+                                if (!isCanc) return false;
+                                const hType = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '');
+                                if (!hType.includes('เบิก')) return false;
+                                const hItem = String(getFuzzyKey(h, ["รายการ", "สินค้า", "col_23", "col_18"]) || '').replace(/\s+/g, '').toLowerCase();
+                                return hItem.includes(cleanItemName) || cleanItemName.includes(hItem);
+                             }).reduce((sum, h) => sum + Math.max(1, parseQty(getFuzzyKey(h, ["จำนวน", "col_15"])) || 1), 0);
+
+                             const rawClaimedCount = (selectedCourseForUsage.claimedItems || []).filter(c => {
+                                const cleanC = String(c || '').replace(/\s+/g, '').toLowerCase();
+                                return cleanC.includes(cleanItemName) || cleanItemName.includes(cleanC);
+                             }).length;
+
+                             const claimedCount = Math.max(0, rawClaimedCount - cancelledClaimCount);
                              const isClaimed = claimedCount >= item.qty;
                              return (
                                 <div key={idx} className={`flex justify-between items-center p-3 rounded-lg border ${isClaimed ? 'bg-slate-50 border-slate-200' : 'bg-white border-pink-100 shadow-sm'}`}>
