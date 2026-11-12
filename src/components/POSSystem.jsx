@@ -2040,13 +2040,13 @@ export default function POSSystem({
       const isTopup = String(i.name).match(/(เติมเงิน|เครดิต|วงเงิน|ฝากเงิน)/);
       return qty !== '1' || isTopup;
     });
-    const hasService = cart.some(i => i.type === 'service' || i.type === 'usage');
+    const hasService = cart.some(i => i.type === 'service' || i.type === 'usage' || i.type === 'claim_item');
     if (hasService && !paymentStaff) {
-      showToast('มีรายการรับบริการในตะกร้า โปรดเลือกพนักงานผู้ให้บริการ', 'error');
+      showToast('มีรายการตัดคอร์ส/เบิกสินค้าในตะกร้า โปรดเลือกพนักงานผู้ทำรายการ', 'error');
       return;
     }
-    if (hasCourse && !selectedCustomer) {
-      showToast('มีรายการคอร์สในตะกร้า โปรดเลือกลูกค้าก่อนชำระเงิน', 'error');
+    if ((hasCourse || cart.some(i => i.type === 'claim_item')) && !selectedCustomer) {
+      showToast('มีรายการคอร์ส/เบิกสินค้าในตะกร้า โปรดเลือกลูกค้าก่อนทำรายการ', 'error');
       return;
     }
     // 🌟 กันหักเครดิตซ้ำ 2 ครั้ง: ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป → ห้ามเลือก "ใช้เครดิต" อีก
@@ -2400,6 +2400,10 @@ export default function POSSystem({
 
           // Add History
           const historyRef = doc(getCol('histories'));
+          const custSignatureUrl = custSigRef.current?.toDataURL() || null;
+          const staffSignatureUrl = staffSigRef.current?.toDataURL() || null;
+          const courseRefNo = String(getFuzzyKey(item.originalCourse, ["เลขที่ใบคอส", "col_2", "col_3", "courseNo"]) || '');
+
           batch.set(historyRef, {
             "วันที่": customDateObj.toLocaleDateString('th-TH'),
             "เวลา": customDateObj.toLocaleTimeString('th-TH', { hour12: false, hour: '2-digit', minute: '2-digit' }),
@@ -2410,10 +2414,29 @@ export default function POSSystem({
             "ประเภท": "เบิกสินค้าจากคอร์ส",
             "สถานะ": "เรียบร้อย",
             "รายการ": item.itemName,
+            "สินค้า": item.itemName,
             "จำนวน": String(item.qty),
             "สาขา": String(globalBranch || "สำนักงานใหญ่"),
-            "อ้างอิง": String(getFuzzyKey(item.originalCourse, ["เลขที่ใบคอส", "col_3"]) || '')
+            "courseId": item.courseId || '',
+            "อ้างอิง": courseRefNo,
+            "เลขที่ใบคอส": courseRefNo,
+            "พนักงาน": paymentStaff || '',
+            "ชื่อเจ้าหน้าที่": paymentStaff || '',
+            "ผู้ให้บริการ": paymentStaff || '',
+            "courseUpdatedDirectly": true
           });
+
+          if (paymentPhotos.before.length > 0 || paymentPhotos.after.length > 0 || custSignatureUrl || staffSignatureUrl) {
+              delayedHistoryUpdates.push({
+                  ref: historyRef,
+                  data: {
+                      "customerPhoto": paymentPhotos.before[0] || paymentPhotos.after[0] || null,
+                      "customerPhotos": paymentPhotos,
+                      "customerSignature": custSignatureUrl,
+                      "staffSignature": staffSignatureUrl
+                  }
+              });
+          }
         }
         else if (item.type === 'course' || item.type === 'single_course') {
           // Generate Course instances per quantity
@@ -4720,6 +4743,8 @@ export default function POSSystem({
             >
               {isRequisitionMode ? (
                 <><Package size={24} /> สร้างใบเบิกสินค้า (PO)</>
+              ) : cart.some(i => i.type === 'usage' || i.type === 'claim_item') ? (
+                <><CheckCircle size={24} /> {cart.some(i => i.type === 'usage') ? 'ดำเนินการตัดคอร์ส' : 'ดำเนินการเบิกสินค้า'}</>
               ) : (
                 <><CheckCircle size={24} /> ดำเนินการชำระเงิน</>
               )}
@@ -4829,17 +4854,26 @@ export default function POSSystem({
     )}
 
     {/* Payment Modal */}
-    {showPaymentModal && (
+    {showPaymentModal && (() => {
+      const hasCourseUsage = cart.some(i => i.type === 'usage');
+      const hasCourseClaim = cart.some(i => i.type === 'claim_item');
+      const hasUsageOrClaim = hasCourseUsage || hasCourseClaim;
+
+      return (
       <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm print:hidden">
-        <div className={`bg-white rounded-3xl p-6 w-full ${cart.some(i => i.type === 'usage') && checkoutStep === 1 ? 'max-w-3xl' : 'max-w-sm'} shadow-2xl flex flex-col max-h-[95vh] overflow-y-auto`}>
+        <div className={`bg-white rounded-3xl p-6 w-full ${hasUsageOrClaim && checkoutStep === 1 ? 'max-w-3xl' : 'max-w-sm'} shadow-2xl flex flex-col max-h-[95vh] overflow-y-auto`}>
           <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-4">
             <h2 className="text-xl font-bold text-slate-800">
-              {cart.some(i => i.type === 'usage') && checkoutStep === 1 ? 'ข้อมูลการรับบริการ' : (isRequisitionMode ? 'ยืนยันการเบิกสินค้า (PO)' : 'ช่องทางการชำระเงิน')}
+              {hasCourseUsage && checkoutStep === 1 
+                ? 'ข้อมูลการรับบริการ' 
+                : (hasCourseClaim && checkoutStep === 1 
+                    ? 'ข้อมูลการเบิกสินค้า / ของแถม' 
+                    : (isRequisitionMode ? 'ยืนยันการเบิกสินค้า (PO)' : 'ช่องทางการชำระเงิน'))}
             </h2>
             <button onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-full"><X size={20} /></button>
           </div>
 
-          {cart.some(i => i.type === 'usage') && (
+          {hasCourseUsage && (
             <div className="mb-4">
               <div className="text-sm font-semibold text-slate-700 mb-2">เข้าใช้เตียง (สำหรับ Walk-in)</div>
               <select
@@ -4861,9 +4895,9 @@ export default function POSSystem({
             </div>
           )}
 
-          {cart.some(i => i.type === 'usage') && checkoutStep === 1 && renderStaffSelection(true)}
+          {hasUsageOrClaim && checkoutStep === 1 && renderStaffSelection(true)}
 
-          {(!cart.some(i => i.type === 'usage') || checkoutStep === 2) && (
+          {(!hasUsageOrClaim || checkoutStep === 2) && (
 
             <>
               {globalRole === 'owner' && (
@@ -5085,11 +5119,28 @@ export default function POSSystem({
           </>
         )}
 
-        <div className={`space-y-4 mb-6 pt-2 ${((cart.some(i => i.type === 'usage') && checkoutStep === 1) || cart.some(i => i.type === 'service')) ? 'block' : 'hidden'}`}>
+        <div className={`space-y-4 mb-6 pt-2 ${((hasUsageOrClaim && checkoutStep === 1) || cart.some(i => i.type === 'service')) ? 'block' : 'hidden'}`}>
               
+              {/* Claimed Items Summary (For claim_item) */}
+              {hasCourseClaim && (
+                <div className="p-3.5 bg-pink-50 border border-pink-200 rounded-2xl mb-3">
+                  <div className="text-xs font-bold text-pink-700 mb-1.5 flex items-center gap-1.5">
+                    <Package size={15} /> รายการสินค้า / ของแถมที่ขอเบิกจากคอร์ส:
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {cart.filter(i => i.type === 'claim_item').map(ci => (
+                      <span key={ci.id} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-white text-pink-800 border border-pink-200 shadow-sm">
+                        <span>🎁 {ci.itemName || ci.name}</span>
+                        <span className="text-pink-600 font-black">({ci.qty} ชิ้น)</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* 1. Photo Upload */}
               <div>
-                 <span className="block text-xs font-bold text-slate-500 mb-2">อัปโหลดรูปภาพ (ก่อนทำ / หลังทำ)</span>
+                 <span className="block text-xs font-bold text-slate-500 mb-2">อัปโหลดรูปภาพ (ก่อนทำ / หลังทำ หรือหลักฐานส่งมอบ)</span>
                  <div className="grid grid-cols-2 gap-4">
                     {[
                       { key: 'before', label: 'ก่อนทำ (Before)' },
@@ -5302,7 +5353,7 @@ export default function POSSystem({
             </div>
 
           <div className="flex gap-3 pt-4 border-t border-slate-100">
-            {cart.some(i => i.type === 'usage') && checkoutStep === 2 && (
+            {hasUsageOrClaim && checkoutStep === 2 && (
               <button 
                 onClick={() => setCheckoutStep(1)}
                 className="py-4 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-lg transition-colors flex items-center justify-center shadow-sm active:scale-95"
@@ -5311,20 +5362,22 @@ export default function POSSystem({
               </button>
             )}
             
-            {cart.some(i => i.type === 'usage') && checkoutStep === 1 ? (
+            {hasUsageOrClaim && checkoutStep === 1 ? (
               <button 
                 onClick={() => {
-                   if (!paymentStaff) return showToast('กรุณาเลือกพนักงานผู้ให้บริการ', 'error');
+                   if (!paymentStaff) return showToast('กรุณาเลือกพนักงานผู้ทำรายการ', 'error');
                    if (custSigRef.current?.dataset?.isSigned !== "true" || staffSigRef.current?.dataset?.isSigned !== "true") {
                        return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
                    }
-                   if (usedServices.length === 0) {
-                       return showToast('กรุณาเลือกบริการที่ใช้ในครั้งนี้', 'error');
-                   }
-                   const maxAllowed = cart.filter(i => i.type === 'usage').reduce((sum, item) => sum + (item.originalItem?.computedRemainQty || 0), 0);
-                   const deducted = usedServices.filter(s => !String(getFuzzyKey(s, ["ชื่อคอส", "col_4"])).includes('ฟรี')).length;
-                   if (deducted > maxAllowed) {
-                       return showToast(`เลือกบริการเกินจำนวนสิทธิ์ที่มี (${maxAllowed} ครั้ง)`, 'error');
+                   if (hasCourseUsage) {
+                     if (usedServices.length === 0) {
+                         return showToast('กรุณาเลือกบริการที่ใช้ในครั้งนี้', 'error');
+                     }
+                     const maxAllowed = cart.filter(i => i.type === 'usage').reduce((sum, item) => sum + (item.originalItem?.computedRemainQty || 0), 0);
+                     const deducted = usedServices.filter(s => !String(getFuzzyKey(s, ["ชื่อคอส", "col_4"])).includes('ฟรี')).length;
+                     if (deducted > maxAllowed) {
+                         return showToast(`เลือกบริการเกินจำนวนสิทธิ์ที่มี (${maxAllowed} ครั้ง)`, 'error');
+                     }
                    }
                    setCheckoutStep(2);
                 }}
@@ -5343,19 +5396,20 @@ export default function POSSystem({
                     }
                 }}
                 disabled={isProcessing || (!isRequisitionMode && totalCovered !== total)}
-                className={`flex-1 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${(isProcessing || (!isRequisitionMode && totalCovered !== total)) ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : (isRequisitionMode ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' : (cart.some(i => i.type === 'usage') ? 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200'))}`}
+                className={`flex-1 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${(isProcessing || (!isRequisitionMode && totalCovered !== total)) ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : (isRequisitionMode ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' : (hasCourseUsage ? 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200' : (hasCourseClaim ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-200' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200')))}`}
               >
                 {isProcessing ? (
                   <><span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span> กำลังประมวลผล...</>
                 ) : (
-                  <><CheckCircle size={24} /> {isRequisitionMode ? 'ยืนยันการเบิกสินค้า' : (cart.some(i => i.type === 'usage') ? 'ยืนยันตัดคอร์สและชำระเงิน' : 'ยืนยันการชำระเงิน')}</>
+                  <><CheckCircle size={24} /> {isRequisitionMode ? 'ยืนยันการเบิกสินค้า' : (hasCourseUsage ? 'ยืนยันตัดคอร์สและชำระเงิน' : (hasCourseClaim ? 'ยืนยันการเบิกสินค้า' : 'ยืนยันการชำระเงิน'))}</>
                 )}
               </button>
             )}
           </div>
         </div>
       </div>
-    )}
+      );
+    })()}
 
     {/* Transfer Choice Modal */}
     {showTransferChoiceModal && (
@@ -5779,13 +5833,15 @@ export default function POSSystem({
         ) : printMode === 'receipt' ? (
           <div className={`${showPreviewModal ? 'block shadow-2xl' : 'hidden'} print:shadow-none print:block w-[80mm] max-w-full text-black font-sans bg-white m-0 p-2 text-sm leading-tight mx-auto`}>
           
-          {/* COURSE USAGE SLIP */}
-          {receiptData.paymentMethodStr === 'ตัดคอร์ส' || receiptData.items.some(i => i.type === 'usage' || i.actionType === 'usage' || (typeof i.name === 'string' && i.name.includes('ใช้คอร์ส'))) ? (
+          {/* COURSE USAGE OR CLAIM SLIP */}
+          {receiptData.paymentMethodStr === 'ตัดคอร์ส' || receiptData.items.some(i => i.type === 'usage' || i.type === 'claim_item' || i.actionType === 'usage' || (typeof i.name === 'string' && (i.name.includes('ใช้คอร์ส') || i.name.includes('เบิกของแถม')))) ? (
             <>
               <div className="text-center mb-4">
                 <h1 className="font-bold text-xl mb-1">IRIS NATURES</h1>
                 <p className="text-xs">{globalBranch || "สำนักงานใหญ่"}</p>
-                <p className="text-sm font-bold mt-2 bg-slate-200 py-1 rounded">สลิปตัดคอร์สบริการ (คิว {receiptData.queueNo})</p>
+                <p className="text-sm font-bold mt-2 bg-slate-200 py-1 rounded">
+                  {receiptData.items.some(i => i.type === 'claim_item') ? `สลิปเบิกสินค้า/ของแถมจากคอร์ส (คิว ${receiptData.queueNo})` : `สลิปตัดคอร์สบริการ (คิว ${receiptData.queueNo})`}
+                </p>
                 <div className="text-left text-xs border-b border-dashed border-black pb-2 mt-2">
                   <div>บิล: {receiptData.orderNo}</div>
                   <div>วันที่: {new Date(receiptData.createdAt).toLocaleString('th-TH')}</div>
@@ -5794,12 +5850,14 @@ export default function POSSystem({
               </div>
 
               <div className="mb-4">
-                <h3 className="font-bold text-sm mb-1 border-b border-dashed border-black pb-1">รายการตัดคอร์ส</h3>
+                <h3 className="font-bold text-sm mb-1 border-b border-dashed border-black pb-1">
+                  {receiptData.items.some(i => i.type === 'claim_item') ? 'รายการเบิกสินค้า / ของแถม' : 'รายการตัดคอร์ส'}
+                </h3>
                 {receiptData.items.map((item, idx) => (
                   <div key={idx} className="flex flex-col text-sm py-1 border-b border-dashed border-slate-300">
                     <div className="flex justify-between items-start">
-                      <span className="pr-2 font-semibold">{item.name.replace('ใช้คอร์ส:', '').trim()}</span>
-                      <span className="font-bold shrink-0">หัก {item.qty} ครั้ง</span>
+                      <span className="pr-2 font-semibold">{item.name.replace('ใช้คอร์ส:', '').replace('[เบิกของแถม]', '').trim()}</span>
+                      <span className="font-bold shrink-0">{item.type === 'claim_item' ? `เบิก ${item.qty} ชิ้น` : `หัก ${item.qty} ครั้ง`}</span>
                     </div>
                     {(receiptData.usedServices && receiptData.usedServices.length > 0) ? (
                       <div className="mt-1 pl-2 text-xs text-slate-700 space-y-0.5">
@@ -7761,7 +7819,8 @@ export default function POSSystem({
                                             maxQty: item.qty - claimedCount,
                                             itemName: item.name
                                          }, 'claim_item');
-                                         showToast(`เพิ่มรายการเบิก "${item.name}" ลงในตะกร้าแล้ว`, 'success');
+                                         setCheckoutStep(1);
+                                         setShowPaymentModal(true);
                                          setSelectedCourseForUsage(null);
                                       }}
                                       disabled={isClaimed}

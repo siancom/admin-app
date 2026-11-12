@@ -602,7 +602,9 @@ export function CoursePrintSheet({
         {(creditHistories.length > 0 || totalCredit > 0) && (
           <div className="mt-2.5" style={{ breakInside: 'avoid' }}>
             <h3 className="text-[10px] font-black text-orange-800 mb-1">
-              ประวัติการเบิกสินค้า / ใช้วงเงินเครดิต (คงเหลือ ฿{remainCredit.toLocaleString()})
+              {totalCredit > 0
+                ? `ประวัติการเบิกสินค้า / ใช้วงเงินเครดิต (คงเหลือ ฿${remainCredit.toLocaleString()})`
+                : 'ประวัติการเบิกสินค้า / ของแถมจากคอร์ส'}
             </h3>
             <table className="w-full border-collapse border border-slate-400 text-[9.5px] table-fixed">
               <thead className="bg-orange-50/70 text-slate-800">
@@ -621,6 +623,8 @@ export function CoursePrintSheet({
                   );
                   const cSig = getFuzzyKey(h, ['ลายเซนต์ลูกค้า', 'ลายเซ็นลูกค้า', 'customerSignature']);
                   const sSig = getFuzzyKey(h, ['ลายเซนต์เจ้าหน้าที่', 'ลายเซ็นพนักงาน', 'staffSignature']);
+                  const hType = String(getFuzzyKey(h, ['ประเภท', 'col_4']) || '');
+                  const hQty = parseQty(getFuzzyKey(h, ['จำนวน', 'col_15']));
                   return (
                     <tr key={`cred_${i}`} className="h-[9.5mm]" style={{ breakInside: 'avoid' }}>
                       <td className="border border-slate-400 px-1.5 text-center font-mono">
@@ -628,12 +632,13 @@ export function CoursePrintSheet({
                       </td>
                       <td className="border border-slate-400 px-2 truncate font-semibold">
                         {String(getFuzzyKey(h, ['รายการ', 'สินค้า', 'col_23', 'col_18']) || 'เบิกใช้เครดิต')}
+                        {hQty > 1 ? ` (${hQty} ชิ้น)` : ''}
                       </td>
                       <td className="border border-slate-400 px-1.5 text-right font-bold text-orange-800">
-                        {amt > 0 ? `฿${amt.toLocaleString()}` : '-'}
+                        {amt > 0 ? `฿${amt.toLocaleString()}` : (hType.includes('เบิกสินค้า') ? 'ของแถม / ฟรี' : '-')}
                       </td>
                       <td className="border border-slate-400 px-1 text-center">{renderSignatureCell(cSig)}</td>
-                      <td className="border border-slate-400 px-1 text-center">{renderSignatureCell(sSig)}</td>
+                      <td className="border border-slate-400 px-1 text-center">{renderSignatureCell(sSig, getFuzzyKey(h, ['พนักงาน', 'ชื่อเจ้าหน้าที่', 'ผู้ให้บริการ']))}</td>
                     </tr>
                   );
                 })}
