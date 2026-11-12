@@ -59,7 +59,16 @@ export default function InventoryDashboard({
   }));
 
   const getProductImageUrl = (p) => {
+    if (!p) return '';
+    // 1. Firebase Storage URL (Primary cloud storage)
+    if (p.firebaseImageUrl && typeof p.firebaseImageUrl === 'string' && p.firebaseImageUrl.startsWith('http')) {
+      return p.firebaseImageUrl.split(',')[0].trim();
+    }
     const rawImg = getFuzzyKey(p, ["รูปภาพ", "รูป", "image", "img", "col_13"]);
+    if (rawImg && typeof rawImg === 'string' && rawImg.includes('firebasestorage.googleapis.com')) {
+      return rawImg.split(',')[0].trim();
+    }
+
     const code = String(getFuzzyKey(p, ["รหัส", "col_1"]) || '').trim();
     const name = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim();
     let candidate = rawImg;

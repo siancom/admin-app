@@ -44,14 +44,16 @@ export const getPosProductImageUrl = (p, wooImagesMap) => {
   const productName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || p.name || '').trim();
   const productCode = String(getFuzzyKey(p, ["รหัส", "col_1"]) || p.code || '').trim();
 
-  // 1. Prioritize WooCommerce API map (if available)
-  if (wooImagesMap && wooImagesMap instanceof Map) {
-    const wooImg = (productCode ? wooImagesMap.get(productCode.toUpperCase()) : null) || 
-                   (productName ? wooImagesMap.get(productName.toLowerCase()) : null);
-    if (wooImg && typeof wooImg === 'string' && wooImg.startsWith('http')) {
-      const first = wooImg.split(',')[0].trim();
-      if (first.startsWith('http')) return first;
-    }
+  // 1. Priority #1: Firebase Storage URL (Primary cloud storage)
+  const firebaseImg = p.firebaseImageUrl || p.imageUrl || p.image;
+  if (firebaseImg && typeof firebaseImg === 'string' && firebaseImg.includes('firebasestorage.googleapis.com')) {
+    const first = firebaseImg.split(',')[0].trim();
+    if (first.startsWith('http')) return first;
+  }
+  const rawPicturePrimary = getFuzzyKey(p, ["รูปภาพ", "image", "imageUrl", "img"]);
+  if (rawPicturePrimary && typeof rawPicturePrimary === 'string' && rawPicturePrimary.includes('firebasestorage.googleapis.com')) {
+    const first = rawPicturePrimary.split(',')[0].trim();
+    if (first.startsWith('http')) return first;
   }
 
   // 2. Direct web photo in 'รูปภาพ' / 'image' / 'imageUrl' (WordPress / WooCommerce media uploads)
@@ -60,6 +62,16 @@ export const getPosProductImageUrl = (p, wooImagesMap) => {
     const first = rawPicture.split(',')[0].trim();
     if (first.startsWith('http://') || first.startsWith('https://')) {
       return first;
+    }
+  }
+
+  // 3. WooCommerce API map (if available)
+  if (wooImagesMap && wooImagesMap instanceof Map) {
+    const wooImg = (productCode ? wooImagesMap.get(productCode.toUpperCase()) : null) || 
+                   (productName ? wooImagesMap.get(productName.toLowerCase()) : null);
+    if (wooImg && typeof wooImg === 'string' && wooImg.startsWith('http')) {
+      const first = wooImg.split(',')[0].trim();
+      if (first.startsWith('http')) return first;
     }
   }
 
