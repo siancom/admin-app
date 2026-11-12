@@ -1356,6 +1356,20 @@ export default function POSSystem({
           const maxQty = item.computedRemainQty || 1;
           const nameStr = `เบิกใช้: ${String(getFuzzyKey(item, ["ชื่อคอส", "col_8"]))} (${String(getFuzzyKey(item, ["เลขที่ใบคอส", "col_2"]))})`;
           return [...prev, { id: item.id, name: nameStr, price: 0, qty: 1, type, maxQty, originalItem: item }];
+        } else if (type === 'claim_item') {
+          return [...prev, {
+            id: item.id,
+            name: item.name || `[เบิกของแถม] ${item.itemName}`,
+            price: 0,
+            qty: 1,
+            type: 'claim_item',
+            maxQty: item.maxQty || 1,
+            courseId: item.courseId,
+            courseName: item.courseName,
+            itemName: item.itemName,
+            originalCourse: item.originalCourse,
+            originalItem: item.originalItem || item.originalCourse
+          }];
         }
         return prev;
       }
@@ -1368,8 +1382,8 @@ export default function POSSystem({
         if (i.id === id && i.type === type) {
           const newQty = i.qty + delta;
           if (newQty < 1) return i;
-          if ((type === 'product' || type === 'usage') && newQty > i.maxQty) {
-            showToast(type === 'usage' ? 'จำนวนครั้งคอร์สไม่เพียงพอ' : 'จำนวนสินค้าเกินสต็อก');
+          if ((type === 'product' || type === 'usage' || type === 'claim_item') && newQty > i.maxQty) {
+            showToast(type === 'claim_item' ? 'เบิกเกินโควต้าที่เหลือ' : (type === 'usage' ? 'จำนวนครั้งคอร์สไม่เพียงพอ' : 'จำนวนสินค้าเกินสต็อก'));
             return i;
           }
           return { ...i, qty: newQty };
@@ -4419,10 +4433,15 @@ export default function POSSystem({
                       <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 border border-slate-200">
                         <Package size={20} className="text-slate-400" />
                       </div>
+                    ) : item.type === 'claim_item' ? (
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-pink-50 flex items-center justify-center shrink-0 border border-pink-200">
+                        <Package size={20} className="text-pink-500" />
+                      </div>
                     ) : null}
                     <div className="flex-1 min-w-0">
                       <div className="text-xs sm:text-sm font-semibold text-slate-800 flex items-center gap-1.5">
                         {item.type === 'course' && <span className="inline-block px-1 py-[1px] rounded text-[9px] bg-pink-100 text-pink-700 font-bold uppercase shrink-0">Course</span>}
+                        {item.type === 'claim_item' && <span className="inline-block px-1.5 py-[1px] rounded text-[9px] bg-pink-100 text-pink-700 font-bold shrink-0">เบิกของแถม</span>}
                         <span className="truncate" title={item.name}>{item.name}</span>
                       </div>
                       {item.type === 'product' && (
@@ -7724,6 +7743,13 @@ export default function POSSystem({
                                    </div>
                                    <button 
                                       onClick={() => {
+                                         if (!selectedCustomer && selectedCourseForUsage) {
+                                            const cPhone = String(getFuzzyKey(selectedCourseForUsage, ["เบอร์โทร", "col_1", "phone", "customerPhone"]) || '').replace(/[^0-9]/g, '');
+                                            if (cPhone) {
+                                               const cust = customers.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || c.computedPhone || '').replace(/[^0-9]/g, '') === cPhone);
+                                               if (cust) setSelectedCustomer(cust);
+                                            }
+                                         }
                                          addToCart({
                                             id: `claim_${selectedCourseForUsage.id}_${item.name}`,
                                             courseId: selectedCourseForUsage.id,
@@ -7735,6 +7761,7 @@ export default function POSSystem({
                                             maxQty: item.qty - claimedCount,
                                             itemName: item.name
                                          }, 'claim_item');
+                                         showToast(`เพิ่มรายการเบิก "${item.name}" ลงในตะกร้าแล้ว`, 'success');
                                          setSelectedCourseForUsage(null);
                                       }}
                                       disabled={isClaimed}
