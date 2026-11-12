@@ -1397,16 +1397,39 @@ export default function POSSystem({
     setCart(prev => prev.filter(i => !(i.id === id && i.type === type)));
   };
 
-  // 🌟 ค้นหาใบคอร์สจากค่าที่สแกน (QR บนใบคอร์ส A4 / เลขที่ใบคอส / courseRefKey / id)
+  // 🌟 ค้นหาใบคอร์สจากค่าที่สแกน (QR บนใบคอร์ส A4 / เลขที่ใบคอส / courseRefKey / id / URL tec-it / JSON)
   const findCourseByScanRef = (raw) => {
-    const t = String(raw || '').trim();
+    let t = String(raw || '').trim();
     if (!t) return null;
+
+    // 1. ถ้าสแกนได้ URL (เช่น barcode.tec-it.com หรือเว็บ)
+    if (t.includes('http://') || t.includes('https://')) {
+      try {
+        const urlObj = new URL(t);
+        const dataParam = urlObj.searchParams.get('data');
+        if (dataParam) t = dataParam;
+        else {
+          const parts = urlObj.pathname.split('/').filter(Boolean);
+          if (parts.length > 0) t = parts[parts.length - 1];
+        }
+      } catch(e) {}
+    }
+
+    // 2. ถ้าสแกนได้ JSON
+    if (t.startsWith('{') && t.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(t);
+        t = parsed.courseRef || parsed.courseNo || parsed.courseId || parsed.id || parsed.code || t;
+      } catch(e) {}
+    }
+
     const tLower = t.toLowerCase();
     return courses.find(c => {
       const refs = [
         getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"]),
         c.courseRefKey,
-        c.id
+        c.id,
+        getFuzzyKey(c, ["รหัสคอส", "col_1"])
       ].map(v => String(v || '').trim().toLowerCase()).filter(Boolean);
       return refs.includes(tLower);
     }) || null;
@@ -1487,18 +1510,36 @@ export default function POSSystem({
            // Check if it's a course invoice number (ใบคอร์ส A4 / QR)
            const course = findCourseByScanRef(code);
            if (course) {
-               const coursePhone = String(getFuzzyKey(course, ["เบอร์โทร", "col_1"]) || '').replace(/[^0-9]/g, '');
+               const coursePhone = String(getFuzzyKey(course, ["เบอร์โทร", "col_1", "phone", "customerPhone"]) || '').replace(/[^0-9]/g, '');
+               let customer = null;
                if (coursePhone) {
-                   const customer = customers.find(c => {
-                       const phone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').replace(/[^0-9]/g, '');
-                       return phone === coursePhone;
+                   customer = customers.find(c => {
+                       const phone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || c.computedPhone || '').replace(/[^0-9]/g, '');
+                       return phone && phone === coursePhone;
                    });
-                   if (customer) {
-                       setSelectedCustomer(customer);
-                       setActiveTab('my_courses');
-                       showToast(`สแกนพบใบคอร์สและเลือกลูกค้า: ${getFuzzyKey(customer, ["ชื่อ", "col_1"])}`, 'success');
-                       return;
+               }
+               if (!customer && (course.customerId || course.customer_id)) {
+                   customer = customers.find(c => c.id === (course.customerId || course.customer_id));
+               }
+               if (!customer) {
+                   const custName = String(getFuzzyKey(course, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "ชื่อ", "col_9", "customerName"]) || '').trim().toLowerCase();
+                   if (custName) {
+                       customer = customers.find(c => {
+                           const name = String(getFuzzyKey(c, ["ชื่อ", "col_1", "name"]) || '').trim().toLowerCase();
+                           return name && (name === custName || name.includes(custName) || custName.includes(name));
+                       });
                    }
+               }
+               if (customer) {
+                   setSelectedCustomer(customer);
+                   setActiveTab('my_courses');
+                   setSelectedCourseForUsage(course);
+                   showToast(`สแกนพบคอร์ส: ${String(getFuzzyKey(course, ["ชื่อคอส", "col_8"]) || '-')}`, `ลูกค้า: ${getFuzzyKey(customer, ["ชื่อ", "col_1"])}`, 'success');
+                   return;
+               } else {
+                   setSelectedCourseForUsage(course);
+                   showToast(`สแกนพบคอร์ส: ${String(getFuzzyKey(course, ["ชื่อคอส", "col_8"]) || course.id)}`, 'success');
+                   return;
                }
            }
 
@@ -7369,19 +7410,38 @@ export default function POSSystem({
              // Check if it's a course invoice number (ใบคอร์ส A4 / QR)
              const course = findCourseByScanRef(text);
              if (course) {
-                 const coursePhone = String(getFuzzyKey(course, ["เบอร์โทร", "col_1"]) || '').replace(/[^0-9]/g, '');
+                 const coursePhone = String(getFuzzyKey(course, ["เบอร์โทร", "col_1", "phone", "customerPhone"]) || '').replace(/[^0-9]/g, '');
+                 let customer = null;
                  if (coursePhone) {
-                     const customer = customers.find(c => {
-                         const phone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').replace(/[^0-9]/g, '');
-                         return phone === coursePhone;
+                     customer = customers.find(c => {
+                         const phone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || c.computedPhone || '').replace(/[^0-9]/g, '');
+                         return phone && phone === coursePhone;
                      });
-                     if (customer) {
-                         setSelectedCustomer(customer);
-                         setActiveTab('my_courses');
-                         showToast(`สแกนพบใบคอร์สและเลือกลูกค้า: ${getFuzzyKey(customer, ["ชื่อ", "col_1"])}`, 'success');
-                         setScannerTarget(null);
-                         return;
+                 }
+                 if (!customer && (course.customerId || course.customer_id)) {
+                     customer = customers.find(c => c.id === (course.customerId || course.customer_id));
+                 }
+                 if (!customer) {
+                     const custName = String(getFuzzyKey(course, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "ชื่อ", "col_9", "customerName"]) || '').trim().toLowerCase();
+                     if (custName) {
+                         customer = customers.find(c => {
+                             const name = String(getFuzzyKey(c, ["ชื่อ", "col_1", "name"]) || '').trim().toLowerCase();
+                             return name && (name === custName || name.includes(custName) || custName.includes(name));
+                         });
                      }
+                 }
+                 if (customer) {
+                     setSelectedCustomer(customer);
+                     setActiveTab('my_courses');
+                     setSelectedCourseForUsage(course);
+                     showToast(`สแกนพบคอร์ส: ${String(getFuzzyKey(course, ["ชื่อคอส", "col_8"]) || '-')}`, `ลูกค้า: ${getFuzzyKey(customer, ["ชื่อ", "col_1"])}`, 'success');
+                     setScannerTarget(null);
+                     return;
+                 } else {
+                     setSelectedCourseForUsage(course);
+                     showToast(`สแกนพบคอร์ส: ${String(getFuzzyKey(course, ["ชื่อคอส", "col_8"]) || course.id)}`, 'success');
+                     setScannerTarget(null);
+                     return;
                  }
              }
 

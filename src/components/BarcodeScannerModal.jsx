@@ -24,7 +24,14 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScan, continuou
 
           html5QrCode.start(
             { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 150 } },
+            { 
+              fps: 10, 
+              qrbox: (viewfinderWidth, viewfinderHeight) => {
+                const edge = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.75);
+                return { width: Math.max(edge, 220), height: Math.max(edge, 220) };
+              },
+              aspectRatio: 1.0 
+            },
             (decodedText) => {
               if (continuous) {
                 if (lastScanned !== decodedText) {
