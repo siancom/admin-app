@@ -94,6 +94,7 @@ export const sendBookingLineNotification = async (booking, status, lineUid, canc
     if (!lineUid || String(lineUid).includes('mock')) return;
 
     const statusColors = {
+        'เลื่อนเวลานัดหมาย': '#6366f1',
         'เตือนคิว (อีก 1 ชม.)': '#3b82f6',
         'เตือนคิว (อีก 20 นาที)': '#ef4444',
         'รอการยืนยัน': '#f59e0b',
@@ -109,6 +110,7 @@ export const sendBookingLineNotification = async (booking, status, lineUid, canc
     };
 
     const statusIcons = {
+        'เลื่อนเวลานัดหมาย': '🗓️',
         'เตือนคิว (อีก 1 ชม.)': '⏰',
         'เตือนคิว (อีก 20 นาที)': '⏰',
         'รอการยืนยัน': '●',
@@ -174,12 +176,15 @@ export const sendBookingLineNotification = async (booking, status, lineUid, canc
                  },
                  {
                    type: 'text',
-                   text: ['ยกเลิก', 'ยกเลิกฉุกเฉิน', 'ยกเลิกโดยลูกค้า'].includes(status)
-                     ? 'คิวนี้ได้รับการยกเลิกแล้ว'
-                     : 'แสดง E-Ticket นี้ให้พนักงานเมื่อมาถึงสาขา',
+                   text: status === 'เลื่อนเวลานัดหมาย'
+                     ? (booking.rescheduleReason ? `เหตุผลที่เลื่อน: ${booking.rescheduleReason}` : 'คลินิกได้ทำการเลื่อนวันและเวลานัดหมายใหม่ของคุณเรียบร้อยแล้ว')
+                     : ['ยกเลิก', 'ยกเลิกฉุกเฉิน', 'ยกเลิกโดยลูกค้า'].includes(status)
+                       ? 'คิวนี้ได้รับการยกเลิกแล้ว'
+                       : 'แสดง E-Ticket นี้ให้พนักงานเมื่อมาถึงสาขา',
                    size: 'xs',
                    color: '#ffffff',
-                   margin: 'sm'
+                   margin: 'sm',
+                   wrap: true
                  }
                ]
              },

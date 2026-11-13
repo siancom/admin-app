@@ -9,7 +9,7 @@ import {
   Camera, Image as ImageIcon, ShieldCheck, ShieldAlert, RefreshCcw, PenTool,
   Bell, List, LayoutGrid, ScanLine, CalendarDays, ChevronLeft, ChevronUp, ChevronDown, BarChart3, Store, UserCheck, Wallet, Loader2, Scissors, Ticket, Gift,
   Send, MessageSquare, ToggleLeft, ToggleRight, TestTube, ExternalLink, Zap, Target, Droplet, Syringe, Pill, Truck, Star,
-  Filter, RotateCcw, Lock, Unlock
+  Filter, RotateCcw, Lock, Unlock, CalendarClock
 } from 'lucide-react';
 
 // --- SERVICE TYPE HELPER ---
@@ -291,6 +291,16 @@ export default function App() {
   const [inspectorCourse, setInspectorCourse] = useState(null);
 
   const [bookingTicket, setBookingTicket] = useState(null);
+  const [rescheduleBookingModal, setRescheduleBookingModal] = useState({
+    isOpen: false,
+    booking: null,
+    targetDate: '',
+    targetTime: '',
+    targetBranch: '',
+    notifyLine: true,
+    reason: ''
+  });
+  const [isReschedulingBooking, setIsReschedulingBooking] = useState(false);
   const [orderTicket, setOrderTicket] = useState(null);
   const orderTicketRef = useRef(null);
   const [isDownloadingTicket, setIsDownloadingTicket] = useState(false);
@@ -500,6 +510,80 @@ export default function App() {
     } catch (err) {
       console.error("Failed to update extra slot:", err);
       showToast('เกิดข้อผิดพลาดในการเปิดรับคิวเพิ่ม: ' + err.message, 'error');
+    }
+  };
+
+  // 🗓️ พนักงานเลื่อนวันและเวลานัดหมาย (Staff Reschedule Booking)
+  const openRescheduleModal = (b) => {
+    if (!b) return;
+    const dtSafe = getSafeDateTime(b);
+    const currentDate = b.date || (dtSafe ? dtSafe.split('T')[0] : new Date().toISOString().split('T')[0]);
+    const currentTime = b.time ? b.time.substring(0, 5) : (dtSafe ? dtSafe.split('T')[1]?.substring(0, 5) : '13:00');
+    const currentBranch = String(b.branch || 'เฉวง').replace(/^สาขา/, '').trim();
+    
+    setRescheduleBookingModal({
+      isOpen: true,
+      booking: b,
+      targetDate: currentDate,
+      targetTime: currentTime,
+      targetBranch: currentBranch || 'เฉวง',
+      notifyLine: true,
+      reason: ''
+    });
+  };
+
+  const handleConfirmReschedule = async () => {
+    if (!rescheduleBookingModal.booking || isReschedulingBooking) return;
+    const { booking, targetDate, targetTime, targetBranch, notifyLine, reason } = rescheduleBookingModal;
+    
+    if (!targetDate || !targetTime) {
+      showToast('กรุณาระบุวันที่และเวลาที่ต้องการเลื่อน', 'error');
+      return;
+    }
+
+    setIsReschedulingBooking(true);
+    const newDateTime = `${targetDate}T${targetTime}:00`;
+    const oldSafeDt = getSafeDateTime(booking);
+
+    try {
+      const updatePayload = {
+        date: targetDate,
+        time: targetTime,
+        dateTime: newDateTime,
+        branch: targetBranch || booking.branch || 'เฉวง',
+        rescheduledAt: new Date().toISOString(),
+        rescheduledBy: 'staff',
+        lastRescheduledFrom: oldSafeDt || null,
+        reminded20m: false,
+        reminded1hr: false
+      };
+      if (reason && reason.trim()) {
+        updatePayload.rescheduleReason = reason.trim();
+      }
+
+      await updateDoc(getDocRef('bookings', booking.id), updatePayload);
+
+      // อัปเดต modal ที่เปิดอยู่ถ้าเป็นรายการเดียวกัน
+      if (bookingTicket && bookingTicket.id === booking.id) {
+        setBookingTicket(prev => prev ? ({ ...prev, ...updatePayload }) : null);
+      }
+
+      // ส่งข้อความแจ้งเตือนทาง LINE ถ้ามี LINE UID
+      const targetLineUid = getBookingLineUid(booking);
+      if (notifyLine && targetLineUid) {
+        const updatedBookingForNotif = { ...booking, ...updatePayload };
+        sendBookingLineNotification(updatedBookingForNotif, 'เลื่อนเวลานัดหมาย', targetLineUid);
+      }
+
+      const [y, m, d] = targetDate.split('-');
+      const thYear = Number(y) + 543;
+      showToast(`เลื่อนนัดหมายเป็นวันที่ ${d}/${m}/${thYear} เวลา ${targetTime} น. สำเร็จ!`, 'success');
+      setRescheduleBookingModal({ isOpen: false, booking: null, targetDate: '', targetTime: '', targetBranch: '', notifyLine: true, reason: '' });
+    } catch (err) {
+      console.error('Error rescheduling booking:', err);
+      showToast('เกิดข้อผิดพลาดในการเลื่อนนัดหมาย: ' + err.message, 'error');
+    } finally {
+      setIsReschedulingBooking(false);
     }
   };
 
@@ -2791,6 +2875,7 @@ export default function App() {
       const LINE_TOKEN = 'ZETupyqjlJyWxas+yaTBSDuGIkZKAwd8B6bWsZhmqfC+A00I/9LfZm8fSu31l8buhDOZbJhCivLyWiTVsxCZvOmAB0wmAYf4Q+t2jad/G1ZIzmnfo66k79bG6W9QQJIZcJxWuPEj9K5QAQKlVlXSbgdB04t89/1O/w1cDnyilFU=';
       
       const statusColors = {
+          'เลื่อนเวลานัดหมาย': '#6366f1',
           'เตือนคิว (อีก 1 ชม.)': '#3b82f6',
           'เตือนคิว (อีก 20 นาที)': '#ef4444',
           'รอการยืนยัน': '#f59e0b',
@@ -2806,6 +2891,7 @@ export default function App() {
       };
       
       const statusIcons = {
+          'เลื่อนเวลานัดหมาย': '🗓️',
           'เตือนคิว (อีก 1 ชม.)': '⏰',
           'เตือนคิว (อีก 20 นาที)': '⏰',
           'รอการยืนยัน': '●',
@@ -2865,12 +2951,15 @@ const flexMessage = {
                   },
                   {
                     type: "text",
-                    text: ['ยกเลิก', 'ยกเลิกฉุกเฉิน', 'ยกเลิกโดยลูกค้า'].includes(newStatus)
-                      ? (realCancelReason ? `สาเหตุ: ${realCancelReason}` : "คิวนี้ได้รับการยกเลิกแล้ว")
-                      : "แสดง E-Ticket นี้ให้พนักงานเมื่อมาถึงสาขา",
+                    text: newStatus === 'เลื่อนเวลานัดหมาย'
+                      ? (booking.rescheduleReason ? `เหตุผลที่เลื่อน: ${booking.rescheduleReason}` : "คลินิกได้ทำการเลื่อนวันและเวลานัดหมายใหม่ของคุณเรียบร้อยแล้ว")
+                      : ['ยกเลิก', 'ยกเลิกฉุกเฉิน', 'ยกเลิกโดยลูกค้า'].includes(newStatus)
+                        ? (realCancelReason ? `สาเหตุ: ${realCancelReason}` : "คิวนี้ได้รับการยกเลิกแล้ว")
+                        : "แสดง E-Ticket นี้ให้พนักงานเมื่อมาถึงสาขา",
                     size: "xs",
                     color: "#ffffff",
-                    margin: "sm"
+                    margin: "sm",
+                    wrap: true
                   }
                 ]
               },
@@ -5519,14 +5608,26 @@ const flexMessage = {
                                                                     <BookingCountdown booking={b} />
                                                                 </div>
                                                                 
-                                                                <div className="flex justify-between items-end mt-auto">
-                                                                    <div>
-                                                                        <p className="text-[8px] font-bold text-gray-400 mb-0.5">วันที่</p>
-                                                                        <p className="font-black text-gray-800 text-[11px]">{dtSafe ? new Date(dtSafe).toLocaleDateString('th-TH', {day: 'numeric', month: 'numeric', year: 'numeric'}) : '-'}</p>
+                                                                 <div className="flex justify-between items-end mt-auto">
+                                                                    <div
+                                                                        className="cursor-pointer hover:bg-indigo-50/70 p-0.5 rounded transition-colors"
+                                                                        onClick={(e) => { e.stopPropagation(); openRescheduleModal(b); }}
+                                                                        title="คลิกเพื่อเลื่อนวัน/เวลานัดหมาย"
+                                                                    >
+                                                                        <p className="text-[8px] font-bold text-gray-400 mb-0.5 flex items-center gap-0.5">
+                                                                            วันที่ <CalendarClock size={9} className="text-indigo-500" />
+                                                                        </p>
+                                                                        <p className="font-black text-gray-800 text-[11px] underline decoration-dashed decoration-indigo-300 underline-offset-2">
+                                                                            {dtSafe ? new Date(dtSafe).toLocaleDateString('th-TH', {day: 'numeric', month: 'numeric', year: 'numeric'}) : '-'}
+                                                                        </p>
                                                                     </div>
-                                                                    <div>
+                                                                    <div
+                                                                        className="cursor-pointer hover:bg-indigo-50/70 p-0.5 rounded transition-colors text-right"
+                                                                        onClick={(e) => { e.stopPropagation(); openRescheduleModal(b); }}
+                                                                        title="คลิกเพื่อเลื่อนวัน/เวลานัดหมาย"
+                                                                    >
                                                                         <p className="text-[8px] font-bold text-gray-400 mb-0.5 flex items-center gap-1">เวลา {timeDiffStr && <span className={`text-[8px] px-1 rounded border ${timeDiffColor}`}>{timeDiffStr}</span>}</p>
-                                                                        <p className={`font-black text-[15px] leading-none ${st === 'รอการยืนยัน' ? 'text-amber-500' : st === 'ยืนยันแล้ว' ? 'text-blue-500' : st === 'กำลังใช้บริการ' ? 'text-purple-500' : st === 'เสร็จสิ้น' ? 'text-emerald-500' : 'text-gray-500'}`}>
+                                                                        <p className={`font-black text-[15px] leading-none underline decoration-dashed decoration-indigo-300 underline-offset-2 ${st === 'รอการยืนยัน' ? 'text-amber-500' : st === 'ยืนยันแล้ว' ? 'text-blue-500' : st === 'กำลังใช้บริการ' ? 'text-purple-500' : st === 'เสร็จสิ้น' ? 'text-emerald-500' : 'text-gray-500'}`}>
                                                                             {dtSafe ? dtSafe.split('T')[1]?.substring(0,5) : '-'} <span className="text-[9px]">น.</span>
                                                                         </p>
                                                                     </div>
@@ -5536,7 +5637,7 @@ const flexMessage = {
                                                                     </div>
                                                                 </div>
 
-                                                                {/* ⚡ เปิดรับคิวเพิ่มโดยตรงจากการ์ด (Timeline) */}
+                                                                {/* ⚡ เปิดรับคิวเพิ่มและเลื่อนเวลาโดยตรงจากการ์ด (Timeline) */}
                                                                 {(() => {
                                                                     const bDate = b.date || (dtSafe ? dtSafe.split('T')[0] : '');
                                                                     const bTime = b.time ? b.time.substring(0, 5) : (dtSafe ? dtSafe.split('T')[1]?.substring(0, 5) : '');
@@ -5545,12 +5646,21 @@ const flexMessage = {
                                                                     const extraCount = Number(bookingConfig?.extraSlotOverrides?.[key] || 0);
 
                                                                     return (
-                                                                        <div className="mt-2 pt-1.5 border-t border-gray-100/80 flex items-center justify-between">
+                                                                        <div className="mt-2 pt-1.5 border-t border-gray-100/80 flex items-center justify-between gap-1">
                                                                             <div className="flex items-center gap-1">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={(e) => { e.stopPropagation(); openRescheduleModal(b); }}
+                                                                                    className="px-2 py-0.5 rounded-lg text-[8.5px] font-black flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 active:scale-95 transition-all shadow-xs"
+                                                                                    title="เลื่อนวัน/เวลานัดหมาย"
+                                                                                >
+                                                                                    <CalendarClock size={10} />
+                                                                                    <span>เลื่อนเวลา</span>
+                                                                                </button>
                                                                                 {extraCount > 0 ? (
                                                                                     <span className="text-[8.5px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
                                                                                         <Zap size={9} className="fill-emerald-500 text-emerald-600" />
-                                                                                        +{extraCount} คิว
+                                                                                        +{extraCount}
                                                                                     </span>
                                                                                 ) : null}
                                                                             </div>
@@ -5576,7 +5686,7 @@ const flexMessage = {
                                                                                     title="กดเพื่อเปิดรับคิวเพิ่มในรอบนี้"
                                                                                 >
                                                                                     <Plus size={10} />
-                                                                                    <span>{extraCount > 0 ? 'เพิ่ม' : '+เปิดรับเพิ่ม'}</span>
+                                                                                    <span>{extraCount > 0 ? 'เพิ่ม' : 'เปิดรับเพิ่ม'}</span>
                                                                                 </button>
                                                                             </div>
                                                                         </div>
@@ -5688,13 +5798,27 @@ const flexMessage = {
                                         </div>
                                         
                                         <div className="flex justify-between items-end mt-auto">
-                                            <div>
-                                                <p className="text-[8px] font-bold text-gray-400 mb-0.5">วันที่</p>
-                                                <p className="font-black text-gray-800 text-[11px]">{dtSafe ? new Date(dtSafe).toLocaleDateString('th-TH', {day: 'numeric', month: 'numeric', year: 'numeric'}) : '-'}</p>
+                                            <div
+                                                className="cursor-pointer hover:bg-indigo-50/70 p-0.5 rounded transition-colors"
+                                                onClick={(e) => { e.stopPropagation(); openRescheduleModal(b); }}
+                                                title="คลิกเพื่อเลื่อนวัน/เวลานัดหมาย"
+                                            >
+                                                <p className="text-[8px] font-bold text-gray-400 mb-0.5 flex items-center gap-0.5">
+                                                    วันที่ <CalendarClock size={9} className="text-indigo-500" />
+                                                </p>
+                                                <p className="font-black text-gray-800 text-[11px] underline decoration-dashed decoration-indigo-300 underline-offset-2">
+                                                    {dtSafe ? new Date(dtSafe).toLocaleDateString('th-TH', {day: 'numeric', month: 'numeric', year: 'numeric'}) : '-'}
+                                                </p>
                                             </div>
-                                            <div>
-                                                <p className="text-[8px] font-bold text-gray-400 mb-0.5">เวลา</p>
-                                                <p className={`font-black text-[15px] leading-none ${st === 'รอการยืนยัน' ? 'text-amber-500' : st === 'ยืนยันแล้ว' ? 'text-blue-500' : st === 'กำลังใช้บริการ' ? 'text-purple-500' : st === 'เสร็จสิ้น' ? 'text-emerald-500' : 'text-gray-500'}`}>
+                                            <div
+                                                className="cursor-pointer hover:bg-indigo-50/70 p-0.5 rounded transition-colors text-right"
+                                                onClick={(e) => { e.stopPropagation(); openRescheduleModal(b); }}
+                                                title="คลิกเพื่อเลื่อนวัน/เวลานัดหมาย"
+                                            >
+                                                <p className="text-[8px] font-bold text-gray-400 mb-0.5 flex items-center justify-end gap-0.5">
+                                                    เวลา <Clock size={9} className="text-indigo-500" />
+                                                </p>
+                                                <p className={`font-black text-[15px] leading-none underline decoration-dashed decoration-indigo-300 underline-offset-2 ${st === 'รอการยืนยัน' ? 'text-amber-500' : st === 'ยืนยันแล้ว' ? 'text-blue-500' : st === 'กำลังใช้บริการ' ? 'text-purple-500' : st === 'เสร็จสิ้น' ? 'text-emerald-500' : 'text-gray-500'}`}>
                                                     {dtSafe ? dtSafe.split('T')[1]?.substring(0,5) : '-'} <span className="text-[9px]">น.</span>
                                                 </p>
                                             </div>
@@ -5704,7 +5828,7 @@ const flexMessage = {
                                             </div>
                                         </div>
 
-                                        {/* ⚡ เปิดรับคิวเพิ่มโดยตรงจากการ์ด */}
+                                        {/* ⚡ เปิดรับคิวเพิ่มและเลื่อนเวลาโดยตรงจากการ์ด (Cards) */}
                                         {(() => {
                                             const bDate = b.date || (dtSafe ? dtSafe.split('T')[0] : '');
                                             const bTime = b.time ? b.time.substring(0, 5) : (dtSafe ? dtSafe.split('T')[1]?.substring(0, 5) : '');
@@ -5713,18 +5837,23 @@ const flexMessage = {
                                             const extraCount = Number(bookingConfig?.extraSlotOverrides?.[key] || 0);
 
                                             return (
-                                                <div className="mt-2 pt-2 border-t border-gray-100/80 flex items-center justify-between">
+                                                <div className="mt-2 pt-2 border-t border-gray-100/80 flex items-center justify-between gap-1">
                                                     <div className="flex items-center gap-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => { e.stopPropagation(); openRescheduleModal(b); }}
+                                                            className="px-2 py-0.5 rounded-lg text-[9px] font-black flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 active:scale-95 transition-all shadow-xs"
+                                                            title="เลื่อนวัน/เวลานัดหมาย"
+                                                        >
+                                                            <CalendarClock size={11} />
+                                                            <span>เลื่อนเวลา</span>
+                                                        </button>
                                                         {extraCount > 0 ? (
-                                                            <span className="text-[9px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
+                                                            <span className="text-[9px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
                                                                 <Zap size={10} className="fill-emerald-500 text-emerald-600" />
-                                                                เปิดเพิ่ม +{extraCount} คิว
+                                                                +{extraCount}
                                                             </span>
-                                                        ) : (
-                                                            <span className="text-[9px] font-medium text-gray-400">
-                                                                ความจุรอบ {bTime} น.
-                                                            </span>
-                                                        )}
+                                                        ) : null}
                                                     </div>
                                                     <div className="flex items-center gap-1">
                                                         {extraCount > 0 && (
@@ -8459,10 +8588,21 @@ const flexMessage = {
                         </a>
                       )}
                     </div>
-                    <div className="text-[11px] text-gray-600 flex items-center gap-2">
-                      <span className="font-bold">🗓️ {bSafeDt ? new Date(bSafeDt).toLocaleDateString('th-TH', {day: 'numeric', month: 'numeric', year: 'numeric'}) : (bookingTicket.date || '-')}</span>
-                      <span className="font-black text-indigo-600">⏰ {bSafeDt ? bSafeDt.split('T')[1]?.substring(0,5) : (bookingTicket.time || '-')} น.</span>
-                      <span className="bg-white px-2 py-0.5 rounded-md border border-slate-200 text-[10px] font-bold text-slate-600">📍 {bookingTicket.branch || 'เฉวง'}</span>
+                    <div className="text-[11px] text-gray-600 flex items-center justify-between gap-2 pt-1 border-t border-slate-200/60 mt-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-bold">🗓️ {bSafeDt ? new Date(bSafeDt).toLocaleDateString('th-TH', {day: 'numeric', month: 'numeric', year: 'numeric'}) : (bookingTicket.date || '-')}</span>
+                        <span className="font-black text-indigo-600">⏰ {bSafeDt ? bSafeDt.split('T')[1]?.substring(0,5) : (bookingTicket.time || '-')} น.</span>
+                        <span className="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-[10px] font-bold text-slate-600">📍 {bookingTicket.branch || 'เฉวง'}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openRescheduleModal(bookingTicket)}
+                        className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg font-black text-xs flex items-center gap-1 shadow-xs active:scale-95 transition-all shrink-0"
+                        title="เลื่อนวันหรือเวลานัดหมาย"
+                      >
+                        <CalendarClock size={13} />
+                        <span>เลื่อนวัน/เวลา</span>
+                      </button>
                     </div>
                   </div>
                   <div className="bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm shrink-0 flex flex-col items-center">
@@ -8555,15 +8695,25 @@ const flexMessage = {
 
               {/* Bottom Actions */}
               <div className="pt-3 border-t border-gray-100 mt-3 flex items-center justify-between gap-2">
-                <button
-                  onClick={() => {
-                    setPrintingJobSlipBooking(bookingTicket);
-                    setBookingTicket(null);
-                  }}
-                  className="px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 border border-indigo-200"
-                >
-                  <Printer size={14} /> พิมพ์ใบงาน
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => openRescheduleModal(bookingTicket)}
+                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition-colors flex items-center gap-1.5 shadow-sm active:scale-95"
+                    title="เลื่อนวันหรือเวลานัดหมาย"
+                  >
+                    <CalendarClock size={14} /> เลื่อนวัน/เวลา
+                  </button>
+                  <button
+                    onClick={() => {
+                      setPrintingJobSlipBooking(bookingTicket);
+                      setBookingTicket(null);
+                    }}
+                    className="px-3 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 border border-indigo-200"
+                  >
+                    <Printer size={14} /> พิมพ์ใบงาน
+                  </button>
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
@@ -8589,6 +8739,270 @@ const flexMessage = {
                     ปิด
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 🗓️ Reschedule Booking Modal (พนักงานเลื่อนวัน/เวลานัดหมาย) */}
+      {rescheduleBookingModal.isOpen && rescheduleBookingModal.booking && (() => {
+        const b = rescheduleBookingModal.booking;
+        const dtSafe = getSafeDateTime(b);
+        const currentDtObj = dtSafe ? new Date(dtSafe) : null;
+        const currentDisplayDate = currentDtObj && !isNaN(currentDtObj.getTime())
+          ? currentDtObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })
+          : (b.date || '-');
+        const currentDisplayTime = b.time ? b.time.substring(0, 5) : (dtSafe ? dtSafe.split('T')[1]?.substring(0, 5) : '-');
+        const currentBranch = String(b.branch || 'เฉวง').replace(/^สาขา/, '').trim();
+
+        const quickDates = [
+          { label: 'วันนี้', days: 0 },
+          { label: 'พรุ่งนี้', days: 1 },
+          { label: 'มะรืนนี้', days: 2 },
+          { label: '+3 วัน', days: 3 },
+          { label: '+1 สัปดาห์', days: 7 }
+        ];
+
+        const standardSlots = [
+          '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30',
+          '16:00', '16:30', '17:00', '17:30', '18:00', '18:30', '19:00', '19:30', '20:00'
+        ];
+
+        const targetDateObj = rescheduleBookingModal.targetDate ? new Date(rescheduleBookingModal.targetDate + 'T00:00:00') : null;
+        const targetDateFormatted = targetDateObj && !isNaN(targetDateObj.getTime())
+          ? targetDateObj.toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+          : '';
+
+        const hasLine = Boolean(getBookingLineUid(b));
+
+        return (
+          <div className="fixed inset-0 z-[170] flex items-center justify-center p-3 sm:p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in" onClick={() => setRescheduleBookingModal(prev => ({ ...prev, isOpen: false }))}>
+            <div className="bg-white w-full max-w-lg rounded-3xl p-5 sm:p-6 shadow-2xl animate-in zoom-in-95 relative overflow-hidden max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
+
+              {/* Header */}
+              <div className="flex justify-between items-center pb-3 border-b border-gray-100 mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                    <CalendarClock size={22} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-lg text-gray-800 leading-tight">เลื่อนวัน / เวลานัดหมาย</h3>
+                    <p className="text-[11px] text-gray-500">
+                      ลูกค้า: <span className="font-bold text-gray-700">{b.customerName || '-'}</span> • {b.courseName || 'บริการ'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRescheduleBookingModal(prev => ({ ...prev, isOpen: false }))}
+                  className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Scrollable Body */}
+              <div className="overflow-y-auto space-y-4 pr-1">
+                {/* Current Schedule Banner */}
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between text-xs">
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">เวลานัดหมายปัจจุบัน</span>
+                    <p className="font-black text-gray-700 mt-0.5">
+                      🗓️ {currentDisplayDate} • ⏰ {currentDisplayTime} น.
+                    </p>
+                  </div>
+                  <span className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-700 font-bold text-[11px]">
+                    📍 สาขา {currentBranch}
+                  </span>
+                </div>
+
+                {/* Date Selection */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-black text-gray-700 flex items-center gap-1">
+                      <Calendar size={14} className="text-indigo-600" /> เลือกวันที่ใหม่:
+                    </label>
+                    {targetDateFormatted && (
+                      <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
+                        {targetDateFormatted}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Quick Date Pills */}
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {quickDates.map(qd => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + qd.days);
+                      const dStr = d.toISOString().split('T')[0];
+                      const isSelected = rescheduleBookingModal.targetDate === dStr;
+                      return (
+                        <button
+                          key={qd.label}
+                          type="button"
+                          onClick={() => setRescheduleBookingModal(prev => ({ ...prev, targetDate: dStr }))}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all active:scale-95 ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white shadow-xs'
+                              : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                          }`}
+                        >
+                          {qd.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <input
+                    type="date"
+                    value={rescheduleBookingModal.targetDate}
+                    onChange={(e) => setRescheduleBookingModal(prev => ({ ...prev, targetDate: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-slate-50/50"
+                  />
+                </div>
+
+                {/* Time Slot Selection */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-black text-gray-700 flex items-center gap-1">
+                      <Clock size={14} className="text-indigo-600" /> เลือกรอบเวลาใหม่:
+                    </label>
+                    <span className="text-xs font-black text-indigo-600">
+                      {rescheduleBookingModal.targetTime ? `⏰ ${rescheduleBookingModal.targetTime} น.` : 'ยังไม่ได้เลือก'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5 mb-2">
+                    {standardSlots.map(time => {
+                      const isSelected = rescheduleBookingModal.targetTime === time;
+                      return (
+                        <button
+                          key={time}
+                          type="button"
+                          onClick={() => setRescheduleBookingModal(prev => ({ ...prev, targetTime: time }))}
+                          className={`py-1.5 px-1 rounded-xl text-xs font-bold transition-all active:scale-95 border ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-md scale-105'
+                              : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/40'
+                          }`}
+                        >
+                          {time}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Custom time picker if outside standard slots */}
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[11px] text-gray-500">หรือระบุเวลาเฉพาะเจาะจง:</span>
+                    <input
+                      type="time"
+                      value={rescheduleBookingModal.targetTime}
+                      onChange={(e) => setRescheduleBookingModal(prev => ({ ...prev, targetTime: e.target.value }))}
+                      className="px-2.5 py-1 border border-gray-200 rounded-lg text-xs font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Branch Selection */}
+                <div>
+                  <label className="text-xs font-black text-gray-700 flex items-center gap-1 mb-1.5">
+                    <MapPin size={14} className="text-indigo-600" /> สาขา:
+                  </label>
+                  <div className="flex gap-2">
+                    {['เฉวง', 'ละไม'].map(br => {
+                      const isSelected = rescheduleBookingModal.targetBranch === br;
+                      return (
+                        <button
+                          key={br}
+                          type="button"
+                          onClick={() => setRescheduleBookingModal(prev => ({ ...prev, targetBranch: br }))}
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all active:scale-95 border ${
+                            isSelected
+                              ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-purple-50/40'
+                          }`}
+                        >
+                          📍 สาขา {br}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Reschedule Reason (Optional) */}
+                <div>
+                  <label className="text-xs font-bold text-gray-600 mb-1 block">
+                    เหตุผลในการเลื่อนเวลา (ไม่บังคับ):
+                  </label>
+                  <input
+                    type="text"
+                    value={rescheduleBookingModal.reason}
+                    onChange={(e) => setRescheduleBookingModal(prev => ({ ...prev, reason: e.target.value }))}
+                    placeholder="เช่น ลูกค้าขอเลื่อนเวลา, หมอติดเคสผ่าตัด..."
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                </div>
+
+                {/* LINE Notification Toggle */}
+                {hasLine ? (
+                  <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                        <Send size={15} />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-emerald-900">แจ้งเตือนลูกค้าผ่าน LINE</p>
+                        <p className="text-[10px] text-emerald-700">ส่งการ์ดแจ้งวันและเวลาใหม่ให้ลูกค้าทันที</p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={rescheduleBookingModal.notifyLine}
+                        onChange={(e) => setRescheduleBookingModal(prev => ({ ...prev, notifyLine: e.target.checked }))}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-[11px] text-gray-500 flex items-center gap-2">
+                    <AlertCircle size={14} className="text-gray-400 shrink-0" />
+                    <span>คิวนี้ไม่ได้เชื่อมต่อกับ LINE (ไม่มี LINE UID) จึงไม่สามารถส่งข้อความแจ้งเตือนอัตโนมัติได้</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom Actions */}
+              <div className="pt-3 border-t border-gray-100 mt-3 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRescheduleBookingModal(prev => ({ ...prev, isOpen: false }))}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-colors"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  disabled={isReschedulingBooking || !rescheduleBookingModal.targetDate || !rescheduleBookingModal.targetTime}
+                  onClick={handleConfirmReschedule}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-500/25 flex items-center gap-2 active:scale-95 transition-all"
+                >
+                  {isReschedulingBooking ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>กำลังบันทึก...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle size={14} />
+                      <span>ยืนยันการเลื่อนนัด</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </div>
