@@ -459,12 +459,49 @@ export default function App() {
           serviceDurations: {
             ...DEFAULT_BOOKING_CONFIG.serviceDurations,
             ...(snap.data().serviceDurations || {})
-          }
+          },
+          extraSlotOverrides: snap.data().extraSlotOverrides || {}
         }));
       }
     }, (err) => console.error("Error loading bookingConfig:", err));
     return () => unsub();
   }, []);
+
+  // 🌟 เปิดรับคิวเพิ่มรายรอบเวลาโดยตรงจากการ์ดคิว (Staff Extra Slot from Card)
+  const handleToggleBookingExtraSlot = async (b, delta = 1) => {
+    if (!b) return;
+    const dtSafe = getSafeDateTime(b);
+    const dateStr = b.date || (dtSafe ? dtSafe.split('T')[0] : '');
+    const timeStr = b.time ? b.time.substring(0, 5) : (dtSafe ? dtSafe.split('T')[1]?.substring(0, 5) : '');
+    const branchName = String(b.branch || 'เฉวง').replace(/^สาขา/, '').trim();
+    
+    if (!dateStr || !timeStr) {
+      showToast('ไม่พบข้อมูลวันที่หรือเวลาของคิวนี้', 'error');
+      return;
+    }
+
+    const key = `${dateStr}_${branchName}_${timeStr}`;
+    const currentExtra = Number(bookingConfig?.extraSlotOverrides?.[key] || 0);
+    const newExtra = Math.max(0, currentExtra + delta);
+
+    try {
+      await setDoc(getDocRef('config', 'booking'), {
+        extraSlotOverrides: {
+          ...(bookingConfig?.extraSlotOverrides || {}),
+          [key]: newExtra
+        }
+      }, { merge: true });
+
+      if (delta > 0) {
+        showToast(`เปิดรับคิวเพิ่มรอบ ${timeStr} น. (${branchName}) สำเร็จ! รวมเปิดเพิ่ม +${newExtra} คิว`, 'success');
+      } else {
+        showToast(`ลดคิวที่เปิดเพิ่มรอบ ${timeStr} น. เหลือ +${newExtra} คิว`, 'info');
+      }
+    } catch (err) {
+      console.error("Failed to update extra slot:", err);
+      showToast('เกิดข้อผิดพลาดในการเปิดรับคิวเพิ่ม: ' + err.message, 'error');
+    }
+  };
 
   // 📋 แบบประเมิน AI (ช่วงทดสอบ) — ฟังแบบเรียลไทม์
   const [aiSurveys, setAiSurveys] = useState([]);
@@ -5498,6 +5535,53 @@ const flexMessage = {
                                                                         <p className="font-bold text-gray-700 text-[9px] leading-tight truncate max-w-[60px]">{String(b.branch || 'เฉวง')}</p>
                                                                     </div>
                                                                 </div>
+
+                                                                {/* ⚡ เปิดรับคิวเพิ่มโดยตรงจากการ์ด (Timeline) */}
+                                                                {(() => {
+                                                                    const bDate = b.date || (dtSafe ? dtSafe.split('T')[0] : '');
+                                                                    const bTime = b.time ? b.time.substring(0, 5) : (dtSafe ? dtSafe.split('T')[1]?.substring(0, 5) : '');
+                                                                    const bBranch = String(b.branch || 'เฉวง').replace(/^สาขา/, '').trim();
+                                                                    const key = `${bDate}_${bBranch}_${bTime}`;
+                                                                    const extraCount = Number(bookingConfig?.extraSlotOverrides?.[key] || 0);
+
+                                                                    return (
+                                                                        <div className="mt-2 pt-1.5 border-t border-gray-100/80 flex items-center justify-between">
+                                                                            <div className="flex items-center gap-1">
+                                                                                {extraCount > 0 ? (
+                                                                                    <span className="text-[8.5px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                                                                                        <Zap size={9} className="fill-emerald-500 text-emerald-600" />
+                                                                                        +{extraCount} คิว
+                                                                                    </span>
+                                                                                ) : null}
+                                                                            </div>
+                                                                            <div className="flex items-center gap-1">
+                                                                                {extraCount > 0 && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={(e) => { e.stopPropagation(); handleToggleBookingExtraSlot(b, -1); }}
+                                                                                        className="w-4 h-4 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 font-black text-[10px] flex items-center justify-center active:scale-95"
+                                                                                        title="ลดคิวที่เปิดเพิ่ม"
+                                                                                    >
+                                                                                        -
+                                                                                    </button>
+                                                                                )}
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={(e) => { e.stopPropagation(); handleToggleBookingExtraSlot(b, 1); }}
+                                                                                    className={`px-1.5 py-0.5 rounded-md text-[8.5px] font-black flex items-center gap-1 active:scale-95 shadow-xs ${
+                                                                                        extraCount > 0
+                                                                                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                                                                            : 'bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200'
+                                                                                    }`}
+                                                                                    title="กดเพื่อเปิดรับคิวเพิ่มในรอบนี้"
+                                                                                >
+                                                                                    <Plus size={10} />
+                                                                                    <span>{extraCount > 0 ? 'เพิ่ม' : '+เปิดรับเพิ่ม'}</span>
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })()}
                                                             </div>
                                                             <div onClick={(e) => { e.stopPropagation(); setBookingTicket(b); }} className="w-10 shrink-0 border-l-2 border-dashed border-gray-100 flex flex-col items-center justify-center bg-gray-50/40 hover:bg-blue-50/60 transition-colors cursor-pointer group/qr" title="คลิกดู E-Ticket & ปรับสถานะ">
                                                                 <QrCode size={16} className={`transition-transform group-hover/qr:scale-110 ${st === 'รอการยืนยัน' ? 'text-amber-500' : st === 'ยืนยันแล้ว' ? 'text-blue-500' : st === 'กำลังใช้บริการ' ? 'text-purple-500' : st === 'เสร็จสิ้น' ? 'text-emerald-500' : 'text-gray-400'}`} />
@@ -5619,6 +5703,57 @@ const flexMessage = {
                                                 <p className="font-bold text-gray-700 text-[9px] leading-tight truncate max-w-[60px]">{String(b.branch || 'เฉวง')}</p>
                                             </div>
                                         </div>
+
+                                        {/* ⚡ เปิดรับคิวเพิ่มโดยตรงจากการ์ด */}
+                                        {(() => {
+                                            const bDate = b.date || (dtSafe ? dtSafe.split('T')[0] : '');
+                                            const bTime = b.time ? b.time.substring(0, 5) : (dtSafe ? dtSafe.split('T')[1]?.substring(0, 5) : '');
+                                            const bBranch = String(b.branch || 'เฉวง').replace(/^สาขา/, '').trim();
+                                            const key = `${bDate}_${bBranch}_${bTime}`;
+                                            const extraCount = Number(bookingConfig?.extraSlotOverrides?.[key] || 0);
+
+                                            return (
+                                                <div className="mt-2 pt-2 border-t border-gray-100/80 flex items-center justify-between">
+                                                    <div className="flex items-center gap-1">
+                                                        {extraCount > 0 ? (
+                                                            <span className="text-[9px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
+                                                                <Zap size={10} className="fill-emerald-500 text-emerald-600" />
+                                                                เปิดเพิ่ม +{extraCount} คิว
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[9px] font-medium text-gray-400">
+                                                                ความจุรอบ {bTime} น.
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center gap-1">
+                                                        {extraCount > 0 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => { e.stopPropagation(); handleToggleBookingExtraSlot(b, -1); }}
+                                                                className="w-5 h-5 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-600 font-black text-xs flex items-center justify-center active:scale-95 transition-all"
+                                                                title="ลดคิวที่เปิดเพิ่ม"
+                                                            >
+                                                                -
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => { e.stopPropagation(); handleToggleBookingExtraSlot(b, 1); }}
+                                                            className={`px-2 py-0.5 rounded-lg text-[9px] font-black flex items-center gap-1 active:scale-95 transition-all shadow-xs ${
+                                                                extraCount > 0
+                                                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                                                    : 'bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200'
+                                                            }`}
+                                                            title="กดเพื่อเปิดรับคิวเพิ่มในรอบนี้ ลูกค้าจะสามารถจองต่อได้ทันที"
+                                                        >
+                                                            <Plus size={11} />
+                                                            <span>{extraCount > 0 ? 'เพิ่มอีก' : 'เปิดรับเพิ่ม'}</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                     <div onClick={(e) => { e.stopPropagation(); setBookingTicket(b); }} className="w-12 shrink-0 border-l-2 border-dashed border-gray-100 flex flex-col items-center justify-center bg-gray-50/40 hover:bg-blue-50/60 transition-colors cursor-pointer group/qr" title="คลิกดู E-Ticket & ปรับสถานะ">
                                         <QrCode size={18} className={`transition-transform group-hover/qr:scale-110 ${st === 'รอการยืนยัน' ? 'text-amber-500' : st === 'ยืนยันแล้ว' ? 'text-blue-500' : st === 'กำลังใช้บริการ' ? 'text-purple-500' : st === 'เสร็จสิ้น' ? 'text-emerald-500' : 'text-gray-400'}`} />
@@ -8335,6 +8470,49 @@ const flexMessage = {
                     <span className="text-[8px] font-mono text-gray-400 mt-0.5">{bookingTicket.ticketNo || (bookingTicket.id ? bookingTicket.id.slice(0,6) : '')}</span>
                   </div>
                 </div>
+
+                {/* ⚡ เปิดรับคิวเพิ่มสำหรับรอบนี้ */}
+                {(() => {
+                  const bDate = bookingTicket.date || (bSafeDt ? bSafeDt.split('T')[0] : '');
+                  const bTime = bookingTicket.time ? bookingTicket.time.substring(0, 5) : (bSafeDt ? bSafeDt.split('T')[1]?.substring(0, 5) : '');
+                  const bBranch = String(bookingTicket.branch || 'เฉวง').replace(/^สาขา/, '').trim();
+                  const key = `${bDate}_${bBranch}_${bTime}`;
+                  const extraCount = Number(bookingConfig?.extraSlotOverrides?.[key] || 0);
+
+                  return (
+                    <div className="p-3.5 bg-teal-50/80 border border-teal-200 rounded-2xl flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-black text-teal-900 flex items-center gap-1.5">
+                          <Zap size={14} className="text-teal-600 fill-teal-500" />
+                          เปิดรับคิวเพิ่มรอบนี้ ({bTime} น. • {bBranch})
+                        </p>
+                        <p className="text-[10px] text-teal-700 mt-0.5">
+                          {extraCount > 0 ? `เปิดรับเพิ่มอยู่แล้ว +${extraCount} คิว (ลูกค้าจองได้ทันที)` : 'กดปุ่มเพื่อเปิดโควต้าให้ลูกค้าจองรอบนี้เพิ่มได้ทันที'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {extraCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleBookingExtraSlot(bookingTicket, -1)}
+                            className="px-2.5 py-1.5 bg-white border border-teal-200 text-teal-700 hover:bg-teal-100 rounded-xl font-black text-xs active:scale-95 transition-all shadow-xs"
+                            title="ลดคิวที่เปิดเพิ่ม"
+                          >
+                            -1
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleBookingExtraSlot(bookingTicket, 1)}
+                          className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-black text-xs flex items-center gap-1 active:scale-95 transition-all shadow-md shadow-teal-500/20"
+                        >
+                          <Plus size={14} />
+                          <span>{extraCount > 0 ? '+ เพิ่มอีก 1' : '+ เปิดรับคิวเพิ่ม'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Status Selection Buttons */}
                 <div>
