@@ -1,10 +1,16 @@
-import React, { useState } from 'react';
-import { Calendar, CalendarPlus, CheckCircle, Clock, X, Info, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Calendar, CalendarPlus, CheckCircle, Clock, X, Info, AlertCircle, Plus, Minus, Zap, Users } from 'lucide-react';
 import { getDocRef } from '../config/firebase';
-import { deleteDoc, setDoc } from 'firebase/firestore';
+import { deleteDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
 import { getSafeDateTime, getBookingStatus } from '../utils/dateUtils';
 import BookingCountdown from './BookingCountdown';
+import { DEFAULT_BOOKING_CONFIG } from '../utils/bookingConfig';
+
+const CLINIC_TIME_SLOTS = [
+    '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', 
+    '16:00', '16:30', '17:00', '17:30', '18:00', '18:30', '19:00', '19:30', '20:00'
+];
 
 export default function CalendarBookingDashboard({ 
     bookings = [], 
@@ -17,6 +23,42 @@ export default function CalendarBookingDashboard({
     const [isSaving, setIsSaving] = useState(false);
     const [selectedBranch, setSelectedBranch] = useState('all');
     const [selectedHolidayBranch, setSelectedHolidayBranch] = useState('all');
+    const [bookingConfig, setBookingConfig] = useState(DEFAULT_BOOKING_CONFIG);
+    const [extraSlotBranch, setExtraSlotBranch] = useState('all');
+
+    useEffect(() => {
+        const unsub = onSnapshot(getDocRef('config', 'booking'), (snap) => {
+            if (snap.exists()) {
+                setBookingConfig(prev => ({
+                    ...DEFAULT_BOOKING_CONFIG,
+                    ...snap.data(),
+                    extraSlotOverrides: snap.data().extraSlotOverrides || {}
+                }));
+            }
+        }, (err) => console.error("Error fetching booking config:", err));
+        return () => unsub();
+    }, []);
+
+    const handleToggleExtraSlot = async (dateStr, branchName, slotTime, delta) => {
+        const cleanBranch = branchName.replace(/^สาขา/, '').trim();
+        const key = `${dateStr}_${cleanBranch}_${slotTime}`;
+        const currentExtra = Number(bookingConfig?.extraSlotOverrides?.[key] || 0);
+        const newExtra = Math.max(0, currentExtra + delta);
+        
+        setIsSaving(true);
+        try {
+            await setDoc(getDocRef('config', 'booking'), {
+                extraSlotOverrides: {
+                    ...(bookingConfig?.extraSlotOverrides || {}),
+                    [key]: newExtra
+                }
+            }, { merge: true });
+        } catch (err) {
+            console.error("Failed to update extra slot:", err);
+        } finally {
+            setIsSaving(false);
+        }
+    };
 
     const handlePrevMonth = () => {
         setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
@@ -271,6 +313,108 @@ export default function CalendarBookingDashboard({
                                             {isSaving && <Clock size={16} className="animate-spin" />}
                                             {holidayDoc ? 'ยกเลิกวันหยุด' : 'ตั้งเป็นวันหยุดร้าน'}
                                         </button>
+                                    </div>
+                                </div>
+
+                                {/* ⚡ เปิดรับคิวเพิ่มสำหรับพนักงาน */}
+                                <div className="mb-6 p-4 bg-teal-50/70 border border-teal-200 rounded-2xl">
+                                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                                        <div>
+                                            <h4 className="font-black text-teal-900 text-sm flex items-center gap-1.5">
+                                                <Zap size={16} className="text-teal-600" />
+                                                เปิดรับคิวเพิ่มรายรอบเวลา (Staff Extra Slots)
+                                            </h4>
+                                            <p className="text-[11px] text-teal-700 mt-0.5">
+                                                พนักงานสามารถกดเปิดรับคิวเพิ่มในแต่ละช่วงเวลาได้ ลูกค้าจะมองเห็นเป็นคิวว่างและกดจองได้ทันที
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-bold text-teal-800">สาขา:</span>
+                                            <select
+                                                value={extraSlotBranch === 'all' ? (selectedBranch !== 'all' ? selectedBranch : (branches[0]?.name || 'เฉวง')) : extraSlotBranch}
+                                                onChange={(e) => setExtraSlotBranch(e.target.value)}
+                                                className="bg-white border border-teal-300 rounded-xl px-2.5 py-1 text-xs font-bold text-teal-900 outline-none shadow-xs"
+                                            >
+                                                {branches.map(b => (
+                                                    <option key={b.name} value={b.name}>{b.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {/* Grid of Slots */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                                        {CLINIC_TIME_SLOTS.map(slotTime => {
+                                            const activeTargetBranch = extraSlotBranch === 'all' ? (selectedBranch !== 'all' ? selectedBranch : (branches[0]?.name || 'เฉวง')) : extraSlotBranch;
+                                            const cleanBranch = activeTargetBranch.replace(/^สาขา/, '').trim();
+                                            const key = `${selectedDate}_${cleanBranch}_${slotTime}`;
+                                            const extra = Number(bookingConfig?.extraSlotOverrides?.[key] || 0);
+                                            const baseCap = Number(bookingConfig?.maxConcurrentBookings || 2);
+                                            const totalCap = baseCap + extra;
+
+                                            // Count current bookings in this slot
+                                            const slotBookings = selectedDayBookings.filter(b => {
+                                                const bBranch = String(b.branch || '').replace(/^สาขา/, '').trim();
+                                                const matchesBranch = bBranch === cleanBranch;
+                                                const matchesTime = b.time === slotTime || (b.time && b.time.startsWith(slotTime));
+                                                const notCancelled = !['ยกเลิก', 'ยกเลิกโดยลูกค้า', 'ยกเลิกฉุกเฉิน'].includes(b.status);
+                                                return matchesBranch && matchesTime && notCancelled;
+                                            });
+                                            const isFull = slotBookings.length >= totalCap;
+
+                                            return (
+                                                <div 
+                                                    key={slotTime} 
+                                                    className={`p-2.5 rounded-xl border flex flex-col justify-between transition-all ${
+                                                        extra > 0 
+                                                            ? 'bg-emerald-50/80 border-emerald-300 shadow-xs' 
+                                                            : isFull 
+                                                                ? 'bg-gray-50 border-gray-200' 
+                                                                : 'bg-white border-teal-100'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center justify-between mb-1.5">
+                                                        <span className="font-mono font-black text-xs text-gray-800">{slotTime}</span>
+                                                        <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${
+                                                            isFull 
+                                                                ? 'bg-rose-100 text-rose-700' 
+                                                                : 'bg-teal-100 text-teal-800'
+                                                        }`}>
+                                                            {slotBookings.length}/{totalCap} คิว
+                                                        </span>
+                                                    </div>
+
+                                                    {extra > 0 && (
+                                                        <div className="text-[9px] font-bold text-emerald-700 mb-1.5 flex items-center gap-1">
+                                                            <span>✨</span> เปิดเพิ่ม +{extra} คิว
+                                                        </div>
+                                                    )}
+
+                                                    <div className="flex items-center gap-1 mt-auto pt-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleToggleExtraSlot(selectedDate, activeTargetBranch, slotTime, 1)}
+                                                            disabled={isSaving}
+                                                            className="flex-1 py-1 px-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 active:scale-95 shadow-xs"
+                                                            title="เปิดรับคิวเพิ่ม +1 สำหรับรอบนี้"
+                                                        >
+                                                            <Plus size={11} /> เพิ่มคิว
+                                                        </button>
+                                                        {extra > 0 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleToggleExtraSlot(selectedDate, activeTargetBranch, slotTime, -1)}
+                                                                disabled={isSaving}
+                                                                className="py-1 px-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-[10px] font-bold flex items-center justify-center active:scale-95"
+                                                                title="ลดคิวที่เปิดเพิ่ม"
+                                                            >
+                                                                <Minus size={11} />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </div>
 

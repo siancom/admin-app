@@ -11,7 +11,10 @@ export const DEFAULT_BOOKING_CONFIG = {
   enableMultiServiceAddition: true,
   guestDurationMode: 'consecutive_buffer', // 'concurrent' (ทำพร้อมกัน) | 'consecutive_buffer' (บวกเวลาต่อท่าน) | 'multiply' (คูณตามจำนวนคน)
   extraMinutesPerGuest: 30,
-  maxBookingDuration: 180
+  maxBookingDuration: 180,
+  maxConcurrentBookings: 2, // 🌟 จำนวนคิวที่รับได้พร้อมกันต่อรอบเวลา (ค่าเริ่มต้น 2 คิว)
+  allowCustomerMultipleBookings: true, // 🌟 ยืดหยุ่น: ลูกค้าสามารถกดจองคิวเพิ่มในวันหรือรอบเวลาเดิมได้
+  extraSlotOverrides: {} // 🌟 พนักงานกดเปิดรับคิวเพิ่มรายวัน/รอบเวลา เช่น { "2026-11-13_เฉวง_14:00": 1 }
 };
 
 /**

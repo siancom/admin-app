@@ -620,7 +620,7 @@ export default function SettingsPage({
             </div>
 
             {/* 4. Live Simulation Box */}
-            <div className="p-4 rounded-2xl border border-indigo-200 bg-indigo-50/50 flex flex-wrap items-center justify-between gap-3">
+            <div className="p-4 rounded-2xl border border-indigo-200 bg-indigo-50/50 flex flex-wrap items-center justify-between gap-3 mb-6">
               <div className="flex items-center gap-2">
                 <span className="text-xl">💡</span>
                 <div>
@@ -638,6 +638,85 @@ export default function SettingsPage({
                 <span className="text-[10px] text-gray-500 ml-1">
                   ({Math.floor(calculateBookingDuration('ทำหน้า, กดสิว', 2, bookingConfig) / 60)} ชม. {calculateBookingDuration('ทำหน้า, กดสิว', 2, bookingConfig) % 60} น.)
                 </span>
+              </div>
+            </div>
+
+            {/* 5. จำนวนคิวสูงสุดที่รับได้ต่อรอบเวลา (Concurrent Capacity) */}
+            <div className="p-4 sm:p-5 rounded-2xl border border-gray-200 bg-gray-50/50 mb-6">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <h4 className="text-sm font-black text-gray-800 flex items-center gap-2">
+                    <span>⚡</span> จำนวนคิวที่รับได้พร้อมกันต่อรอบเวลา (Concurrent Capacity per Slot)
+                  </h4>
+                  <p className="text-xs text-gray-500">
+                    คลินิกมีพนักงานและเตียงบริการหลายท่าน กำหนดจำนวนคิวที่รับได้ในรอบเวลาเดียวกัน (สล็อตจะไม่เต็มจนกว่าคิวจะครบตามจำนวนนี้)
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-gray-200 shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cur = Number(bookingConfig.maxConcurrentBookings || 2);
+                      setBookingConfig({ ...bookingConfig, maxConcurrentBookings: Math.max(1, cur - 1) });
+                    }}
+                    className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-black text-sm active:scale-95 flex items-center justify-center"
+                  >
+                    -
+                  </button>
+                  <span className="font-mono font-black text-base text-teal-700 w-8 text-center">
+                    {bookingConfig.maxConcurrentBookings || 2}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cur = Number(bookingConfig.maxConcurrentBookings || 2);
+                      setBookingConfig({ ...bookingConfig, maxConcurrentBookings: Math.min(10, cur + 1) });
+                    }}
+                    className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-black text-sm active:scale-95 flex items-center justify-center"
+                  >
+                    +
+                  </button>
+                  <span className="text-xs font-bold text-gray-500">คิว/รอบ</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 6. ความยืดหยุ่น: อนุญาตให้ลูกค้ากดจองคิวเพิ่มได้ */}
+            <div className="p-4 sm:p-5 rounded-2xl border border-gray-200 bg-gray-50/50">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <h4 className="text-sm font-black text-gray-800 flex items-center gap-2">
+                    <span>🔄</span> อนุญาตให้ลูกค้ากดจองคิวเพิ่มได้ทันที (Allow Multiple Bookings)
+                  </h4>
+                  <p className="text-xs text-gray-500">
+                    เพื่อความยืดหยุ่น ลูกค้าที่มีนัดหมายอยู่แล้วสามารถกดจองคิวเพิ่มได้อีกทันที (เช่น จองหลายบริการ หรือจองให้เพื่อน/คนในครอบครัว)
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBookingConfig({
+                    ...bookingConfig,
+                    allowCustomerMultipleBookings: bookingConfig.allowCustomerMultipleBookings === false ? true : false
+                  })}
+                  className="shrink-0 transition-transform active:scale-95"
+                >
+                  {bookingConfig.allowCustomerMultipleBookings !== false ? (
+                    <ToggleRight size={38} className="text-teal-600" />
+                  ) : (
+                    <ToggleLeft size={38} className="text-gray-400" />
+                  )}
+                </button>
+              </div>
+              <div className="mt-3 pt-3 border-t border-gray-200/80 text-[11px] text-gray-600">
+                {bookingConfig.allowCustomerMultipleBookings !== false ? (
+                  <span className="text-emerald-700 font-bold">
+                    ✅ เปิดใช้งาน: ลูกค้าสามารถกดจองคิวเพิ่มได้ทันที ไม่ถูกบล็อก
+                  </span>
+                ) : (
+                  <span className="text-amber-700 font-bold">
+                    ⚠️ ปิดใช้งาน: บล็อกไม่ให้ลูกค้าที่มีคิวเดิมในวันเดียวกันจองเพิ่ม
+                  </span>
+                )}
               </div>
             </div>
 
