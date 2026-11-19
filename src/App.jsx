@@ -36,7 +36,7 @@ import { QRCodeSVG } from 'qrcode.react';
 
 // --- FIREBASE IMPORTS ---
 import { signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, deleteField, writeBatch, query, where, getDocs, setDoc, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, deleteField, writeBatch, query, where, getDocs, setDoc, orderBy, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject, uploadString } from 'firebase/storage';
 import { auth, db, getCol, getDocRef, storage } from './config/firebase';
 import html2canvas from 'html2canvas';
@@ -52,6 +52,33 @@ import {
 } from './utils/courseUtils';
 import { handleProfileImgError, parseImageUrl, getProfilePicData } from './utils/imageUtils';
 import { getSafeDateTime, getBookingStatus, getOrderStatus } from './utils/dateUtils';
+
+// 🌟 ดึง Timestamp เวลาสมัคร/แก้ไขล่าสุดของลูกค้า (เพื่อเรียงลำดับสมาชิกใหม่ล่าสุด)
+export const getCustomerTimestamp = (c) => {
+  if (!c) return 0;
+  if (c.createdAt) {
+    if (typeof c.createdAt.toMillis === 'function') return c.createdAt.toMillis();
+    if (typeof c.createdAt.toDate === 'function') return c.createdAt.toDate().getTime();
+    if (c.createdAt.seconds) return c.createdAt.seconds * 1000;
+    const t = new Date(c.createdAt).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  if (c.updatedAt) {
+    if (typeof c.updatedAt.toMillis === 'function') return c.updatedAt.toMillis();
+    if (typeof c.updatedAt.toDate === 'function') return c.updatedAt.toDate().getTime();
+    if (c.updatedAt.seconds) return c.updatedAt.seconds * 1000;
+    const t = new Date(c.updatedAt).getTime();
+    if (!isNaN(t) && t > 0) return t;
+  }
+  const regDateStr = getFuzzyKey(c, ["วันที่สมัคร", "registeredAt", "col_2"]);
+  if (regDateStr) {
+    const t = new Date(regDateStr).getTime();
+    if (!isNaN(t) && t > 0) return t;
+    const thaiParsed = parseThaiDate(regDateStr);
+    if (thaiParsed) return thaiParsed.getTime();
+  }
+  return 0;
+};
 
 export const getHistoryCategoryInfo = (h) => {
   if (!h) return { id: 'other', label: 'ทั่วไป / อื่นๆ', color: 'text-slate-700 bg-slate-50 border-slate-200', icon: Activity };
@@ -273,6 +300,8 @@ export default function App() {
   const [bookingViewMode, setBookingViewMode] = useState('timeline');
   const [customerViewMode, setCustomerViewMode] = useState('grid'); 
   const [customerSortBy, setCustomerSortBy] = useState('accumulated');
+  const [customerSortMode, setCustomerSortMode] = useState('newest');
+  const [customerLimit, setCustomerLimit] = useState(100);
   const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date());
   
   const [selectedCourse, setSelectedCourse] = useState(null);
@@ -1227,11 +1256,11 @@ export default function App() {
           historiesByCustomerName[displayName].forEach(h => myHistoriesMap.set(h.id || JSON.stringify(h), h));
       }
       
-      const cleanPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').trim();
+      const cleanPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone", "computedPhone"]) || '').trim();
       if (cleanPhone) {
          histories.forEach(h => {
              if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '') === 'ยกเลิก') return;
-             const hPhone = String(getFuzzyKey(h, ["cleanPhone", "เบอร์โทร", "เบอร์โทรลูกค้า", "col_3"]) || '').trim();
+             const hPhone = String(getFuzzyKey(h, ["cleanPhone", "เบอร์โทร", "เบอร์โทรลูกค้า", "col_3", "phone"]) || '').trim();
              if (hPhone === cleanPhone) myHistoriesMap.set(h.id || JSON.stringify(h), h);
          });
       }
@@ -1266,11 +1295,12 @@ export default function App() {
       
       // 🌟 ดึงข้อมูลรูปภาพสำหรับ Customer
       const picData = getProfilePicData(c, null);
+      const createdAtTimestamp = getCustomerTimestamp(c);
 
       return { 
         ...c, 
         computedName: displayName, 
-        computedPhone: String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || ''), 
+        computedPhone: String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone", "computedPhone"]) || ''), 
         computedMemberStatus: memberStatus, 
         computedIssue: String(getFuzzyKey(c, ["ปัญหาผิวหน้า", "col_8"]) || ''), 
         realAccumulatedAmount: totalAccumulated, 
@@ -1282,7 +1312,8 @@ export default function App() {
         myHistories, 
         isApproved: !['ยังไม่สะสมยอด', 'ทั่วไป', 'สะสมยอด', 'รอบัตร'].includes(memberStatus) && memberStatus !== '',
         hasMoleHistory: myHistories.some(isMoleHistoryRecord),
-        profilePicData: picData
+        profilePicData: picData,
+        createdAtTimestamp
       };
     });
   }, [customersRaw, histories]);
@@ -2196,11 +2227,33 @@ export default function App() {
 
   const filteredCustomers = useMemo(() => {
     return customers.filter(c => {
-      const matchSearch = `${c.computedName} ${c.computedPhone}`.includes(searchTerm);
+      const matchSearch = `${c.computedName} ${c.computedPhone}`.toLowerCase().includes(searchTerm.toLowerCase());
       const matchStatus = filterCustomerStatus === 'all' || (filterCustomerStatus === 'อนุมัติแล้ว (Member)' ? c.isApproved : c.computedMemberStatus === filterCustomerStatus);
       return matchSearch && matchStatus;
-    }).sort((a, b) => parseNumber(String(getFuzzyKey(b, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), '')) - parseNumber(String(getFuzzyKey(a, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), '')));
-  }, [customers, searchTerm, filterCustomerStatus]);
+    }).sort((a, b) => {
+      if (customerSortMode === 'cardNo') {
+        const cardB = parseNumber(String(getFuzzyKey(b, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), ''));
+        const cardA = parseNumber(String(getFuzzyKey(a, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), ''));
+        return cardB - cardA;
+      }
+      if (customerSortMode === 'accumulated') {
+        return (b.realAccumulatedAmount || 0) - (a.realAccumulatedAmount || 0);
+      }
+      if (customerSortMode === 'name') {
+        return String(a.computedName || '').localeCompare(String(b.computedName || ''), 'th');
+      }
+      // Default: 'newest' (ลงทะเบียนล่าสุด)
+      const timeA = a.createdAtTimestamp ?? getCustomerTimestamp(a);
+      const timeB = b.createdAtTimestamp ?? getCustomerTimestamp(b);
+      if (timeA > 0 || timeB > 0) {
+        if (timeA > 0 && timeB > 0) return timeB - timeA;
+        return timeB > 0 ? 1 : -1;
+      }
+      const cardB = parseNumber(String(getFuzzyKey(b, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), ''));
+      const cardA = parseNumber(String(getFuzzyKey(a, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), ''));
+      return cardB - cardA;
+    });
+  }, [customers, searchTerm, filterCustomerStatus, customerSortMode]);
 
   // 🌟 สรุปภาพรวมลูกค้า (Summary Cards) 🌟
   const customerSummaryStats = useMemo(() => {
@@ -3992,7 +4045,28 @@ const flexMessage = {
   };
 
   // --- CUSTOMER ACTIONS ---
-  const handleAddCustomer = async (e) => { e.preventDefault(); try { await addDoc(getCol('customers'), { "ชื่อ": String(newCustomerForm.name), "เบอร์โทร": String(newCustomerForm.phone), "ปัญหาผิวหน้า": String(newCustomerForm.issue), "หมายเลขใบสะสม": `Irismember${Math.floor(Math.random()*10000)}`, "ยอดสะสม": "0", "สถานะสมาชิก": "ยังไม่สะสมยอด" }); setIsAddCustomerOpen(false); setNewCustomerForm({ name: '', phone: '', issue: '' }); showToast('เพิ่มลูกค้าใหม่สำเร็จ!'); } catch (err) { showToast(`ข้อผิดพลาด: ${err.message}`); } };
+  const handleAddCustomer = async (e) => { 
+    e.preventDefault(); 
+    try { 
+      await addDoc(getCol('customers'), { 
+        "ชื่อ": String(newCustomerForm.name).trim(), 
+        "เบอร์โทร": String(newCustomerForm.phone).trim(), 
+        computedName: String(newCustomerForm.name).trim(),
+        computedPhone: String(newCustomerForm.phone).trim(),
+        "ปัญหาผิวหน้า": String(newCustomerForm.issue || ''), 
+        "หมายเลขใบสะสม": `Irismember${Math.floor(1000 + Math.random()*9000)}`, 
+        "ยอดสะสม": "0", 
+        "สถานะสมาชิก": "ยังไม่สะสมยอด",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      }); 
+      setIsAddCustomerOpen(false); 
+      setNewCustomerForm({ name: '', phone: '', issue: '' }); 
+      showToast('เพิ่มลูกค้าใหม่สำเร็จ!'); 
+    } catch (err) { 
+      showToast(`ข้อผิดพลาด: ${err.message}`); 
+    } 
+  };
 
   // 🌟 Document Storage Handlers 🌟
   const handleAddDocument = async (e) => {
@@ -6471,7 +6545,18 @@ const flexMessage = {
                        <button onClick={() => setCustomerViewMode('grid')} className={`px-3 py-1.5 flex items-center text-xs font-bold rounded-lg transition-colors ${customerViewMode === 'grid' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><LayoutGrid size={14} className="mr-1"/> การ์ด</button>
                        <button onClick={() => setCustomerViewMode('ranking')} className={`px-3 py-1.5 flex items-center text-xs font-bold rounded-lg transition-colors ${customerViewMode === 'ranking' ? 'bg-white shadow-sm text-amber-600' : 'text-gray-500 hover:text-gray-700'}`}><Award size={14} className="mr-1"/> อันดับ</button>
                     </div>
-                    <select value={filterCustomerStatus} onChange={(e) => setFilterCustomerStatus(e.target.value)} className="bg-gray-50 rounded-xl px-3 py-2 text-sm font-bold flex-1 sm:w-auto outline-none border border-gray-200"><option value="all">สมาชิกทั้งหมด</option><option value="อนุมัติแล้ว (Member)">VIP (Member)</option><option value="สะสมยอด">สะสมยอด</option><option value="ทั่วไป">ทั่วไป</option></select>
+                    <select value={filterCustomerStatus} onChange={(e) => setFilterCustomerStatus(e.target.value)} className="bg-gray-50 rounded-xl px-3 py-2 text-sm font-bold flex-1 sm:w-auto outline-none border border-gray-200">
+                      <option value="all">สมาชิกทั้งหมด</option>
+                      <option value="อนุมัติแล้ว (Member)">VIP (Member)</option>
+                      <option value="สะสมยอด">สะสมยอด</option>
+                      <option value="ทั่วไป">ทั่วไป</option>
+                    </select>
+                    <select value={customerSortMode} onChange={(e) => setCustomerSortMode(e.target.value)} className="bg-gray-50 rounded-xl px-3 py-2 text-sm font-bold flex-1 sm:w-auto outline-none border border-gray-200">
+                      <option value="newest">🕒 ลงทะเบียนล่าสุด</option>
+                      <option value="cardNo">🏷️ หมายเลขใบสะสม</option>
+                      <option value="accumulated">💰 ยอดสะสมสูงสุด</option>
+                      <option value="name">🔤 ชื่อ (ก-ฮ)</option>
+                    </select>
                     <button onClick={() => setIsAddressManagerOpen(true)} className="bg-purple-600 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center shadow-lg active:scale-95 shrink-0"><MapPin size={16} className="mr-1"/> จัดการที่อยู่จัดส่ง</button>
                     <button onClick={() => setIsAddCustomerOpen(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center shadow-lg active:scale-95 shrink-0"><UserPlus size={16} className="mr-1"/> เพิ่มลูกค้า</button>
                  </div>
@@ -6479,46 +6564,70 @@ const flexMessage = {
 
               {/* 🌟 Grid View (เดิม) 🌟 */}
               {customerViewMode === 'grid' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 pb-10">
-                  {filteredCustomers.slice(0, 100).map((customer, idx) => (
-                    <div key={idx} className={`bg-white border border-gray-100 rounded-[24px] p-5 shadow-sm hover:shadow-lg transition-all cursor-pointer flex flex-col relative overflow-hidden group ${customer.isApproved ? 'ring-2 ring-orange-100' : ''}`} onClick={() => setSelectedCustomer(customer)}>
-                       <div className={`absolute top-0 left-0 w-1.5 h-full ${customer.isApproved ? 'bg-gradient-to-b from-amber-400 to-orange-500' : 'bg-gradient-to-b from-indigo-400 to-purple-500'}`}></div>
-                       <div className="flex items-center space-x-3 mb-4 pl-2">
-                          <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-lg shadow-inner shrink-0 overflow-hidden border border-gray-100 ${customer.isApproved ? 'bg-orange-50 text-orange-600' : 'bg-indigo-50 text-indigo-700'}`}>
-                             {customer.profilePicData ? <img src={customer.profilePicData.primary} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => handleProfileImgError(e, customer.profilePicData.fallback, 'flex')} /> : null}
-                             <span className={customer.profilePicData ? "hidden" : "flex items-center justify-center w-full h-full"}>{String(customer.computedName || 'U')[0]}</span>
-                          </div>
-                          <div>
-                             <h4 className="font-black text-gray-900 text-sm line-clamp-1 flex items-center gap-1">
-                                 {customer.computedName}
-                                 {customer.lineUid && (
-                                     <span className="text-[#06C755]" title="เชื่อมต่อ LINE แล้ว">
-                                         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M24 10.304c0-5.369-5.383-9.738-12-9.738-6.616 0-12 4.369-12 9.738 0 4.814 4.269 8.846 10.036 9.608.391.084.922.258 1.057.592.122.295.079.756.039 1.066l-.172 1.028c-.05.293-.239 1.168 1.026.634 1.265-.534 6.817-4.01 9.324-6.883 1.83-2.096 2.69-4.041 2.69-6.045z"/></svg>
-                                     </span>
-                                 )}
-                             </h4>
-                             <p className="text-[10px] text-gray-500 font-mono flex items-center mt-1"><Phone size={10} className="mr-1"/>{customer.computedPhone}</p>
-                          </div>
-                       </div>
-                       <div className="pl-2 flex-1">
-                           <div className="flex flex-wrap gap-2 mb-3">
-                               <div className={`text-[10px] px-2 py-1 rounded-md font-bold ${customer.isApproved ? 'bg-orange-50 text-orange-600' : 'bg-gray-100 text-gray-600'}`}>
-                                  {customer.isApproved ? 'VIP Member' : customer.computedMemberStatus}
-                               </div>
-                               {customer.hasMoleHistory && (
-                                   <div className="text-[10px] px-2 py-1 rounded-md font-bold bg-teal-50 text-teal-600 border border-teal-100 flex items-center">
-                                       <Sparkles size={10} className="mr-1" /> จี้ไฝ
-                                   </div>
+                <div className="space-y-6 pb-10">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+                    {filteredCustomers.slice(0, customerLimit).map((customer, idx) => (
+                      <div key={customer.id || idx} className={`bg-white border border-gray-100 rounded-[24px] p-5 shadow-sm hover:shadow-lg transition-all cursor-pointer flex flex-col relative overflow-hidden group ${customer.isApproved ? 'ring-2 ring-orange-100' : ''}`} onClick={() => setSelectedCustomer(customer)}>
+                         <div className={`absolute top-0 left-0 w-1.5 h-full ${customer.isApproved ? 'bg-gradient-to-b from-amber-400 to-orange-500' : customer.createdAtTimestamp > 0 ? 'bg-gradient-to-b from-emerald-400 to-teal-500' : 'bg-gradient-to-b from-indigo-400 to-purple-500'}`}></div>
+                         <div className="flex items-center space-x-3 mb-4 pl-2">
+                            <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-lg shadow-inner shrink-0 overflow-hidden border border-gray-100 ${customer.isApproved ? 'bg-orange-50 text-orange-600' : customer.createdAtTimestamp > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                               {customer.profilePicData ? <img src={customer.profilePicData.primary} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => handleProfileImgError(e, customer.profilePicData.fallback, 'flex')} /> : null}
+                               <span className={customer.profilePicData ? "hidden" : "flex items-center justify-center w-full h-full"}>{String(customer.computedName || 'U')[0]}</span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                               <h4 className="font-black text-gray-900 text-sm truncate flex items-center gap-1">
+                                   <span className="truncate">{customer.computedName}</span>
+                                   {customer.lineUid && (
+                                       <span className="text-[#06C755] shrink-0" title="เชื่อมต่อ LINE แล้ว">
+                                           <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M24 10.304c0-5.369-5.383-9.738-12-9.738-6.616 0-12 4.369-12 9.738 0 4.814 4.269 8.846 10.036 9.608.391.084.922.258 1.057.592.122.295.079.756.039 1.066l-.172 1.028c-.05.293-.239 1.168 1.026.634 1.265-.534 6.817-4.01 9.324-6.883 1.83-2.096 2.69-4.041 2.69-6.045z"/></svg>
+                                       </span>
+                                   )}
+                               </h4>
+                               <p className="text-[10px] text-gray-500 font-mono flex items-center mt-1"><Phone size={10} className="mr-1 shrink-0"/>{customer.computedPhone || '-'}</p>
+                               {customer.createdAtTimestamp > 0 && (
+                                   <p className="text-[9px] text-emerald-600 font-medium mt-0.5">
+                                       ลงทะเบียน: {new Date(customer.createdAtTimestamp).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                                   </p>
                                )}
-                           </div>
-                       </div>
-                       <div className="pt-3 border-t border-gray-50 flex justify-between items-center pl-2 mt-auto">
-                          <p className="text-[10px] text-gray-400 font-bold uppercase">ยอดสะสมสุทธิ</p>
-                          <p className={`font-black text-lg ${customer.isApproved ? 'text-orange-600' : 'text-indigo-700'}`}>฿{customer.realAccumulatedAmount?.toLocaleString() || '0'}</p>
-                       </div>
+                            </div>
+                         </div>
+                         <div className="pl-2 flex-1">
+                             <div className="flex flex-wrap gap-1.5 mb-3">
+                                 {customer.createdAtTimestamp > 0 && (
+                                     <div className="text-[10px] px-2 py-0.5 rounded-md font-bold bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center">
+                                         ✨ สมาชิกใหม่
+                                     </div>
+                                 )}
+                                 <div className={`text-[10px] px-2 py-1 rounded-md font-bold ${customer.isApproved ? 'bg-orange-50 text-orange-600' : 'bg-gray-100 text-gray-600'}`}>
+                                    {customer.isApproved ? 'VIP Member' : customer.computedMemberStatus}
+                                 </div>
+                                 {customer.hasMoleHistory && (
+                                     <div className="text-[10px] px-2 py-1 rounded-md font-bold bg-teal-50 text-teal-600 border border-teal-100 flex items-center">
+                                         <Sparkles size={10} className="mr-1" /> จี้ไฝ
+                                     </div>
+                                 )}
+                             </div>
+                         </div>
+                         <div className="pt-3 border-t border-gray-50 flex justify-between items-center pl-2 mt-auto">
+                            <p className="text-[10px] text-gray-400 font-bold uppercase">ยอดสะสมสุทธิ</p>
+                            <p className={`font-black text-lg ${customer.isApproved ? 'text-orange-600' : 'text-indigo-700'}`}>฿{customer.realAccumulatedAmount?.toLocaleString() || '0'}</p>
+                         </div>
+                      </div>
+                    ))}
+                    {filteredCustomers.length === 0 && <div className="col-span-full text-center py-20"><Users size={64} className="mx-auto text-gray-200 mb-4"/><p className="text-base font-black text-gray-800 mb-1">ไม่พบข้อมูลลูกค้า</p></div>}
+                  </div>
+
+                  {filteredCustomers.length > customerLimit && (
+                    <div className="flex flex-col items-center justify-center py-4 gap-2">
+                      <p className="text-xs text-gray-400 font-bold">แสดง {Math.min(customerLimit, filteredCustomers.length)} จากทั้งหมด {filteredCustomers.length} คน</p>
+                      <button 
+                        onClick={() => setCustomerLimit(prev => prev + 100)} 
+                        className="bg-white hover:bg-gray-50 border border-gray-200 px-6 py-2.5 rounded-2xl text-sm font-bold text-gray-700 shadow-sm active:scale-95 transition-all flex items-center gap-2"
+                      >
+                        <ChevronDown size={16} /> โหลดข้อมูลเพิ่มเติม (+100)
+                      </button>
                     </div>
-                  ))}
-                  {filteredCustomers.length === 0 && <div className="col-span-full text-center py-20"><Users size={64} className="mx-auto text-gray-200 mb-4"/><p className="text-base font-black text-gray-800 mb-1">ไม่พบข้อมูลลูกค้า</p></div>}
+                  )}
                 </div>
               )}
 
