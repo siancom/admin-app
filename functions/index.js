@@ -472,3 +472,224 @@ exports.track17Webhook = functions.region('asia-southeast1').https.onRequest(asy
     res.status(500).send(e.toString());
   }
 });
+
+// 🌸 AI Skin & Mole Analysis Endpoint (Iris AI) — Server-side Vertex AI / Gemini (No App Check required)
+exports.aiSkinAnalysis = functions.region('asia-southeast1').runWith({
+  timeoutSeconds: 120,
+  memory: '512MB'
+}).https.onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  if (req.method === 'OPTIONS') {
+    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+    res.status(204).send('');
+    return;
+  }
+  
+  if (req.method === 'GET') {
+    return res.status(200).json({ status: 'ok', service: 'Iris AI Skin Analysis', time: new Date().toISOString() });
+  }
+
+  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
+
+  try {
+    const { imageBase64, mimeType = 'image/jpeg', scanMode = 'skin', shopCatalog = [], customPrompt } = req.body || {};
+    if (!imageBase64) {
+      return res.status(400).json({ status: false, error: 'กรุณาแนบรูปภาพสำหรับวิเคราะห์ (Missing imageBase64)' });
+    }
+
+    const cleanBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+    const cleanMime = (imageBase64.includes('data:') && imageBase64.includes(';'))
+      ? imageBase64.split(';')[0].replace('data:', '')
+      : (mimeType || 'image/jpeg');
+
+    const shopCatalogJson = Array.isArray(shopCatalog) ? JSON.stringify(shopCatalog) : (typeof shopCatalog === 'string' ? shopCatalog : '[]');
+
+    let prompt = customPrompt;
+    if (!prompt) {
+      if (scanMode === 'skin') {
+        prompt = `คุณคือผู้เชี่ยวชาญด้านผิวพรรณประจำ Iris Clinic (ไอริส คลินิก) ที่มีความรอบรู้ สุภาพ อบอุ่น เป็นกันเอง ใส่ใจลูกค้า
+จงวิเคราะห์ภาพใบหน้านี้อย่างละเอียดในด้านหลักต่อไปนี้ (คะแนน 1-10 โดย 10 คือสมบูรณ์แบบ):
+หากพบว่าภาพเบลอ มืดไป สว่างไป หรือมีการใช้ฟิลเตอร์/แต่งหน้า ให้แจ้งเตือนในฟิลด์ warning และลดคะแนนลง
+1. สิวและรอยแดง (acne)
+2. ริ้วรอยและความกระชับ (wrinkles)
+3. ความสว่างกระจ่างใส (brightness)
+4. รูขุมขนและความเรียบเนียน (pores)
+5. ฝ้า กระ จุดด่างดำ (darkSpots)
+6. ความชุ่มชื้นและสมดุลความมัน (moisture)
+7. ความหมองคล้ำรอบดวงตา (darkCircles)
+8. หลุมสิวและความขรุขระ (acneScars)
+9. คะแนนสุขภาพผิวโดยรวม (overall)
+10. ระดับความพร้อมผลัดเซลล์ผิว (cellTurnover) — อิงจากการสะสมของเซลล์ผิวเก่า ความหมองคล้ำ ผิวหน้าตึง/หนา และความขรุขระ หากคะแนนสูงแปลว่ามีเซลล์เก่าสะสมมาก ผิวพร้อมถูกผลัด/ลอกออก
+
+*สำคัญมาก: จำแนก "สถานะการผลัดเซลล์" ของผิวในภาพนี้ตอนนี้ (status ใน cellTurnoverInfo) โดยดูจากลักษณะที่เห็นจริง:
+- "ready" = ผิวสะสมเซลล์เก่า หนา/หมองคล้ำ/ขุนขระ/รูขุมขนอุดตัน แต่ไม่มีขุยลอก → แนะนำให้เริ่มผลัดเซลล์
+- "peeling_now" = ผิวกำลังผลัดเซลล์อยู่ขณะนี้ เห็นขุยแห้ง ผิวลอกเป็นแผ่นๆ กำลังหลุดลอกชัดเจน → ต้องงดผลัดซ้ำ เน้นบำรุงความชุ่มชื้น
+- "recovering" = เพิ่งผลัดเซลล์/ทำทรีตเมนต์เสร็จใหม่ๆ ผิวใหม่บาง อ่อนไหว อาจมีรอยแดงอ่อนๆ ผิวดูเรียบเนียนผิดปกติ → ต้องรอฟื้น 1-2 สัปดาห์ก่อนผลัดครั้งถัดไป
+- "normal" = ผิวปกติ ผลัดเซลล์ตามรอบธรรมชาติ ยังไม่จำเป็นต้องเร่ง
+พร้อมระบุหลักฐานที่สังเกตเห็นจากภาพสั้นๆ ใน statusEvidence เช่น "เห็นขุยแห้งบริเวณแก้ม" หรือ "ผิวหนาหมองมีสิ่งอุดตันตรงทีโซน"
+หาก status เป็น peeling_now หรือ recovering ต้องระวังเป็นพิเศษ: ใน herbalRecommendation ให้แนะนำ "ผงพอกสมุนไพรไอริส" (พอกบำรุงปลอบผิว ไม่ใช่ผงเร่ง) ร่วมกับการบำรุงความชุ่มชื้นเท่านั้น และห้ามแนะนำครีมกลุ่มผลัดเซลล์ (AHA/BHA/Retinol) ผงเร่ง/โคลนเร่ง หรือการผลัดเซลล์ซ้ำเด็ดขาด
+ขั้นตอนที่ควรแนะนำเป็นลำดับ: (1) ใช้คลีนซิ่งน้ำนมนวดขัดเบาๆ ก่อนล้างหน้าเพื่อขจัดเซลล์ที่หลุดอยู่ให้ลอยออกอย่างอ่อนโยน (2) ล้างหน้าแล้วพอกบำรุงด้วยผงพอกสมุนไพรไอริส (3) ปิดท้ายด้วยการทาครีมกันแดดทุกครั้ง เพราะผิวใหม่ไวแสงแดดมาก และขั้นท้ายสุด (4) สามารถเอาผงพอกสมุนไพรไอริสผสมน้ำแล้วแต้มเป็นจุดๆ ที่รอย สิว หรือจุดที่มีปัญหา เพื่อบำรุงเข้มข้นเฉพาะจุดได้
+
+*ข้อสำคัญ: จงวิเคราะห์แยกระหว่าง "ผิวแห้ง (Dry Skin - ขาดน้ำมัน)" และ "ผิวขาดน้ำ (Dehydrated Skin - ขาดน้ำ)" อย่างชัดเจน โดยพิจารณาจากรูขุมขน ความมันวาว ความแห้งกร้าน ขุย และริ้วรอย ให้ระบุใน hydrationAnalysis*
+
+พร้อมประเมินอายุผิวหน้าจากสภาพผิวที่มองเห็น (estimatedSkinAge ตัวเลขจำนวนเต็ม เช่น 25, 32)
+และระบุข้อความสถานะอายุผิวแบบชมเชยหรือนุ่มนวล (skinAgeStatus)
+
+คุณมีรายการคอร์สและสินค้าดังนี้:
+${shopCatalogJson}
+จงเลือกแนะนำคอร์สหรือสินค้าที่เหมาะสมที่สุดกับสภาพผิวของลูกค้าจากรายการด้านบน (แนะนำ 1-3 รายการ) โดยคืนค่าเป็น id ของสินค้าหรือคอร์สนั้นๆ พร้อมระบุเหตุผลสั้นๆ
+
+ส่งผลลัพธ์กลับมาเป็น JSON เท่านั้น โครงสร้างดังนี้:
+{
+    "mode": "skin",
+    "greeting": "สวัสดีค่ะคุณลูกค้าสุดน่ารัก อบอุ่นสั้นๆ จาก Iris Clinic",
+    "estimatedSkinAge": 28,
+    "skinAgeStatus": "ผิวดูกระชับสดใส แลดูอ่อนเยาว์กว่าอายุจริงค่ะ ✨",
+    "scores": {
+        "acne": 8, "wrinkles": 7, "brightness": 6, "pores": 7, "darkSpots": 6, "moisture": 8, "darkCircles": 5, "acneScars": 7, "cellTurnover": 6, "overall": 7
+    },
+    "hydrationAnalysis": {
+        "isDry": true,
+        "isDehydrated": true,
+        "description": "ผิวขาดทั้งน้ำและน้ำมัน มีลักษณะแห้งกร้านและเห็นริ้วรอยขาดน้ำชัดเจน",
+        "recommendation": "ควรดื่มน้ำให้เพียงพอและทำทรีตเมนต์เติมน้ำให้ผิวชั้นลึก"
+    },
+    "cellTurnoverInfo": {
+        "status": "ready",
+        "statusEvidence": "หลักฐานที่เห็นจากภาพ เช่น เห็นขุยแห้งหลุดเป็นแผ่นบริเวณแก้ม หรือ ผิวหนาหมองมีสิ่งอุดตันตรงทีโซน",
+        "level": "พร้อมผลัดเซลล์ ระดับปานกลาง",
+        "description": "สภาพผิวมีเซลล์เก่าสะสมอยู่บ้าง ผิวหมองเล็กน้อย สามารถเริ่มผลัดเซลล์ได้แล้ว",
+        "herbalRecommendation": "แนะนำให้ผลัดเซลล์ผิวด้วยสมุนไพรธรรมชาติของทางร้าน เพื่อขจัดเซลล์เก่าอย่างอ่อนโยน ผิวเรียบเนียน กระจ่างใสขึ้น"
+    },
+    "summary": "ข้อความสรุปสภาพผิวที่พบด้วยภาษาเป็นกันเอง ห่วงใย และอ่านง่าย",
+    "recommendation": "คำแนะนำการดูแลผิวประจำวันสั้นๆ นุ่มนวล",
+    "recommendedCourses": [
+        { "id": "รหัส id ของคอร์ส/สินค้าที่เลือกจากรายการ", "reason": "เหตุผลสั้นๆ" }
+    ],
+    "confidenceScore": 85,
+    "warning": "ถ้าภาพเบลอ มืด แต่งหน้า หรือใช้ฟิลเตอร์ ให้ใส่คำเตือนสั้นๆ ที่นี่ ถ้าภาพชัดเจนดีให้ใส่ค่าว่าง (\"\")"
+}`;
+      } else {
+        prompt = `คุณคือแพทย์และผู้เชี่ยวชาญการจี้ไฝ ติ่งเนื้อ กระเนื้อ สิวหิน ประจำ Iris Clinic (ไอริส คลินิก)
+หากพบว่าภาพเบลอ มืดไป หรือมองเห็นไม่ชัดเจน ให้แจ้งเตือนในฟิลด์ warning
+จงสแกนภาพใบหน้าหรือลำคอนี้อย่างละเอียด นับจำนวนจุดที่พบ และระบุพิกัดตำแหน่ง 2D Bounding Box ของแต่ละจุดที่พบอย่างแม่นยำที่สุด
+ใช้สเกล 0 ถึง 1000 ในรูปแบบ [ymin, xmin, ymax, xmax]
+
+พร้อมประเมินอายุผิวหน้าเบื้องต้น (estimatedSkinAge) และระบุข้อความสถานะอายุผิว (skinAgeStatus)
+
+จำแนกประเภทดังนี้:
+- type: "mole" (ไฝ/ขี้แมลงวัน)
+- type: "freckle" (กระเนื้อ/กระแดด)
+- type: "skinTag" (ติ่งเนื้อ/สิวหิน)
+
+คำนวณราคาประเมินค่าบริการจี้เบื้องต้น (หน่วยบาท):
+- จุดละ 100 - 150 บาท (หาก 1-3 จุด)
+- 4-10 จุด เหมาแพ็กเกจ 500 - 900 บาท
+- มากกว่า 10 จุด เหมาทั่วหน้า/ลำคอ 1,200 - 1,800 บาท
+
+ส่งผลลัพธ์กลับมาเป็น JSON เท่านั้น โครงสร้างดังนี้:
+{
+    "mode": "mole",
+    "greeting": "สวัสดีค่ะคุณลูกค้า สรุปผลการตรวจนับจุดไฝและติ่งเนื้อสำหรับเตรียมจี้ออกนะคะ",
+    "estimatedSkinAge": 30,
+    "skinAgeStatus": "สภาพผิวโดยรวมแข็งแรงดี พร้อมบริการจี้ลบจุดอย่างปลอดภัยค่ะ",
+    "counts": {
+        "moles": 2, "freckles": 4, "skinTags": 1, "total": 7
+    },
+    "markers": [
+        { "box2d": [420, 380, 450, 410], "type": "mole", "label": "ไฝ / ขี้แมลงวัน" },
+        { "box2d": [500, 600, 530, 630], "type": "freckle", "label": "กระเนื้อ" },
+        { "box2d": [780, 480, 810, 510], "type": "skinTag", "label": "ติ่งเนื้อ" }
+    ],
+    "locations": ["โหนกแก้มซ้าย", "ข้างมุมปาก", "ลำคอ"],
+    "estimatedPriceMin": 500,
+    "estimatedPriceMax": 900,
+    "summary": "พบไฝเล็กน้อย และมีกระเนื้อบริเวณโหนกแก้มร่วมกับติ่งเนื้อที่ลำคอ สามารถจี้ออกได้เรียบเนียนในการทำครั้งเดียว",
+    "cauterizeAdvice": "หลังจี้ห้ามโดนน้ำ 3-5 วัน และแต้มผงสมุนไพรลดอักเสบตามที่คลินิกจัดให้ มีประกันดูแลซ้ำ 1 เดือนค่ะ",
+    "confidenceScore": 90,
+    "warning": "ถ้าภาพเบลอ มืด หรือใช้ฟิลเตอร์ จนมองไม่เห็นไฝ ให้ใส่คำเตือนสั้นๆ ที่นี่ ถ้าภาพชัดเจนดีให้ใส่ค่าว่าง (\"\")"
+}`;
+      }
+    }
+
+    // Initialize AI
+    const db = getFirestore('iris-care');
+    const aiSnap = await db.collection('app_settings').doc('ai').get().catch(() => null);
+    const aiData = aiSnap && aiSnap.exists ? aiSnap.data() : {};
+    const apiKey = aiData.geminiApiKey || process.env.GEMINI_API_KEY;
+
+    const { GoogleGenAI } = require('@google/genai');
+    let ai;
+    if (apiKey) {
+      ai = new GoogleGenAI({ apiKey });
+    } else {
+      ai = new GoogleGenAI({ vertexai: true, project: 'iris-clinic-app', location: 'us-central1' });
+    }
+
+    const contents = [
+      {
+        role: 'user',
+        parts: [
+          { text: prompt },
+          {
+            inlineData: {
+              mimeType: cleanMime,
+              data: cleanBase64
+            }
+          }
+        ]
+      }
+    ];
+
+    let rawResult = null;
+    try {
+      rawResult = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents,
+        config: {
+          responseMimeType: 'application/json'
+        }
+      });
+    } catch (primaryErr) {
+      console.warn('gemini-2.0-flash attempt failed, trying gemini-1.5-flash:', primaryErr.message);
+      rawResult = await ai.models.generateContent({
+        model: 'gemini-1.5-flash',
+        contents,
+        config: {
+          responseMimeType: 'application/json'
+        }
+      });
+    }
+
+    const responseText = rawResult.text || '';
+    let jsonString = responseText.trim();
+    if (jsonString.includes('```json')) {
+      jsonString = jsonString.replace(/```json/g, '').replace(/```/g, '').trim();
+    } else if (jsonString.includes('```')) {
+      jsonString = jsonString.replace(/```/g, '').trim();
+    }
+
+    const parsedData = JSON.parse(jsonString);
+
+    // Convert Bounding Box [ymin, xmin, ymax, xmax] (0-1000) to Center Coordinates (x%, y%)
+    if (parsedData.markers && Array.isArray(parsedData.markers)) {
+      parsedData.markers = parsedData.markers.map(m => {
+        if (m.box2d && Array.isArray(m.box2d) && m.box2d.length === 4) {
+          const [ymin, xmin, ymax, xmax] = m.box2d;
+          const centerX = ((xmin + xmax) / 2) / 10;
+          const centerY = ((ymin + ymax) / 2) / 10;
+          return { ...m, x: Math.max(5, Math.min(95, centerX)), y: Math.max(5, Math.min(95, centerY)) };
+        } else if (typeof m.x === 'number' && typeof m.y === 'number') {
+          return m;
+        }
+        return null;
+      }).filter(Boolean);
+    }
+
+    res.status(200).json(parsedData);
+  } catch (err) {
+    console.error('aiSkinAnalysis error:', err);
+    res.status(500).json({ status: false, error: err.message || 'AI processing failed' });
+  }
+});
