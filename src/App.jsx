@@ -4821,6 +4821,52 @@ const flexMessage = {
          </div>
       </div>
 
+      {/* 🌟 จุดสีแสดงสถานะการซิงค์ข้อมูลมุมขวาบน (Mobile / Floating Top-Right Sync Dot) 🌟 */}
+      <div 
+        onClick={() => triggerToast(
+          isCloudLoading 
+            ? `กำลังซิงค์ข้อมูล Cloud (${loadingProgress}%)` 
+            : isDbConnected 
+              ? 'ข้อมูลเชื่อมต่อและซิงค์เรียลไทม์กับ Cloud เรียบร้อยแล้ว' 
+              : 'ระบบออฟไลน์ ขาดการเชื่อมต่อ Cloud',
+          isCloudLoading ? 'info' : isDbConnected ? 'success' : 'error'
+        )}
+        className="lg:hidden fixed top-3 right-3 z-50 flex items-center cursor-pointer pointer-events-auto active:scale-95 transition-all print:hidden"
+        title={
+          isCloudLoading 
+            ? `กำลังซิงค์ข้อมูล Cloud... (${loadingProgress}%)` 
+            : isDbConnected 
+              ? 'ซิงค์ข้อมูลเรียบร้อย (Cloud Online)' 
+              : 'ขาดการเชื่อมต่อ Cloud'
+        }
+      >
+        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border shadow-sm backdrop-blur-md transition-all ${
+          isCloudLoading 
+            ? 'bg-amber-50/95 border-amber-200 text-amber-700' 
+            : isDbConnected 
+              ? 'bg-white/95 border-emerald-200 text-emerald-700 shadow-emerald-500/10' 
+              : 'bg-rose-50/95 border-rose-200 text-rose-700'
+        }`}>
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            {isCloudLoading ? (
+              <>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+              </>
+            ) : isDbConnected ? (
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]"></span>
+            ) : (
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 animate-pulse"></span>
+            )}
+          </span>
+          {isCloudLoading && (
+            <span className="text-[9px] font-bold text-amber-700 font-mono">
+              {loadingProgress}%
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Sidebar (Desktop Only) */}
       <aside className={`hidden lg:flex flex-col fixed inset-y-0 left-0 w-64 bg-white/95 backdrop-blur-xl border-r border-gray-200 z-40`}>
         <div className="h-20 flex items-center px-6 border-b border-gray-100 shrink-0">
@@ -4911,8 +4957,47 @@ const flexMessage = {
                  </>
                )}
             </div>
-            <div className={`hidden sm:flex items-center px-3 py-1.5 rounded-full text-[10px] sm:text-xs font-bold border shadow-sm shrink-0 transition-colors ${isDbConnected ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-amber-50 text-amber-600 border-amber-200'}`}>
-               <div className={`w-2 h-2 rounded-full mr-2 ${isDbConnected ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`}></div>{isDbConnected ? 'Cloud' : 'Connecting...'}
+            {/* 🌟 จุดสีแสดงสถานะการซิงค์ข้อมูลมุมขวาบน (Desktop Top-Right Sync Dot) 🌟 */}
+            <div 
+              onClick={() => triggerToast(
+                isCloudLoading 
+                  ? `กำลังซิงค์ข้อมูล Cloud (${loadingProgress}%)` 
+                  : isDbConnected 
+                    ? 'ข้อมูลเชื่อมต่อและซิงค์เรียลไทม์กับ Cloud เรียบร้อยแล้ว' 
+                    : 'ระบบออฟไลน์ ขาดการเชื่อมต่อ Cloud',
+                isCloudLoading ? 'info' : isDbConnected ? 'success' : 'error'
+              )}
+              className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] sm:text-xs font-bold border shadow-2xs shrink-0 transition-all cursor-pointer ${
+                isCloudLoading 
+                  ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' 
+                  : isDbConnected 
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' 
+                    : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+              }`}
+              title={
+                isCloudLoading 
+                  ? `กำลังซิงค์ข้อมูล Cloud... (${loadingProgress}%)` 
+                  : isDbConnected 
+                    ? 'ซิงค์ข้อมูลเรียบร้อย (Cloud Online)' 
+                    : 'ขาดการเชื่อมต่อ Cloud (Offline)'
+              }
+            >
+               <span className="relative flex h-2.5 w-2.5 shrink-0">
+                 {isCloudLoading ? (
+                   <>
+                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                     <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                   </>
+                 ) : isDbConnected ? (
+                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)]"></span>
+                 ) : (
+                   <>
+                     <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                     <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                   </>
+                 )}
+               </span>
+               <span>{isCloudLoading ? `ซิงค์ ${loadingProgress}%` : isDbConnected ? 'ซิงค์แล้ว' : 'ออฟไลน์'}</span>
             </div>
             <div className="flex bg-white/80 shadow-sm rounded-xl p-1.5 border border-gray-100 shrink-0">
                {uploadButtons.map((btn, idx) => {
@@ -8441,20 +8526,20 @@ const flexMessage = {
         </div>
       )}
 
-      {/* Progress Overlay */}
-      {(deleteProgress.isDeleting || isCloudLoading) && (
+      {/* Progress Overlay (เฉพาะการลบข้อมูล ไม่บล็อกหน้าจอตอนซิงค์) */}
+      {deleteProgress.isDeleting && (
         <div className="fixed inset-0 z-[250] flex items-center justify-center bg-gray-900/80 backdrop-blur-sm">
            <div className="bg-white p-8 rounded-3xl shadow-2xl text-center max-w-sm w-full border border-gray-100">
               <div className="inline-block mb-4 relative">
                  <div className="w-16 h-16 border-4 border-gray-100 rounded-full"></div>
                  <div className="w-16 h-16 border-4 border-indigo-500 rounded-full border-t-transparent animate-spin absolute top-0 left-0"></div>
               </div>
-              <h3 className="text-xl font-black text-gray-800 mb-2">{isCloudLoading ? 'กำลังซิงค์ข้อมูล Cloud...' : `กำลังลบข้อมูล ${deleteProgress.type}...`}</h3>
+              <h3 className="text-xl font-black text-gray-800 mb-2">{`กำลังลบข้อมูล ${deleteProgress.type}...`}</h3>
               <p className="text-gray-500 text-sm font-medium mb-4">กรุณารอสักครู่ ห้ามปิดหน้าต่างนี้</p>
               <div className="w-full bg-gray-100 rounded-full h-2 mb-2 overflow-hidden">
-                 <div className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full rounded-full transition-all duration-300" style={{ width: `${isCloudLoading ? loadingProgress : (deleteProgress.current / (deleteProgress.total || 1)) * 100}%` }}></div>
+                 <div className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full rounded-full transition-all duration-300" style={{ width: `${(deleteProgress.current / (deleteProgress.total || 1)) * 100}%` }}></div>
               </div>
-              <p className="text-xs font-bold text-gray-400 font-mono">{isCloudLoading ? `${loadingProgress}%` : `${deleteProgress.current} / ${deleteProgress.total}`}</p>
+              <p className="text-xs font-bold text-gray-400 font-mono">{`${deleteProgress.current} / ${deleteProgress.total}`}</p>
            </div>
         </div>
       )}
