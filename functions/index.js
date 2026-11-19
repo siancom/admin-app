@@ -613,19 +613,14 @@ ${shopCatalogJson}
       }
     }
 
-    // Initialize AI
+    // Initialize AI (Google GenAI)
     const db = getFirestore('iris-care');
     const aiSnap = await db.collection('app_settings').doc('ai').get().catch(() => null);
     const aiData = aiSnap && aiSnap.exists ? aiSnap.data() : {};
-    const apiKey = aiData.geminiApiKey || process.env.GEMINI_API_KEY;
+    const apiKey = aiData.geminiApiKey || process.env.GEMINI_API_KEY || 'AIzaSyDMf_N5PBBCnDoKAhmz0qj91oluFMrdS8M';
 
     const { GoogleGenAI } = require('@google/genai');
-    let ai;
-    if (apiKey) {
-      ai = new GoogleGenAI({ apiKey });
-    } else {
-      ai = new GoogleGenAI({ vertexai: true, project: 'iris-clinic-app', location: 'us-central1' });
-    }
+    const ai = new GoogleGenAI({ apiKey });
 
     const contents = [
       {
@@ -645,21 +640,32 @@ ${shopCatalogJson}
     let rawResult = null;
     try {
       rawResult = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-3.8-flash',
         contents,
         config: {
           responseMimeType: 'application/json'
         }
       });
     } catch (primaryErr) {
-      console.warn('gemini-2.0-flash attempt failed, trying gemini-1.5-flash:', primaryErr.message);
-      rawResult = await ai.models.generateContent({
-        model: 'gemini-1.5-flash',
-        contents,
-        config: {
-          responseMimeType: 'application/json'
-        }
-      });
+      console.warn('gemini-3.8-flash attempt failed, trying gemini-3.5-flash:', primaryErr.message);
+      try {
+        rawResult = await ai.models.generateContent({
+          model: 'gemini-3.5-flash',
+          contents,
+          config: {
+            responseMimeType: 'application/json'
+          }
+        });
+      } catch (secErr) {
+        console.warn('gemini-3.5-flash attempt failed, trying gemini-3.5-flash-lite:', secErr.message);
+        rawResult = await ai.models.generateContent({
+          model: 'gemini-3.5-flash-lite',
+          contents,
+          config: {
+            responseMimeType: 'application/json'
+          }
+        });
+      }
     }
 
     const responseText = rawResult.text || '';
