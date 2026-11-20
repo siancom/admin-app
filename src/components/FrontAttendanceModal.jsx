@@ -50,52 +50,15 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
     return activeBranches.length <= 1 || branchesWithGps.length <= 1 || empBranchCount <= 1;
   }, [activeBranches, employees]);
 
-  // Auto-detect branch based on GPS if globalBranch is not set (skip GPS if only 1 branch)
+  // ตั้งค่าสาขาเริ่มต้นสำหรับกรองรายชื่อ (ใช้ค่าที่บันทึกไว้หรือสาขาแรก ข้ามการเช็ค GPS เพื่อให้โหลดเร็ว)
   React.useEffect(() => {
-    if (isSingleBranchMode) {
-      if (activeBranches[0]?.name) setBranchFilter(activeBranches[0].name);
-      return;
+    if (branchFilter && branchFilter !== 'ทั้งหมด') return;
+    const saved = localStorage.getItem('selectedBranch');
+    const target = globalBranch || saved || activeBranches[0]?.name;
+    if (target) {
+      setBranchFilter(target);
     }
-    if (!globalBranch && navigator.geolocation && activeBranches.length > 1) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          const R = 6371e3; // metres
-          let nearestBranch = null;
-          let minDistance = Infinity;
-
-          branches.forEach(branch => {
-            if (branch.lat && branch.lng) {
-              const φ1 = branch.lat * Math.PI/180;
-              const φ2 = latitude * Math.PI/180;
-              const Δφ = (latitude-branch.lat) * Math.PI/180;
-              const Δλ = (longitude-branch.lng) * Math.PI/180;
-
-              const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                        Math.cos(φ1) * Math.cos(φ2) *
-                        Math.sin(Δλ/2) * Math.sin(Δλ/2);
-              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-              const distance = R * c; 
-              
-              if (distance < minDistance) {
-                minDistance = distance;
-                nearestBranch = branch.name;
-              }
-            }
-          });
-
-          // Auto-select nearest branch if within 2km (2000m)
-          if (nearestBranch && minDistance <= 2000) {
-            setBranchFilter(prev => prev === 'ทั้งหมด' ? nearestBranch : prev);
-          }
-        },
-        (error) => {
-          console.warn("GPS auto-detect failed:", error.message);
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-      );
-    }
-  }, [globalBranch, branches]);
+  }, [globalBranch, activeBranches, branchFilter]);
 
   // Auto clock-out at 21:00
   React.useEffect(() => {

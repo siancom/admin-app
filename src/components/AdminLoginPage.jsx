@@ -10,8 +10,9 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
   const isSingleBranchMode = displayBranches.length <= 1 || empBranchCount <= 1;
 
   const [now, setNow] = useState(new Date());
-  const [selectedBranch, setSelectedBranch] = useState(() => initialBranch || (displayBranches.length === 1 ? displayBranches[0].name : null));
-  const [nearestBranch, setNearestBranch] = useState(null);
+  const [selectedBranch, setSelectedBranch] = useState(() => {
+    return initialBranch || localStorage.getItem('selectedBranch') || (displayBranches.length > 0 ? displayBranches[0].name : null);
+  });
   const [mode, setMode] = useState('main'); // 'main' | 'owner_passcode'
   const [passcode, setPasscode] = useState('');
   const [passError, setPassError] = useState(false);
@@ -23,47 +24,17 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
     return () => clearInterval(t);
   }, []);
 
-  // GPS: หาสาขาใกล้ตัว (ไฮไลต์ + เลือกให้อัตโนมัติถ้าในระยะ 2 กม. — หากมีสาขาเดียวให้เลือกทันทีและข้าม GPS)
+  // เลือกสาขาเริ่มต้นทันทีเมื่อมีข้อมูล (จำสาขาเดิมที่เคยเลือกไว้ ไม่ต้องรอตรวจ GPS ให้เสียเวลา)
   useEffect(() => {
     if (displayBranches.length === 0) return;
-    if (isSingleBranchMode) {
-      setSelectedBranch(prev => prev || displayBranches[0].name);
-      return;
+    const saved = localStorage.getItem('selectedBranch');
+    const matched = saved && displayBranches.some(b => b.name === saved);
+    if (!selectedBranch) {
+      const target = matched ? saved : displayBranches[0].name;
+      setSelectedBranch(target);
+      localStorage.setItem('selectedBranch', target);
     }
-    const branchesWithGps = displayBranches.filter(b => b.lat && b.lng);
-    if (branchesWithGps.length <= 1 || !navigator.geolocation) {
-      if (displayBranches.length === 1) setSelectedBranch(displayBranches[0].name);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        const R = 6371e3;
-        let nearest = null, minDist = Infinity;
-        branchesWithGps.forEach(b => {
-          if (b.lat && b.lng) {
-            const φ1 = b.lat * Math.PI / 180, φ2 = latitude * Math.PI / 180;
-            const Δφ = (latitude - b.lat) * Math.PI / 180, Δλ = (longitude - b.lng) * Math.PI / 180;
-            const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-            const d = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            if (d < minDist) { minDist = d; nearest = b.name; }
-          }
-        });
-        if (nearest && minDist <= 2000) {
-          setNearestBranch(nearest);
-          setSelectedBranch(prev => prev || nearest);
-        }
-      },
-      () => {},
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
-    );
-  }, [branches, employees]);
-
-  useEffect(() => {
-    if (branches.length > 0 && !selectedBranch && nearestBranch === null) {
-      // ยังไม่เลือก — รอผู้ใช้กด (ไม่บังคับ default)
-    }
-  }, [branches]);
+  }, [displayBranches, selectedBranch]);
 
   const masterPasscode = appSettings?.masterPasscode || '999999';
 
@@ -193,28 +164,21 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
               เลือกสาขาที่ทำงาน
             </h2>
             <p className="text-[10px] text-gray-400 font-bold mb-3 ml-7 flex items-center gap-1">
-              <Navigation size={10} className="text-teal-500" />
-              {isSingleBranchMode
-                ? `เลือกสาขา ${selectedBranch || displayBranches[0]?.name || ''} อัตโนมัติ (ข้ามการเช็ค GPS)`
-                : nearestBranch
-                  ? `ระบบตรวจพบว่าคุณอยู่ใกล้ ${nearestBranch}`
-                  : 'ระบบจะตรวจสาขาใกล้คุณอัตโนมัติ (GPS)'}
+              <MapPin size={10} className="text-teal-500" />
+              {selectedBranch ? `สาขาปัจจุบัน: ${selectedBranch}` : 'แตะเพื่อเลือกสาขาที่ทำงาน'}
             </p>
             <div className={`grid ${displayBranches.length === 1 ? 'grid-cols-1' : 'grid-cols-2'} gap-2.5 mb-5`}>
               {displayBranches.map(b => {
                 const isSel = selectedBranch === b.name;
-                const isNear = nearestBranch === b.name;
                 return (
                   <button
                     key={b.name}
-                    onClick={() => setSelectedBranch(b.name)}
+                    onClick={() => {
+                      setSelectedBranch(b.name);
+                      localStorage.setItem('selectedBranch', b.name);
+                    }}
                     className={`relative p-4 rounded-2xl border-2 text-left transition-all active:scale-95 ${isSel ? 'border-teal-500 bg-teal-50 shadow-md shadow-teal-500/20' : 'border-gray-100 bg-gray-50 hover:border-teal-200'}`}
                   >
-                    {isNear && (
-                      <span className="absolute -top-2 right-2 bg-emerald-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full border-2 border-white flex items-center gap-0.5">
-                        <Navigation size={7} /> ใกล้คุณ
-                      </span>
-                    )}
                     <MapPin size={18} className={isSel ? 'text-teal-500' : 'text-gray-300'} />
                     <p className={`text-[13px] font-black mt-1.5 leading-tight ${isSel ? 'text-teal-700' : 'text-gray-700'}`}>{b.name}</p>
                   </button>

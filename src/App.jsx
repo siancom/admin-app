@@ -1070,57 +1070,18 @@ export default function App() {
     }
   }, [branches, appSettings]);
 
-  // Auto-detect branch based on GPS when branches are loaded (runs once per session; skip GPS if only 1 branch)
+  // 🌟 โหลดสาขาเริ่มต้นทันทีเมื่อโหลดข้อมูลเสร็จ (จำค่าเดิมที่เลือกไว้ ข้ามการเช็ค GPS เพื่อให้โหลดเร็วขึ้น)
   useEffect(() => {
     if (!isCloudLoading && branches.length > 0 && !hasAutoDetectedBranch.current) {
       hasAutoDetectedBranch.current = true;
+      const savedBranch = localStorage.getItem('selectedBranch');
       const activeBranches = branches.filter(b => !b.isMaintenance);
-      const branchesWithGps = activeBranches.filter(b => b.lat && b.lng);
-      if (activeBranches.length <= 1 || branchesWithGps.length <= 1) {
-        const singleBranchName = (activeBranches[0] || branches[0])?.name;
-        if (singleBranchName && globalBranch !== singleBranchName) {
-          setGlobalBranch(singleBranchName);
-          localStorage.setItem('selectedBranch', singleBranchName);
-        }
-        return;
-      }
-      
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const { latitude, longitude } = position.coords;
-            const R = 6371e3; // metres
-            
-            for (let branch of branches) {
-              if (branch.lat && branch.lng) {
-                const φ1 = branch.lat * Math.PI/180;
-                const φ2 = latitude * Math.PI/180;
-                const Δφ = (latitude-branch.lat) * Math.PI/180;
-                const Δλ = (longitude-branch.lng) * Math.PI/180;
-
-                const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                          Math.cos(φ1) * Math.cos(φ2) *
-                          Math.sin(Δλ/2) * Math.sin(Δλ/2);
-                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-                const distance = R * c;
-                
-                if (distance <= 50) {
-                  // Only change if it's different from the currently saved one
-                  if (globalBranch !== branch.name) {
-                    setGlobalBranch(branch.name);
-                    localStorage.setItem('selectedBranch', branch.name);
-                    showToast(`พิกัดของคุณอยู่ที่สาขา ${branch.name} ระบบเลือกสาขาให้อัตโนมัติ`, 'success');
-                  }
-                  break; 
-                }
-              }
-            }
-          },
-          (err) => {
-            console.log("GPS auto-detect failed or denied:", err.message);
-          },
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-        );
+      const targetBranch = (savedBranch && activeBranches.some(b => b.name === savedBranch))
+        ? savedBranch
+        : (activeBranches[0] || branches[0])?.name;
+      if (targetBranch && globalBranch !== targetBranch) {
+        setGlobalBranch(targetBranch);
+        localStorage.setItem('selectedBranch', targetBranch);
       }
     }
   }, [isCloudLoading, branches, globalBranch]);
