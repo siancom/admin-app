@@ -6,7 +6,7 @@ import {
   Award, AlertCircle, Banknote, Activity, Phone, History as HistoryIcon, 
   Printer, ShoppingBag, ArrowLeft, HeartPulse, ChevronRight, 
   CalendarPlus, UserPlus, Sparkles, Trash2, AlertTriangle, Layers, Database,
-  Camera, Image as ImageIcon, ShieldCheck, ShieldAlert, RefreshCcw, PenTool,
+  Camera, Image as ImageIcon, ShieldCheck, ShieldAlert, RefreshCcw, PenTool, Edit3,
   Bell, List, LayoutGrid, ScanLine, CalendarDays, ChevronLeft, ChevronUp, ChevronDown, BarChart3, Store, UserCheck, Wallet, Loader2, Scissors, Ticket, Gift,
   Send, MessageSquare, ToggleLeft, ToggleRight, TestTube, ExternalLink, Zap, Target, Droplet, Syringe, Pill, Truck, Star,
   Filter, RotateCcw, Lock, Unlock, CalendarClock
@@ -37,13 +37,13 @@ import { QRCodeSVG } from 'qrcode.react';
 // --- FIREBASE IMPORTS ---
 import { signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, deleteField, writeBatch, query, where, getDocs, setDoc, orderBy, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject, uploadString } from 'firebase/storage';
+import { ref, uploadBytesResumable, uploadBytes, getDownloadURL, deleteObject, uploadString } from 'firebase/storage';
 import { auth, db, getCol, getDocRef, storage } from './config/firebase';
 import html2canvas from 'html2canvas';
 import * as XLSX from 'xlsx';
 
 // --- UTILS & PARSERS ---
-import { getLocalYYYYMMDD, normalizeBranchName, getTotalStock, getBranchStock, formatDateTimeStr, parseNumber, parseQty, parseHistoryTime, parseCSVRow, parseThaiDate } from './utils/parse';
+import { getLocalYYYYMMDD, normalizeBranchName, getTotalStock, getBranchStock, formatDateTimeStr, parseNumber, parseQty, parseHistoryTime, parseCSVRow, parseThaiDate, compressImage } from './utils/parse';
 import { getFuzzyKey } from './utils/fuzzy';
 import { 
   isUsageType, isAddType, isFreeUsageApp as isFreeUsage, extractHistoryQty, 
@@ -377,6 +377,7 @@ export default function App() {
   const [newOrderForm, setNewOrderForm] = useState({ customerPhone: '', customerName: '', courseName: '', price: '', credit: '', qty: '1', branch: globalBranch || 'เฉวง' });
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
   const [isAddMasterCourseOpen, setIsAddMasterCourseOpen] = useState(false);
+  const [editingMasterCourse, setEditingMasterCourse] = useState(null);
   const [newProductForm, setNewProductForm] = useState({ code: '', name: '', category: 'IRIS', unit: 'ชิ้น', price: '', memberPrice: '', stock: '0', isStoreUseOnly: false });
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchLat, setNewBranchLat] = useState('');
@@ -4457,15 +4458,17 @@ const flexMessage = {
     return Promise.resolve(found || null);
   };
 
-  const handleAddCourse = async (courseData) => {
+  const handleAddCourse = async (courseData, editingId = null) => {
     try {
-      await addDoc(getCol('master_courses'), {
+      const payload = {
         "รหัสคอส": courseData.code,
         "col_1": courseData.code,
         "ชื่อคอส": courseData.name,
         "col_4": courseData.name,
         "ราคาขาย": courseData.price,
         "col_5": courseData.price,
+        "ราคา": courseData.price,
+        "col_6": courseData.price,
         "เครดิตที่ได้รับ": courseData.credit || '0',
         "col_8": courseData.credit || '0',
         "จำนวนครั้ง": courseData.sessions || '1',
@@ -4474,12 +4477,64 @@ const flexMessage = {
         "รายการที่ได้รับ": `${courseData.products ? 'สินค้าที่ได้รับ:\n' + courseData.products + '\n\n' : ''}${courseData.subCourses ? 'คอร์สย่อย/เสริม:\n' + courseData.subCourses : ''}`,
         "col_11": `${courseData.products ? 'สินค้าที่ได้รับ:\n' + courseData.products + '\n\n' : ''}${courseData.subCourses ? 'คอร์สย่อย/เสริม:\n' + courseData.subCourses : ''}`,
         "ฟรีบัตรสมาชิก": courseData.freeVip ? 'ใช่' : 'ไม่ใช่',
-        "ประเภท": courseData.category || 'ทั่วไป'
-      });
-      showToast('เพิ่มคอร์สโปรโมชั่นสำเร็จ');
+        "ประเภท": courseData.category || 'ทั่วไป',
+        "รูปภาพ": courseData.image || '',
+        "image": courseData.image || '',
+        "col_13": courseData.image || '',
+        "updatedAt": new Date().toISOString()
+      };
+
+      if (editingId) {
+        await updateDoc(getDocRef('master_courses', editingId), payload);
+        showToast('แก้ไขคอร์สโปรโมชั่นสำเร็จ');
+      } else {
+        payload.createdAt = new Date().toISOString();
+        await addDoc(getCol('master_courses'), payload);
+        showToast('เพิ่มคอร์สโปรโมชั่นสำเร็จ');
+      }
     } catch (err) {
       showToast('ข้อผิดพลาด: ' + err.message);
       throw err;
+    }
+  };
+
+  const handleDirectCourseImageUpload = async (mc, file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('กรุณาเลือกไฟล์รูปภาพเท่านั้น');
+      return;
+    }
+    showToast('กำลังอัปโหลดรูปภาพคอร์ส...');
+    try {
+      const compressedBlob = await compressImage(file, 1200, 1200, 0.85);
+      const storageRef = ref(storage, `master_courses/${mc.id || Date.now()}_${Date.now()}.jpg`);
+      await uploadBytes(storageRef, compressedBlob);
+      const downloadURL = await getDownloadURL(storageRef);
+
+      await updateDoc(getDocRef('master_courses', mc.id), {
+        "รูปภาพ": downloadURL,
+        "image": downloadURL,
+        "col_13": downloadURL,
+        "updatedAt": new Date().toISOString()
+      });
+      showToast('อัปโหลดรูปภาพคอร์สสำเร็จ!');
+    } catch (err) {
+      console.error(err);
+      showToast('เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ: ' + err.message);
+    }
+  };
+
+  const handleRemoveCourseImage = async (mc) => {
+    try {
+      await updateDoc(getDocRef('master_courses', mc.id), {
+        "รูปภาพ": "",
+        "image": "",
+        "col_13": "",
+        "updatedAt": new Date().toISOString()
+      });
+      showToast('ลบรูปภาพคอร์สสำเร็จ');
+    } catch (err) {
+      showToast('เกิดข้อผิดพลาด: ' + err.message);
     }
   };
   const handleImageUpload = async (historyId, field, file) => { if (!file) return; const reader = new FileReader(); reader.onloadend = async () => { try { await updateDoc(getDocRef('histories', historyId), { [field]: reader.result }); showToast('อัปโหลดรูปภาพสำเร็จ'); } catch(e) { showToast('อัปโหลดล้มเหลว: ' + e.message); } }; reader.readAsDataURL(file); };
@@ -6236,10 +6291,43 @@ const flexMessage = {
                   const duration = getFuzzyKey(mc, ["กำหนดเวลา"]);
                   const items = getFuzzyKey(mc, ["รายการที่ได้รับ", "col_11"]);
                   const vip = getFuzzyKey(mc, ["ฟรีบัตรสมาชิก"]);
+                  const courseImage = getFuzzyKey(mc, ["รูปภาพ", "รูป", "image", "img", "col_13"]);
 
                   return (
                   <div key={idx} className="bg-white border border-gray-100 rounded-[24px] p-5 shadow-sm hover:shadow-lg transition-all flex flex-col relative overflow-hidden group border-t-4 border-t-cyan-400">
-                     <div className="flex justify-between items-start mb-3">
+                     {/* 🌟 รูปภาพคอร์สโปรโมชั่น (แสดงบนการ์ด และกดอัปโหลด/เปลี่ยนรูปได้ทันที) 🌟 */}
+                     <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-slate-50 mb-3 border border-slate-100 group/img flex items-center justify-center">
+                        {courseImage ? (
+                          <>
+                            <img src={courseImage} alt={String(getFuzzyKey(mc, ["ชื่อคอส", "col_4"]) || '')} className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                              <label className="bg-white/95 hover:bg-white text-slate-800 px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer shadow-md flex items-center gap-1.5 active:scale-95 transition-transform">
+                                <Camera size={14} className="text-cyan-600" /> เปลี่ยนรูป
+                                <input type="file" accept="image/*" onChange={(e) => handleDirectCourseImageUpload(mc, e.target.files?.[0])} className="hidden" />
+                              </label>
+                              <button 
+                                type="button" 
+                                onClick={() => handleRemoveCourseImage(mc)}
+                                className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-xl shadow-md transition-colors"
+                                title="ลบรูป"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer hover:bg-cyan-50/40 transition-colors p-3 text-slate-400 hover:text-cyan-600 border-2 border-dashed border-slate-200 hover:border-cyan-300 rounded-2xl group/btn">
+                            <div className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center mb-1 text-slate-400 group-hover/btn:text-cyan-500 group-hover/btn:scale-110 transition-transform">
+                              <Camera size={20} />
+                            </div>
+                            <span className="text-xs font-bold text-slate-600 group-hover/btn:text-cyan-600">+ เพิ่มรูปโปรโมชั่น</span>
+                            <span className="text-[10px] text-slate-400">แสดงฝั่งลูกค้าให้กดซื้อได้</span>
+                            <input type="file" accept="image/*" onChange={(e) => handleDirectCourseImageUpload(mc, e.target.files?.[0])} className="hidden" />
+                          </label>
+                        )}
+                     </div>
+
+                     <div className="flex justify-between items-start mb-2">
                         <div className="font-mono text-xs font-bold text-cyan-700">{String(getFuzzyKey(mc, ["รหัสคอส", "col_1"]) || '-')}</div>
                         <span className="px-2 py-0.5 bg-cyan-50 text-cyan-600 text-[9px] font-bold rounded">{String(getFuzzyKey(mc, ["ประเภท", "col_2"]) || '-')}</span>
                      </div>
@@ -6274,8 +6362,29 @@ const flexMessage = {
                         </button>
                      </div>
 
-                     <div className="flex justify-end mt-4 pt-4 border-t border-gray-50 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => setActionConfirmModal({ isOpen: true, title: 'ลบคอร์สตั้งต้น', message: 'แน่ใจหรือไม่ที่จะลบรายการคอร์สนี้?', action: () => executeDeleteMasterCourse(mc.id), confirmText: 'ลบ', confirmColor: 'bg-red-600 hover:bg-red-700' })} className="text-xs font-bold text-red-500 hover:bg-red-50 px-3 py-1.5 rounded-lg flex items-center"><Trash2 size={14} className="mr-1"/> ลบ</button>
+                     <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-100 opacity-90 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => {
+                            setEditingMasterCourse(mc);
+                            setIsAddMasterCourseOpen(true);
+                          }} 
+                          className="text-xs font-bold text-cyan-600 hover:text-cyan-700 hover:bg-cyan-50 px-2.5 py-1.5 rounded-lg flex items-center transition-colors"
+                        >
+                          <Edit3 size={14} className="mr-1"/> แก้ไข
+                        </button>
+                        <button 
+                          onClick={() => setActionConfirmModal({ 
+                            isOpen: true, 
+                            title: 'ลบคอร์สตั้งต้น', 
+                            message: 'แน่ใจหรือไม่ที่จะลบรายการคอร์สนี้?', 
+                            action: () => executeDeleteMasterCourse(mc.id), 
+                            confirmText: 'ลบ', 
+                            confirmColor: 'bg-red-600 hover:bg-red-700' 
+                          })} 
+                          className="text-xs font-bold text-red-500 hover:bg-red-50 px-2.5 py-1.5 rounded-lg flex items-center transition-colors"
+                        >
+                          <Trash2 size={14} className="mr-1"/> ลบ
+                        </button>
                      </div>
                   </div>
                   );
@@ -8335,7 +8444,17 @@ const flexMessage = {
          />
       </ModalWrapper>
 
-      <AddCourseModal isOpen={isAddMasterCourseOpen} onClose={() => setIsAddMasterCourseOpen(false)} onAdd={handleAddCourse} products={products} masterCourses={masterCourses} />
+      <AddCourseModal 
+        isOpen={isAddMasterCourseOpen} 
+        onClose={() => { 
+          setIsAddMasterCourseOpen(false); 
+          setEditingMasterCourse(null); 
+        }} 
+        onAdd={handleAddCourse} 
+        products={products} 
+        masterCourses={masterCourses} 
+        initialData={editingMasterCourse}
+      />
 
       <DailyBookingModal
           isOpen={isHolidayModalOpen}
