@@ -617,7 +617,11 @@ ${shopCatalogJson}
     const db = getFirestore('iris-care');
     const aiSnap = await db.collection('app_settings').doc('ai').get().catch(() => null);
     const aiData = aiSnap && aiSnap.exists ? aiSnap.data() : {};
-    const apiKey = aiData.geminiApiKey || process.env.GEMINI_API_KEY || 'AIzaSyB6EonLuXnb5btsKrJiM-eQ7BiIJASUeHs';
+    const apiKey = aiData.geminiApiKey || process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      throw new Error('Gemini API Key is not configured. Please check Firestore app_settings/ai.');
+    }
 
     const { GoogleGenAI } = require('@google/genai');
     const ai = new GoogleGenAI({ apiKey });
