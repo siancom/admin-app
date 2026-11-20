@@ -279,7 +279,7 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
           </label>
           
           {formData.image ? (
-            <div className="relative rounded-2xl overflow-hidden border-2 border-pink-200 bg-pink-50/30 group aspect-video max-h-48 flex items-center justify-center">
+            <div className="relative rounded-2xl overflow-hidden border-2 border-pink-200 bg-pink-50/30 group aspect-[3/4] max-h-64 mx-auto flex items-center justify-center">
               <img src={formData.image} alt="Preview" className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
                 <label className="bg-white/95 hover:bg-white text-slate-800 px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer shadow-lg flex items-center gap-1.5 transition-all active:scale-95">

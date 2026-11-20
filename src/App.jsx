@@ -6295,8 +6295,8 @@ const flexMessage = {
 
                   return (
                   <div key={idx} className="bg-white border border-gray-100 rounded-[24px] p-5 shadow-sm hover:shadow-lg transition-all flex flex-col relative overflow-hidden group border-t-4 border-t-cyan-400">
-                     {/* 🌟 รูปภาพคอร์สโปรโมชั่น (แสดงบนการ์ด และกดอัปโหลด/เปลี่ยนรูปได้ทันที) 🌟 */}
-                     <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-slate-50 mb-3 border border-slate-100 group/img flex items-center justify-center">
+                     {/* 🌟 รูปภาพคอร์สโปรโมชั่นแนวตั้ง (แสดงบนการ์ด และกดอัปโหลด/เปลี่ยนรูปได้ทันที) 🌟 */}
+                     <div className="relative w-full aspect-[3/4] max-h-72 rounded-2xl overflow-hidden bg-slate-50 mb-3 border border-slate-100 group/img flex items-center justify-center">
                         {courseImage ? (
                           <>
                             <img src={courseImage} alt={String(getFuzzyKey(mc, ["ชื่อคอส", "col_4"]) || '')} className="w-full h-full object-cover" />
