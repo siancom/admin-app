@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Plus, Package, ArrowRightLeft, Download, Check, X, Clock, AlertCircle, ScanLine, Printer, QrCode, Trash2 } from 'lucide-react';
+import { Search, Plus, Package, ArrowRightLeft, Download, Check, X, Clock, AlertCircle, ScanLine, Printer, QrCode, Trash2, SlidersHorizontal, CheckCircle } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db, storage } from '../config/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -37,6 +37,7 @@ export default function InventoryDashboard({
   const [activeTab, setActiveTab] = useState('inventory'); // inventory, stock_in, transfers
   const [searchInput, setSearchInput] = useState('');
   const [selectedBranch, setSelectedBranch] = useState(() => resolveBranchOption(globalBranch) || branches?.[0]?.name || 'เฉวง');
+  const [isQuickStockMode, setIsQuickStockMode] = useState(false);
   
   // Modals & Forms
   const [isAdjustOpen, setIsAdjustOpen] = useState(false);
@@ -843,6 +844,18 @@ export default function InventoryDashboard({
                   )}
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <button 
+                  onClick={() => setIsQuickStockMode(!isQuickStockMode)}
+                  className={`w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold shadow-sm transition-all flex items-center justify-center gap-2 print:hidden ${
+                    isQuickStockMode 
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/30 ring-2 ring-emerald-400 ring-offset-2' 
+                      : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/30'
+                  }`}
+                  title="ปรับสต๊อกด่วน: เหลือเฉพาะรูป ชื่อสินค้า และจำนวน"
+                >
+                  <SlidersHorizontal size={18} />
+                  {isQuickStockMode ? 'ปิดโหมดปรับสต๊อก' : 'ปรับสต๊อก'}
+                </button>
                 {globalRole === 'owner' && (
                   <button 
                     onClick={handleSyncWooProducts}
@@ -876,20 +889,53 @@ export default function InventoryDashboard({
                 </button>
               </div>
             </div>
+
+            {/* 🌟 แถบแจ้งเตือนโหมดปรับสต๊อกด่วน 🌟 */}
+            {isQuickStockMode && (
+              <div className="mx-4 sm:mx-6 mb-4 p-4 bg-emerald-50 border-2 border-emerald-200 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-3 animate-in fade-in">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-md shrink-0">
+                    <SlidersHorizontal size={20} />
+                  </div>
+                  <div>
+                    <p className="font-black text-emerald-950 text-sm flex items-center gap-2">
+                      โหมดปรับสต๊อกด่วน (สาขา: <span className="underline underline-offset-4 text-emerald-700 font-extrabold">{selectedBranch}</span>)
+                    </p>
+                    <p className="text-xs text-emerald-800 mt-0.5">
+                      แสดงเฉพาะ <b>รูป • ชื่อสินค้า • จำนวน</b> เพื่อความง่ายในการตรวจนับ (พิมพ์ตัวเลขหรือกดปุ่ม <b>+ / -</b> ระบบจะบันทึกสต๊อกให้อัตโนมัติทันที)
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsQuickStockMode(false)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all shrink-0"
+                >
+                  เสร็จสิ้น / ดูมุมมองปกติ
+                </button>
+              </div>
+            )}
             
             <div className="overflow-x-auto print:overflow-visible">
               <table className="w-full text-left border-collapse print:w-full print:table-fixed">
                 <thead>
-                  <tr className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wider">
-                    <th className="p-4 print:p-1 print:text-xs font-bold rounded-tl-xl w-16 text-center">รูป</th>
-                    <th className="p-4 print:p-1 print:text-xs font-bold">รหัส</th>
-                    <th className="p-4 print:p-1 print:text-xs font-bold">ชื่อสินค้า</th>
-                    <th className="p-4 print:p-1 print:text-xs font-bold text-center">ราคาขาย</th>
-                    <th className="p-4 print:p-1 print:text-xs font-bold text-center">ราคาสมาชิก</th>
-                    <th className="p-4 print:p-1 print:text-xs font-bold text-center">สต๊อกรวม</th>
-                    <th className="p-4 print:p-1 print:text-xs font-bold text-center">สาขา ({selectedBranch})</th>
-                    <th className="p-4 print:p-1 print:text-xs font-bold rounded-tr-xl text-right print:hidden">จัดการ</th>
-                  </tr>
+                  {isQuickStockMode ? (
+                    <tr className="bg-emerald-50/80 text-emerald-900 text-xs uppercase tracking-wider border-b border-emerald-100">
+                      <th className="p-4 font-black rounded-tl-xl w-24 text-center">รูป</th>
+                      <th className="p-4 font-black">ชื่อสินค้า</th>
+                      <th className="p-4 font-black text-center w-64 rounded-tr-xl">จำนวนสต๊อก (สาขา {selectedBranch})</th>
+                    </tr>
+                  ) : (
+                    <tr className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wider">
+                      <th className="p-4 print:p-1 print:text-xs font-bold rounded-tl-xl w-16 text-center">รูป</th>
+                      <th className="p-4 print:p-1 print:text-xs font-bold">รหัส</th>
+                      <th className="p-4 print:p-1 print:text-xs font-bold">ชื่อสินค้า</th>
+                      <th className="p-4 print:p-1 print:text-xs font-bold text-center">ราคาขาย</th>
+                      <th className="p-4 print:p-1 print:text-xs font-bold text-center">ราคาสมาชิก</th>
+                      <th className="p-4 print:p-1 print:text-xs font-bold text-center">สต๊อกรวม</th>
+                      <th className="p-4 print:p-1 print:text-xs font-bold text-center">สาขา ({selectedBranch})</th>
+                      <th className="p-4 print:p-1 print:text-xs font-bold rounded-tr-xl text-right print:hidden">จัดการ</th>
+                    </tr>
+                  )}
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {sortedProducts.filter(p => {
@@ -901,6 +947,98 @@ export default function InventoryDashboard({
                     const total = getTotalStock(p, branches);
                     const branchStock = getBranchStock(p, selectedBranch);
                     const imgSrc = getProductImageUrl(p);
+
+                    if (isQuickStockMode) {
+                      return (
+                        <tr key={p.id} className="hover:bg-emerald-50/30 transition-colors border-b border-gray-100">
+                          {/* 1. รูป */}
+                          <td className="p-4 text-center">
+                            {imgSrc ? (
+                              <img 
+                                src={imgSrc} 
+                                alt="product" 
+                                className="w-14 h-14 object-cover rounded-xl border border-gray-200 shadow-sm mx-auto bg-white" 
+                              />
+                            ) : (
+                              <div className="w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center mx-auto text-gray-400 border border-gray-200">
+                                <Package size={22} />
+                              </div>
+                            )}
+                          </td>
+
+                          {/* 2. ชื่อสินค้า */}
+                          <td className="p-4">
+                            <p className="font-black text-gray-900 text-base leading-snug">
+                              {String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '-')}
+                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              {getFuzzyKey(p, ["รหัส", "col_1"]) && (
+                                <span className="font-mono text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-md">
+                                  รหัส: {String(getFuzzyKey(p, ["รหัส", "col_1"]))}
+                                </span>
+                              )}
+                              {getFuzzyKey(p, ["หมวดสินค้า"]) && (
+                                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
+                                  {String(getFuzzyKey(p, ["หมวดสินค้า"]))}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 3. จำนวน */}
+                          <td className="p-4 text-center">
+                            <div className="flex flex-col items-center justify-center gap-1.5">
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const current = branchStock;
+                                    if (current > 0) {
+                                      handleInlineAdjustStock(p, selectedBranch, current, current - 1);
+                                    }
+                                  }}
+                                  disabled={branchStock <= 0}
+                                  className="w-10 h-10 rounded-xl bg-gray-100 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40 font-black text-lg flex items-center justify-center transition-colors active:scale-95 shadow-sm border border-gray-200"
+                                  title="ลด 1"
+                                >
+                                  -
+                                </button>
+                                <input 
+                                  type="number"
+                                  min="0"
+                                  key={`quick-${p.id}-${branchStock}`}
+                                  defaultValue={branchStock}
+                                  onFocus={(e) => e.target.select()}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.target.blur();
+                                    }
+                                  }}
+                                  onBlur={(e) => handleInlineAdjustStock(p, selectedBranch, branchStock, e.target.value)}
+                                  className={`w-24 h-12 text-center text-xl font-black bg-white border-2 rounded-xl outline-none focus:ring-4 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all shadow-sm ${
+                                    branchStock > 0 ? 'border-emerald-300 text-emerald-700' : 'border-amber-300 text-amber-700 bg-amber-50/30'
+                                  }`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const current = branchStock;
+                                    handleInlineAdjustStock(p, selectedBranch, current, current + 1);
+                                  }}
+                                  className="w-10 h-10 rounded-xl bg-gray-100 hover:bg-emerald-50 hover:text-emerald-600 font-black text-lg flex items-center justify-center transition-colors active:scale-95 shadow-sm border border-gray-200"
+                                  title="เพิ่ม 1"
+                                >
+                                  +
+                                </button>
+                              </div>
+                              <p className="text-[11px] text-gray-400 font-medium">
+                                คงเหลือ: <span className="font-bold text-gray-700">{branchStock}</span> ชิ้น
+                              </p>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
                     
                     return (
                       <tr key={p.id} className="hover:bg-gray-50 transition-colors">
