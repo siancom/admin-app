@@ -977,7 +977,13 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     let loaded = 0;
-    const updateProgress = () => { loaded++; setLoadingProgress(Math.round((loaded / 9) * 100)); if (loaded >= 9) setTimeout(() => setIsCloudLoading(false), 500); };
+    const totalKeyCollections = 10;
+    const updateProgress = () => { 
+      loaded++; 
+      setLoadingProgress(Math.min(100, Math.round((loaded / totalKeyCollections) * 100))); 
+      if (loaded >= totalKeyCollections) setTimeout(() => setIsCloudLoading(false), 300); 
+    };
+    const safetyTimer = setTimeout(() => setIsCloudLoading(false), 6000);
     const errHandler = (err) => { console.error(err); updateProgress(); };
 
     const unsub1 = onSnapshot(getCol('courses'), (s) => { setCourses(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
@@ -1017,7 +1023,10 @@ export default function App() {
     const unsub16 = onSnapshot(getCol('service_logs'), (s) => { setServiceLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsubInvLogs = onSnapshot(getCol('inventory_logs'), (s) => { setInventoryLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
 
-    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsubPromo(); unsub8(); unsub9(); unsubHolidays(); unsub10(); unsub11(); unsub12(); unsub13(); unsubReqs(); unsubJobs(); unsub14(); unsub15(); unsub16(); unsubInvLogs(); };
+    return () => { 
+      clearTimeout(safetyTimer);
+      unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsubPromo(); unsub8(); unsub9(); unsubHolidays(); unsub10(); unsub11(); unsub12(); unsub13(); unsubReqs(); unsubJobs(); unsub14(); unsub15(); unsub16(); unsubInvLogs(); 
+    };
   }, [user]);
 
   // 🌟 ตัวตนพนักงานปัจจุบัน (ย้ายขึ้นมาอยู่ก่อน early returns เพื่อไม่ให้ผิดกฎ React Hooks เวลาสั่งพิมพ์ใบคอร์ส)
@@ -1191,11 +1200,27 @@ export default function App() {
   }, [histories]);
 
   const customers = useMemo(() => {
-    const historiesByCustomerName = {};
+    // 🌟 High-performance index maps for O(1) customer history matching
+    const historiesByName = new Map();
+    const historiesByPhone = new Map();
+
     histories.forEach(h => {
-        if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '') === 'ยกเลิก') return;
-        const custName = String(getFuzzyKey(h, ["ชื่อลูกค้า", "col_2"]) || '').trim();
-        if (custName) { if (!historiesByCustomerName[custName]) historiesByCustomerName[custName] = []; historiesByCustomerName[custName].push(h); }
+      if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '') === 'ยกเลิก') return;
+      
+      const rawName = String(getFuzzyKey(h, ["ชื่อลูกค้า", "col_2", "ผู้ใช้คอส", "col_17"]) || '').trim();
+      if (rawName) {
+        const normName = rawName.replace(/\s+/g, '').toLowerCase();
+        if (!historiesByName.has(normName)) historiesByName.set(normName, []);
+        historiesByName.get(normName).push(h);
+        if (!historiesByName.has(rawName)) historiesByName.set(rawName, []);
+        historiesByName.get(rawName).push(h);
+      }
+
+      const rawPhone = String(getFuzzyKey(h, ["cleanPhone", "เบอร์โทร", "เบอร์โทรลูกค้า", "col_3", "phone"]) || '').replace(/\D/g, '');
+      if (rawPhone && rawPhone.length >= 9) {
+        if (!historiesByPhone.has(rawPhone)) historiesByPhone.set(rawPhone, []);
+        historiesByPhone.get(rawPhone).push(h);
+      }
     });
 
     return customersRaw.map(c => {
@@ -1210,20 +1235,19 @@ export default function App() {
       }
 
       const myHistoriesMap = new Map();
-      if (historiesByCustomerName[posName]) {
-          historiesByCustomerName[posName].forEach(h => myHistoriesMap.set(h.id || JSON.stringify(h), h));
+      const normPosName = posName.replace(/\s+/g, '').toLowerCase();
+      const normDisplayName = displayName.replace(/\s+/g, '').toLowerCase();
+
+      if (normPosName && historiesByName.has(normPosName)) {
+        historiesByName.get(normPosName).forEach(h => myHistoriesMap.set(h.id || JSON.stringify(h), h));
       }
-      if (displayName !== posName && historiesByCustomerName[displayName]) {
-          historiesByCustomerName[displayName].forEach(h => myHistoriesMap.set(h.id || JSON.stringify(h), h));
+      if (normDisplayName && normDisplayName !== normPosName && historiesByName.has(normDisplayName)) {
+        historiesByName.get(normDisplayName).forEach(h => myHistoriesMap.set(h.id || JSON.stringify(h), h));
       }
       
-      const cleanPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone", "computedPhone"]) || '').trim();
-      if (cleanPhone) {
-         histories.forEach(h => {
-             if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '') === 'ยกเลิก') return;
-             const hPhone = String(getFuzzyKey(h, ["cleanPhone", "เบอร์โทร", "เบอร์โทรลูกค้า", "col_3", "phone"]) || '').trim();
-             if (hPhone === cleanPhone) myHistoriesMap.set(h.id || JSON.stringify(h), h);
-         });
+      const cleanPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone", "computedPhone", "cleanPhone"]) || '').replace(/\D/g, '');
+      if (cleanPhone && cleanPhone.length >= 9 && historiesByPhone.has(cleanPhone)) {
+        historiesByPhone.get(cleanPhone).forEach(h => myHistoriesMap.set(h.id || JSON.stringify(h), h));
       }
 
       const myHistories = Array.from(myHistoriesMap.values());
@@ -1288,34 +1312,42 @@ export default function App() {
         return 0;
     });
 
+    // 🌟 Pre-index customers by clean phone and master courses by code for instant O(1) lookups
+    const customersByPhoneMap = new Map();
+    customersRaw.forEach(cu => {
+      const cuPhone = String(getFuzzyKey(cu, ["เบอร์โทร", "col_3", "phone", "cleanPhone"]) || '').replace(/\D/g, '');
+      if (cuPhone && !customersByPhoneMap.has(cuPhone)) {
+        customersByPhoneMap.set(cuPhone, cu);
+      }
+    });
+
+    const masterCoursesByCodeMap = new Map();
+    masterCourses.forEach(mc => {
+      const mcCode = String(getFuzzyKey(mc, ["รหัสคอส", "col_1", "code"]) || '').trim().toLowerCase();
+      if (mcCode && !masterCoursesByCodeMap.has(mcCode)) {
+        masterCoursesByCodeMap.set(mcCode, mc);
+      }
+    });
+
     return sortedCourses.map(course => {
       const courseNo = String(getFuzzyKey(course, ["เลขที่ใบคอส", "col_2", "courseRefKey"]) || course.id || '').trim();
       let courseName = String(getFuzzyKey(course, ["ชื่อคอส", "ชื่อคอร์ส", "col_8", "courseName", "name"]) || '').trim();
       const coursePhone = String(getFuzzyKey(course, ["เบอร์โทร", "col_1", "phone", "customerPhone"]) || '').trim();
+      const cleanCoursePhone = coursePhone.replace(/\D/g, '');
       let courseCustomerName = String(getFuzzyKey(course, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "ชื่อ", "col_9", "customerName"]) || '').trim();
 
-      // Look up customer name by phone if missing
-      if (!courseCustomerName && coursePhone) {
-        const matchedCust = customersRaw.find(cu => {
-          const cuPhone = String(getFuzzyKey(cu, ["เบอร์โทร", "col_3", "phone"]) || '').trim();
-          return cuPhone && cuPhone === coursePhone;
-        });
-        if (matchedCust) {
-          courseCustomerName = String(matchedCust.computedName || getFuzzyKey(matchedCust, ["ชื่อ", "ชื่อลูกค้า", "col_1", "col_2"]) || '').trim();
-        }
+      // Look up customer name by phone if missing (O(1))
+      if (!courseCustomerName && cleanCoursePhone && customersByPhoneMap.has(cleanCoursePhone)) {
+        const matchedCust = customersByPhoneMap.get(cleanCoursePhone);
+        courseCustomerName = String(matchedCust.computedName || getFuzzyKey(matchedCust, ["ชื่อ", "ชื่อลูกค้า", "col_1", "col_2"]) || '').trim();
       }
 
-      // Look up course name from master courses if missing
+      // Look up course name from master courses if missing (O(1))
       if (!courseName) {
-        const courseCode = String(getFuzzyKey(course, ["รหัสคอส", "col_1", "code", "courseCode"]) || '').trim();
-        if (courseCode) {
-          const matchedMaster = masterCourses.find(mc => {
-            const mcCode = String(getFuzzyKey(mc, ["รหัสคอส", "col_1", "code"]) || '').trim();
-            return mcCode && mcCode === courseCode;
-          });
-          if (matchedMaster) {
-            courseName = String(getFuzzyKey(matchedMaster, ["ชื่อคอส", "col_4", "col_8", "name"]) || '').trim();
-          }
+        const courseCode = String(getFuzzyKey(course, ["รหัสคอส", "col_1", "code", "courseCode"]) || '').trim().toLowerCase();
+        if (courseCode && masterCoursesByCodeMap.has(courseCode)) {
+          const matchedMaster = masterCoursesByCodeMap.get(courseCode);
+          courseName = String(getFuzzyKey(matchedMaster, ["ชื่อคอส", "col_4", "col_8", "name"]) || '').trim();
         }
       }
 

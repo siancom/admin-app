@@ -1,7 +1,14 @@
 // --- FIREBASE CONFIG ---
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, collection, doc } from 'firebase/firestore';
+import { 
+  getFirestore, 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager,
+  collection, 
+  doc 
+} from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
@@ -16,7 +23,19 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app, "iris-care");
+
+let db;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  }, "iris-care");
+} catch (e) {
+  console.warn("Falling back to standard getFirestore:", e);
+  db = getFirestore(app, "iris-care");
+}
+
 const storage = getStorage(app);
 
 const getCol = (colName) => collection(db, colName);
