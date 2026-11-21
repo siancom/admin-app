@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Type, Hash, Banknote, Monitor, Package, Clock, Layers, CreditCard, Wallet, Plus, Search, X, Check, Image as ImageIcon, Upload, Trash2, Loader2, Edit3 } from 'lucide-react';
+import { Type, Hash, Banknote, Monitor, Package, Clock, Layers, CreditCard, Wallet, Plus, Search, X, Check, Image as ImageIcon, Upload, Trash2, Loader2, Edit3, Sparkles } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../config/firebase';
@@ -125,7 +125,8 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
     duration: '',
     credit: '',
     freeVip: false,
-    image: ''
+    image: '',
+    promoOptions: []
   });
   
   const [selectedProducts, setSelectedProducts] = useState([]);
@@ -148,7 +149,8 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
           duration: String(getFuzzyKey(initialData, ["กำหนดเวลา"]) || initialData.duration || ''),
           credit: String(getFuzzyKey(initialData, ["เครดิตที่ได้รับ", "col_8"]) || initialData.credit || ''),
           freeVip: String(getFuzzyKey(initialData, ["ฟรีบัตรสมาชิก"])) === 'ใช่' || initialData.freeVip === true,
-          image: String(getFuzzyKey(initialData, ["รูปภาพ", "รูป", "image", "img", "col_13"]) || initialData.image || '')
+          image: String(getFuzzyKey(initialData, ["รูปภาพ", "รูป", "image", "img", "col_13"]) || initialData.image || ''),
+          promoOptions: Array.isArray(initialData.promoOptions) ? initialData.promoOptions : []
         });
 
         // Parse existing items
@@ -179,7 +181,8 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
           duration: '',
           credit: '',
           freeVip: false,
-          image: ''
+          image: '',
+          promoOptions: []
         });
         setSelectedProducts([]);
         setSelectedSubCourses([]);
@@ -211,9 +214,47 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
     }
   };
 
+  const handleAddPromoOption = () => {
+    const newOpt = {
+      id: `opt_${Date.now()}`,
+      name: '',
+      price: '',
+      sessions: '1',
+      badge: '',
+      items: ''
+    };
+    setFormData(prev => ({
+      ...prev,
+      promoOptions: [...(prev.promoOptions || []), newOpt]
+    }));
+  };
+
+  const handleRemovePromoOption = (indexToRemove) => {
+    setFormData(prev => ({
+      ...prev,
+      promoOptions: prev.promoOptions.filter((_, idx) => idx !== indexToRemove)
+    }));
+  };
+
+  const handleUpdatePromoOption = (indexToUpdate, field, value) => {
+    setFormData(prev => {
+      const updated = [...prev.promoOptions];
+      updated[indexToUpdate] = { ...updated[indexToUpdate], [field]: value };
+      
+      // Auto update main price to lowest promo price if set
+      const firstValidPrice = updated.find(o => Number(o.price) > 0)?.price;
+      return {
+        ...prev,
+        promoOptions: updated,
+        price: prev.price || firstValidPrice || prev.price
+      };
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.code || !formData.name || !formData.price) {
+    const finalPrice = formData.price || (formData.promoOptions?.[0]?.price) || '';
+    if (!formData.code || !formData.name || !finalPrice) {
       alert("กรุณากรอกรหัสคอร์ส, ชื่อคอร์ส และราคาให้ครบถ้วน");
       return;
     }
@@ -225,6 +266,8 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
 
       await onAdd({
         ...formData,
+        price: finalPrice,
+        sessions: formData.sessions || (formData.promoOptions?.[0]?.sessions) || '1',
         products: formattedProducts,
         subCourses: formattedSubCourses,
       }, initialData?.id || null);
@@ -238,7 +281,8 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
         duration: '',
         credit: '',
         freeVip: false,
-        image: ''
+        image: '',
+        promoOptions: []
       });
       setSelectedProducts([]);
       setSelectedSubCourses([]);
@@ -260,12 +304,12 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
       colorClass="bg-pink-100 text-pink-600"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* 🌟 รูปภาพคอร์สโปรโมชั่น (สำหรับแสดงฝั่งลูกค้าให้กดซื้อได้) 🌟 */}
+        {/* 🌟 รูปภาพคอร์สโปรโมชั่นแนวตั้ง (สำหรับแสดงฝั่งลูกค้าให้กดซื้อได้) 🌟 */}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
             <span className="flex items-center gap-1.5">
               <ImageIcon size={14} className="text-pink-500" />
-              รูปภาพคอร์สโปรโมชั่น (แสดงฝั่งลูกค้าในหน้า Shop ให้กดซื้อได้เลย)
+              รูปภาพโปสเตอร์โปรโมชั่น (แสดงฝั่งลูกค้าเป็นแนวตั้ง ให้กดเลือกโปรได้เลย)
             </span>
             {formData.image && (
               <button 
@@ -307,8 +351,8 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
                   <div className="w-12 h-12 rounded-2xl bg-pink-100 text-pink-600 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform shadow-sm">
                     <Upload size={22} />
                   </div>
-                  <span className="text-xs font-bold text-slate-700">คลิกเพื่ออัปโหลดรูปโปรโมชั่น</span>
-                  <span className="text-[11px] text-slate-400 mt-0.5">ไฟล์ JPG, PNG, WebP (บีบอัดอัตโนมัติ โหลดไว)</span>
+                  <span className="text-xs font-bold text-slate-700">คลิกเพื่ออัปโหลดรูปโปสเตอร์โปรโมชั่น (แนวตั้ง)</span>
+                  <span className="text-[11px] text-slate-400 mt-0.5">ไฟล์ JPG, PNG, WebP (บีบอัดอัตโนมัติ คมชัด โหลดไว)</span>
                   <input type="file" accept="image/*" onChange={handleImageFileChange} className="hidden" disabled={isUploadingImage} />
                 </>
               )}
@@ -324,8 +368,9 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
             placeholder="ตัวอย่าง: F-A1, PROMO-016970"
           />
           <InputField 
-            icon={Type} label="ชื่อคอร์ส" required 
+            icon={Type} label="ชื่อแคมเปญ / ชื่อคอร์ส" required 
             value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} 
+            placeholder="เช่น โปรโมชั่น วันลอยกระทง หรือ คอร์สเคลียร์สิว"
           />
           
           <div className="flex flex-col gap-1.5 md:col-span-2">
@@ -346,17 +391,122 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
               ))}
             </div>
           </div>
+        </div>
 
+        {/* 🌟 ส่วนจัดการตัวเลือกโปรโมชั่น (Multi-Promo Options / Variations) 🌟 */}
+        <div className="border border-pink-200 bg-pink-50/40 rounded-2xl p-4 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <label className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                <Sparkles size={16} className="text-pink-600" />
+                ตัวเลือกโปรโมชั่น / แพ็กเกจย่อย (สำหรับโปสเตอร์ที่มีหลายโปรให้ลูกค้าเลือก)
+              </label>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                หากในโปสเตอร์มี 2 โปรขึ้นไป (เช่น 899.- / 1,099.-) ให้กดเพิ่มตัวเลือกที่นี่ เพื่อให้ลูกค้ากดเลือกโปรตอนซื้อได้เลย
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleAddPromoOption}
+              className="px-3.5 py-1.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all shrink-0"
+            >
+              <Plus size={14} /> เพิ่มตัวเลือกโปร
+            </button>
+          </div>
+
+          {formData.promoOptions && formData.promoOptions.length > 0 && (
+            <div className="space-y-3 pt-2">
+              {formData.promoOptions.map((opt, optIdx) => (
+                <div key={opt.id || optIdx} className="p-3.5 bg-white border border-pink-200 rounded-xl relative space-y-2.5 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-extrabold text-pink-700 bg-pink-50 border border-pink-200 px-2.5 py-0.5 rounded-md flex items-center gap-1">
+                      <Sparkles size={12} /> โปรโมชั่นตัวเลือกที่ {optIdx + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePromoOption(optIdx)}
+                      className="text-slate-400 hover:text-red-500 p-1 transition-colors flex items-center gap-1 text-[11px] font-bold"
+                      title="ลบตัวเลือกนี้"
+                    >
+                      <Trash2 size={13} /> ลบตัวเลือก
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 mb-1 block">ชื่อโปร / แพ็กเกจ *</label>
+                      <input
+                        type="text"
+                        placeholder="เช่น คอร์ส เคลียร์สิว"
+                        value={opt.name || ''}
+                        onChange={(e) => handleUpdatePromoOption(optIdx, 'name', e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:border-pink-500 font-bold text-slate-800"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 mb-1 block">ราคาจ่ายเพียง (บาท) *</label>
+                      <input
+                        type="number"
+                        placeholder="เช่น 899"
+                        value={opt.price || ''}
+                        onChange={(e) => handleUpdatePromoOption(optIdx, 'price', e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:border-pink-500 font-extrabold text-pink-600"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 mb-1 block">จำนวนครั้งที่ได้ (เช่น 2 ครั้ง)</label>
+                      <input
+                        type="number"
+                        placeholder="เช่น 2"
+                        value={opt.sessions || ''}
+                        onChange={(e) => handleUpdatePromoOption(optIdx, 'sessions', e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:border-pink-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 mb-1 block">ป้ายกำกับพิเศษ (เช่น 1 แถม 1, BEST SELLER)</label>
+                      <input
+                        type="text"
+                        placeholder="เช่น 1 แถม 1 / BEST SELLER"
+                        value={opt.badge || ''}
+                        onChange={(e) => handleUpdatePromoOption(optIdx, 'badge', e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:border-pink-500 text-pink-700 font-bold"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="text-[11px] font-bold text-slate-600 mb-1 block">ขั้นตอน / รายการที่ได้รับในโปรนี้</label>
+                      <input
+                        type="text"
+                        placeholder="เช่น 1. กดสิว 2. โอโซนร้อน 3. พอกฆ่าเชื้อสิว 4. ไครโอเย็น 5. มาร์คลดรอยแดง"
+                        value={opt.items || ''}
+                        onChange={(e) => handleUpdatePromoOption(optIdx, 'items', e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:border-pink-500 text-slate-700"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <InputField 
-            icon={Banknote} label="ราคาขาย (บาท)" type="number" required 
-            value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} 
+            icon={Banknote} 
+            label={formData.promoOptions?.length > 0 ? "ราคาเริ่มต้น (บาท) *" : "ราคาขาย (บาท) *"} 
+            type="number" 
+            required 
+            value={formData.price} 
+            onChange={e => setFormData({...formData, price: e.target.value})} 
           />
           <InputField 
             icon={Wallet} label="เครดิตที่ได้รับ (บาท)" type="number" 
             value={formData.credit} onChange={e => setFormData({...formData, credit: e.target.value})} 
           />
           <InputField 
-            icon={Monitor} label="จำนวนครั้งการลงเครื่อง" type="number" 
+            icon={Monitor} label="จำนวนครั้งการลงเครื่อง / บริการ" type="number" 
             value={formData.sessions} onChange={e => setFormData({...formData, sessions: e.target.value})} 
           />
           

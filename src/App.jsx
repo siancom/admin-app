@@ -4481,6 +4481,7 @@ const flexMessage = {
         "รูปภาพ": courseData.image || '',
         "image": courseData.image || '',
         "col_13": courseData.image || '',
+        "promoOptions": Array.isArray(courseData.promoOptions) ? courseData.promoOptions : [],
         "updatedAt": new Date().toISOString()
       };
 
@@ -6292,6 +6293,7 @@ const flexMessage = {
                   const items = getFuzzyKey(mc, ["รายการที่ได้รับ", "col_11"]);
                   const vip = getFuzzyKey(mc, ["ฟรีบัตรสมาชิก"]);
                   const courseImage = getFuzzyKey(mc, ["รูปภาพ", "รูป", "image", "img", "col_13"]);
+                  const promoOpts = Array.isArray(mc.promoOptions) ? mc.promoOptions.filter(o => o && (o.name || o.price)) : [];
 
                   return (
                   <div key={idx} className="bg-white border border-gray-100 rounded-[24px] p-5 shadow-sm hover:shadow-lg transition-all flex flex-col relative overflow-hidden group border-t-4 border-t-cyan-400">
@@ -6341,6 +6343,27 @@ const flexMessage = {
                      {items && (
                         <div className="text-[10px] text-gray-500 bg-gray-50 p-2 rounded-lg mb-2 line-clamp-3 whitespace-pre-line flex-1">
                           {items}
+                        </div>
+                     )}
+
+                     {promoOpts.length > 0 && (
+                        <div className="mb-2 bg-gradient-to-r from-pink-50 to-rose-50 border border-pink-200/70 rounded-xl p-2.5">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[11px] font-black text-pink-700 flex items-center gap-1">
+                              <Sparkles size={12} className="text-pink-500 fill-pink-500" /> มี {promoOpts.length} แพ็กเกจโปรให้เลือก:
+                            </span>
+                          </div>
+                          <div className="space-y-1">
+                            {promoOpts.map((opt, oIdx) => (
+                              <div key={opt.id || oIdx} className="flex items-center justify-between text-[11px] bg-white/90 px-2 py-1 rounded-lg border border-pink-100">
+                                <span className="font-bold text-slate-800 truncate mr-2 flex items-center gap-1">
+                                  <span>{opt.name || `โปรที่ ${oIdx+1}`}</span>
+                                  {opt.badge && <span className="px-1.5 py-0.2 bg-red-100 text-red-600 rounded text-[9px] font-black">{opt.badge}</span>}
+                                </span>
+                                <span className="font-black text-pink-600 shrink-0">฿{Number(opt.price || 0).toLocaleString()} <span className="text-[9px] font-normal text-slate-500">({opt.sessions || 1} ครั้ง)</span></span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                      )}
 
