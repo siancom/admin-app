@@ -28,6 +28,7 @@ import SignaturePad from './SignaturePad';
 import ShopeeImportModal from './ShopeeImportModal';
 import SalesHistoryModal from './SalesHistoryModal';
 import BarcodeScannerModal from './BarcodeScannerModal';
+import { MACHINE_TREATMENT_ADDONS, STANDARD_FACIAL_SERVICES } from '../data/machineAddons';
 const CosmeticsIcon = ({ size = 24, className = "" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <rect x="4" y="3" width="4" height="4" rx="1" />
@@ -2193,22 +2194,11 @@ export default function POSSystem({
       };
 
       const usageItemsInCart = cart.filter(ci => ci.type === 'usage');
-      const totalPaidUsageCount = usedServices.filter(s => {
-        const name = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"])).trim();
-        return !name.includes('ฟรี');
-      }).length || (usedServices.some(s => String(getFuzzyKey(s, ["ชื่อคอส", "col_4"])).includes('ฟรี')) ? 0 : (usedServices.length === 0 ? usageItemsInCart.reduce((acc, u) => acc + (Number(u.qty) || 1), 0) : 1));
-      let remainingUsageToAllocate = totalPaidUsageCount;
-
       const effectiveCart = cart.map(ci => {
         if (ci.type !== 'usage') return { ...ci };
         const maxCourseAvail = Math.max(0, Number(ci.originalItem?.computedRemainQty ?? ci.qty ?? 1));
-        let finalQty = 0;
-        if (usageItemsInCart.length <= 1) {
-          finalQty = Math.min(maxCourseAvail || totalPaidUsageCount, totalPaidUsageCount);
-        } else {
-          finalQty = Math.min(maxCourseAvail, remainingUsageToAllocate);
-          remainingUsageToAllocate = Math.max(0, remainingUsageToAllocate - finalQty);
-        }
+        const requestedQty = Math.max(1, Number(ci.qty) || 1);
+        const finalQty = Math.min(maxCourseAvail, requestedQty);
         return { ...ci, qty: finalQty };
       });
 
@@ -5334,148 +5324,276 @@ export default function POSSystem({
 
               {/* 2. Service Selection (Only for usage) */}
               {cart.some(i => i.type === 'usage') && (() => {
-                const maxUsageAllowed = cart.filter(i => i.type === 'usage').reduce((sum, item) => sum + (item.originalItem?.computedRemainQty || 0), 0);
-                const currentDeductedQty = usedServices.filter(s => !String(getFuzzyKey(s, ["ชื่อคอส", "col_4"])).includes('ฟรี')).length;
+                const usageCourses = cart.filter(i => i.type === 'usage');
+                const totalDeductingQty = usageCourses.reduce((sum, item) => sum + (Number(item.qty) || 1), 0);
+
+                // Auto-extract items from the customer's courses being cut
+                const courseSpecificItems = [];
+                usageCourses.forEach(ci => {
+                  const rawItems = String(
+                    ci.originalItem?.receivedItems ||
+                    ci.originalItem?.desc ||
+                    ci.originalItem?.["col_11"] ||
+                    getFuzzyKey(ci.originalItem, ["รายการที่ได้รับ", "col_11"]) ||
+                    ''
+                  );
+                  if (rawItems) {
+                    const cleaned = rawItems.replace(/\b\d+\.\s*/g, '').replace(/คอร์สย่อย\/เสริม:\s*/g, '').replace(/สินค้าที่ได้รับ:\s*/g, '');
+                    const parts = cleaned.split(/[\n,–-]+/).map(s => s.trim()).filter(s => s && s.length > 1 && !s.includes('VIP'));
+                    parts.forEach(p => {
+                      if (!courseSpecificItems.includes(p)) courseSpecificItems.push(p);
+                    });
+                  }
+                  const cName = String(getFuzzyKey(ci.originalItem, ["ชื่อคอส", "col_8"]) || ci.name || '').replace(/เบิกใช้:\s*/g, '').replace(/\(.*\)/g, '').trim();
+                  if (cName && !courseSpecificItems.includes(cName) && !cName.includes('Set') && !cName.includes('โปร')) {
+                    courseSpecificItems.unshift(cName);
+                  }
+                });
+
+                const isServiceSelected = (name) => {
+                  return usedServices.some(s => {
+                    const sName = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]) || s.name || s).trim();
+                    return sName === name || sName.includes(name) || name.includes(sName);
+                  });
+                };
+
+                const toggleServiceName = (name, extra = {}) => {
+                  const exists = isServiceSelected(name);
+                  if (exists) {
+                    setUsedServices(prev => prev.filter(s => {
+                      const sName = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]) || s.name || s).trim();
+                      return sName !== name && !sName.includes(name) && !name.includes(sName);
+                    }));
+                  } else {
+                    setUsedServices(prev => [
+                      ...prev,
+                      {
+                        id: extra.id || `srv_${name}_${Date.now()}`,
+                        name: name,
+                        "ชื่อคอส": name,
+                        "col_4": name,
+                        ...extra
+                      }
+                    ]);
+                  }
+                };
+
                 return (
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-bold text-slate-500">เลือกรายการบริการที่ใช้ในครั้งนี้ (เลือกได้มากกว่า 1) <span className="text-red-500">*</span></label>
-                    <div className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-2 py-1 rounded shadow-sm">
-                       สิทธิ์คงเหลือ: {maxUsageAllowed} | เลือกแล้ว: <span className={currentDeductedQty > maxUsageAllowed ? 'text-red-600' : ''}>{currentDeductedQty}</span>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="block text-xs font-black text-slate-800">
+                        เลือกรายการบริการ / ลงเครื่องที่ทำในครั้งนี้ <span className="text-red-500">*</span>
+                      </label>
+                      <p className="text-[10px] text-slate-500">
+                        แตะเลือกได้ตามจริง (ครอบคลุมทั้งคอร์สหลักและคอร์สลงเครื่องที่ซื้อเพิ่ม)
+                      </p>
+                    </div>
+                    <div className="text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2.5 py-1 rounded-lg">
+                       ตัดยอดคอร์ส: {totalDeductingQty} ครั้ง (เลือกแล้ว {usedServices.length} บริการ)
                     </div>
                   </div>
-                <div className="mb-2">
+
+                  {/* Search box */}
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
                     <input 
                       type="text"
-                      placeholder="ค้นหาบริการ (เช่น นวดหน้า, ขัดหน้า)..."
+                      placeholder="ค้นหาบริการหรือเครื่อง (เช่น สกินสครับเบอร์, โอโซน, นวดหน้า)..."
                       value={modalServiceSearch}
                       onChange={(e) => setModalServiceSearch(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 focus:bg-white"
                     />
                   </div>
-                </div>
 
-                {usedServices.length > 0 && (
-                  <div className="mb-2 p-2 bg-indigo-50 rounded-xl flex flex-wrap gap-2 border border-indigo-100">
-                    {usedServices.map(s => (
-                      <div key={s.id} className="flex items-center gap-1 bg-white px-2 py-1 rounded-lg border border-indigo-200 text-xs font-bold text-indigo-700 shadow-sm">
-                        {String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]))}
-                        <X size={12} className="cursor-pointer hover:text-red-500 ml-1" onClick={() => setUsedServices(usedServices.filter(u => u.id !== s.id))} />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {modalServiceSearch.trim() === '' ? (
-                  <div className="mb-2 p-4 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl text-white shadow-sm">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="text-base">⭐</span>
-                      <span className="font-bold text-sm">บริการที่ใช้บ่อย (แตะเพื่อเลือก)</span>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {masterCourses.filter(c => {
-                         const name = String(getFuzzyKey(c, ["ชื่อคอส", "col_4"]) || '').trim();
-                         const exactMatches = [
-                           'กดสิวฟรี',
-                           'นวดหน้าใส',
-                           'ขัดหน้าขาว',
-                           'ไครโอเย็น สปาเย็น (1 ครั้ง)',
-                           'โอโซนร้อน/เย็น (1 ครั้ง)',
-                           'B. ดูดสิวเสี้ยนครบขั้นตอน (1 ครั้ง)',
-                           'มาร์คหน้าขาวครบขั้นตอน'
-                         ];
-                         return exactMatches.includes(name);
-                      }).slice(0, 10).map(srv => {
-                          const isSelected = usedServices.some(s => s.id === srv.id);
-                          const originalName = String(getFuzzyKey(srv, ["ชื่อคอส", "col_4"])).trim();
-                          const displayNames = {
-                            'กดสิวฟรี': 'กดสิวฟรี',
-                            'นวดหน้าใส': 'นวดหน้าใส',
-                            'ขัดหน้าขาว': 'ขัดหน้าขาว',
-                            'ไครโอเย็น สปาเย็น (1 ครั้ง)': 'สปา',
-                            'โอโซนร้อน/เย็น (1 ครั้ง)': 'โอโซน',
-                            'B. ดูดสิวเสี้ยนครบขั้นตอน (1 ครั้ง)': 'ดูดสิวเสี้ยน',
-                            'มาร์คหน้าขาวครบขั้นตอน': 'มาร์ค'
-                          };
-                          const displayName = displayNames[originalName] || originalName;
-                          return (
-                             <button
-                                key={srv.id}
-                                onClick={() => {
-                                   if (isSelected) setUsedServices(usedServices.filter(s => s.id !== srv.id));
-                                   else {
-                                      const srvName = String(getFuzzyKey(srv, ["ชื่อคอส", "col_4"])).trim();
-                                      if (!srvName.includes('ฟรี') && currentDeductedQty >= maxUsageAllowed) {
-                                         return showToast(`เลือกบริการเกินจำนวนสิทธิ์ที่มี (${maxUsageAllowed} ครั้ง)`, 'error');
-                                      }
-                                      setUsedServices([...usedServices, srv]);
-                                   }
-                                }}
-                                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all border ${isSelected ? 'bg-white text-indigo-600 border-white shadow-sm' : 'bg-white/20 text-white border-white/30 hover:bg-white/30'}`}
-                             >
-                                {displayName}
-                             </button>
-                          )
+                  {/* Selected Services Tags */}
+                  {usedServices.length > 0 && (
+                    <div className="p-2.5 bg-indigo-50/70 rounded-xl flex flex-wrap gap-1.5 border border-indigo-100">
+                      <span className="text-[10px] font-black text-indigo-700 flex items-center gap-1 mr-1">
+                        <CheckCircle size={13} /> บริการที่เลือกทำ:
+                      </span>
+                      {usedServices.map((s, idx) => {
+                        const sName = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]) || s.name || s);
+                        return (
+                          <span key={s.id || idx} className="inline-flex items-center gap-1 bg-white px-2 py-1 rounded-lg border border-indigo-200 text-xs font-bold text-indigo-800 shadow-2xs">
+                            {sName}
+                            <X size={12} className="cursor-pointer text-slate-400 hover:text-red-500 ml-0.5" onClick={() => setUsedServices(usedServices.filter((_, i) => i !== idx))} />
+                          </span>
+                        );
                       })}
-                    </div>
-                  </div>
-                ) : (
-                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-1 border border-slate-100 rounded-xl">
-                  {masterCourses.filter(c => {
-                    const code = String(getFuzzyKey(c, ["รหัสคอส", "col_1"]));
-                    const qty = String(getFuzzyKey(c, ["จำนวนครั้งที่ได้", "qty", "col_13"]) || '1');
-                    if (!code.startsWith('F-') || qty !== '1') return false;
-                    
-                    if (modalServiceSearch.trim() !== '') {
-                      const searchStr = `${code} ${String(getFuzzyKey(c, ["ชื่อคอส", "col_4"]) || '')}`.toLowerCase();
-                      return searchStr.includes(modalServiceSearch.toLowerCase());
-                    }
-                    return true;
-                  }).sort((a, b) => {
-                    const codeA = String(getFuzzyKey(a, ["รหัสคอส", "col_1"]));
-                    const codeB = String(getFuzzyKey(b, ["รหัสคอส", "col_1"]));
-                    
-                    const getSortScore = (code) => {
-                      if (code.startsWith('F-MA') || code.startsWith('F-M')) return 1;
-                      if (/^F-[A-J]/i.test(code)) return 2;
-                      return 3;
-                    };
-                    
-                    const scoreA = getSortScore(codeA);
-                    const scoreB = getSortScore(codeB);
-                    if (scoreA !== scoreB) return scoreA - scoreB;
-                    return codeA.localeCompare(codeB);
-                  })
-                  .map(srv => {
-                    const isSelected = usedServices.some(s => s.id === srv.id);
-                    return (
-                      <div 
-                        key={srv.id}
-                        onClick={() => {
-                          if (isSelected) setUsedServices(usedServices.filter(s => s.id !== srv.id));
-                          else {
-                             const srvName = String(getFuzzyKey(srv, ["ชื่อคอส", "col_4"])).trim();
-                             if (!srvName.includes('ฟรี') && currentDeductedQty >= maxUsageAllowed) {
-                                return showToast(`เลือกบริการเกินจำนวนสิทธิ์ที่มี (${maxUsageAllowed} ครั้ง)`, 'error');
-                             }
-                             setUsedServices([...usedServices, srv]);
-                          }
-                        }}
-                        className={`p-2 rounded-lg border cursor-pointer transition-all flex items-start gap-2 ${isSelected ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-100 hover:border-indigo-200 bg-white text-slate-600'}`}
+                      <button
+                        type="button"
+                        onClick={() => setUsedServices([])}
+                        className="text-[10px] text-red-500 hover:underline font-bold ml-auto px-1"
                       >
-                        <div className={`mt-0.5 flex-shrink-0 w-3 h-3 rounded-full border flex items-center justify-center ${isSelected ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-slate-300'}`}>
-                          {isSelected && <CheckCircle size={8} />}
-                        </div>
-                        <div className="text-[10px] sm:text-xs font-medium leading-tight">
-                          {String(getFuzzyKey(srv, ["ชื่อคอส", "col_4"]))}
-                        </div>
-                      </div>
-                    );
-                  })}
+                        ล้างทั้งหมด
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Category Filter Pills */}
+                  <div className="flex gap-1.5 overflow-x-auto pb-0.5 hide-scrollbar text-[11px] font-bold">
+                    {courseSpecificItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSingleCourseTabModal('course')}
+                        className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'course' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                      >
+                        🎯 ในคอร์สลูกค้า ({courseSpecificItems.length})
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setSingleCourseTabModal('machine')}
+                      className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'machine' ? 'bg-pink-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      ⚡ ลงเครื่องรายครั้ง (12 เครื่อง)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSingleCourseTabModal('basic')}
+                      className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'basic' ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      💆 บริการพื้นฐาน / ทรีตเมนต์
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSingleCourseTabModal('all')}
+                      className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'all' ? 'bg-slate-800 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      📋 ค้นหาทั้งหมด
+                    </button>
                   </div>
-                )}
+
+                  {/* Section Content based on selected tab / search */}
+                  {modalServiceSearch.trim() !== '' ? (
+                    <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 border border-slate-100 rounded-xl">
+                      {[...MACHINE_TREATMENT_ADDONS, ...STANDARD_FACIAL_SERVICES, ...masterCourses]
+                        .filter(item => {
+                          const name = String(getFuzzyKey(item, ["ชื่อคอส", "col_4"]) || item.name || '').toLowerCase();
+                          return name.includes(modalServiceSearch.toLowerCase());
+                        })
+                        .slice(0, 30)
+                        .map((srv, idx) => {
+                          const name = String(getFuzzyKey(srv, ["ชื่อคอส", "col_4"]) || srv.name);
+                          const isSelected = isServiceSelected(name);
+                          return (
+                            <button
+                              type="button"
+                              key={srv.id || idx}
+                              onClick={() => toggleServiceName(name, srv)}
+                              className={`p-2 rounded-lg border text-left cursor-pointer transition-all flex items-start gap-2 ${
+                                isSelected ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-200'
+                              }`}
+                            >
+                              <div className={`mt-0.5 shrink-0 w-3.5 h-3.5 rounded border flex items-center justify-center ${isSelected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'}`}>
+                                {isSelected && <Check size={10} strokeWidth={3} />}
+                              </div>
+                              <span className="text-xs truncate">{name}</span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  ) : singleCourseTabModal === 'course' && courseSpecificItems.length > 0 ? (
+                    <div className="p-3 bg-gradient-to-r from-teal-50 to-emerald-50 rounded-xl border border-teal-200/80">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-teal-800 flex items-center gap-1.5">
+                          <Sparkles size={14} className="text-teal-600" /> รายการขั้นตอนในคอร์สของลูกค้า:
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            courseSpecificItems.forEach(item => {
+                              if (!isServiceSelected(item)) {
+                                toggleServiceName(item);
+                              }
+                            });
+                          }}
+                          className="text-[10px] font-bold text-white bg-teal-600 hover:bg-teal-700 px-2 py-0.5 rounded-md shadow-xs active:scale-95"
+                        >
+                          + เลือกทั้งหมด
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {courseSpecificItems.map((item, idx) => {
+                          const isSelected = isServiceSelected(item);
+                          return (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => toggleServiceName(item)}
+                              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all border ${
+                                isSelected ? 'bg-teal-600 text-white border-teal-600 shadow-xs' : 'bg-white text-teal-800 border-teal-200 hover:bg-teal-100'
+                              }`}
+                            >
+                              {isSelected ? `✓ ${item}` : `+ ${item}`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : singleCourseTabModal === 'machine' ? (
+                    <div className="p-3 bg-gradient-to-r from-pink-500/10 via-rose-500/10 to-purple-500/10 rounded-xl border border-pink-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                          <Sparkles size={14} className="text-pink-600" /> ลงเครื่องรายครั้ง (12 รายการ):
+                        </span>
+                        <span className="text-[10px] text-pink-600 font-bold bg-white px-2 py-0.5 rounded-full border border-pink-200 shadow-2xs">
+                          แตะเพื่อบันทึกเครื่องที่ทำ
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                        {MACHINE_TREATMENT_ADDONS.map((addon) => {
+                          const isSelected = isServiceSelected(addon.name);
+                          return (
+                            <button
+                              key={addon.id}
+                              type="button"
+                              onClick={() => toggleServiceName(addon.name, addon)}
+                              className={`p-2 rounded-xl text-left border transition-all flex items-start gap-1.5 ${
+                                isSelected 
+                                  ? 'bg-pink-600 text-white border-pink-600 shadow-xs' 
+                                  : 'bg-white text-slate-700 border-pink-100 hover:border-pink-300 hover:bg-pink-50/50'
+                              }`}
+                            >
+                              <div className={`mt-0.5 shrink-0 w-3 h-3 rounded flex items-center justify-center ${isSelected ? 'bg-white text-pink-600' : 'border border-slate-300'}`}>
+                                {isSelected && <Check size={8} strokeWidth={4} />}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-xs font-bold leading-tight truncate">{addon.name}</div>
+                                <div className={`text-[9px] ${isSelected ? 'text-pink-100' : 'text-slate-400'}`}>฿{addon.price}</div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-slate-800">
+                          บริการพื้นฐาน / ทรีตเมนต์ยอดนิยม:
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {STANDARD_FACIAL_SERVICES.map((srv) => {
+                          const isSelected = isServiceSelected(srv.name);
+                          return (
+                            <button
+                              key={srv.id}
+                              type="button"
+                              onClick={() => toggleServiceName(srv.name, srv)}
+                              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all border ${
+                                isSelected ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              {isSelected ? `✓ ${srv.name}` : `+ ${srv.name}`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 );
               })()}
@@ -5504,12 +5622,7 @@ export default function POSSystem({
                    }
                    if (hasCourseUsage) {
                      if (usedServices.length === 0) {
-                         return showToast('กรุณาเลือกบริการที่ใช้ในครั้งนี้', 'error');
-                     }
-                     const maxAllowed = cart.filter(i => i.type === 'usage').reduce((sum, item) => sum + (item.originalItem?.computedRemainQty || 0), 0);
-                     const deducted = usedServices.filter(s => !String(getFuzzyKey(s, ["ชื่อคอส", "col_4"])).includes('ฟรี')).length;
-                     if (deducted > maxAllowed) {
-                         return showToast(`เลือกบริการเกินจำนวนสิทธิ์ที่มี (${maxAllowed} ครั้ง)`, 'error');
+                         return showToast('กรุณาเลือกบริการที่ใช้ในครั้งนี้อย่างน้อย 1 รายการ', 'error');
                      }
                    }
                    setCheckoutStep(2);
