@@ -148,6 +148,7 @@ import CreditManagementModal from './components/CreditManagementModal';
 import IShipBookingModal from './components/IShipBookingModal';
 import ShippingLabelModal from './components/ShippingLabelModal';
 import CoursePrintModal from './components/CoursePrintModal';
+import MemberCardPrintModal from './components/MemberCardPrintModal';
 import CloseCourseModal from './components/CloseCourseModal';
 import CourseDataInspectorModal from './components/CourseDataInspectorModal';
 import AddressManagerModal from './components/AddressManagerModal';
@@ -283,6 +284,8 @@ export default function App() {
   const [posParkedOrderToResume, setPosParkedOrderToResume] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [courseFilterType, setCourseFilterType] = useState('all');
+  const [selectedHistoryForPhotos, setSelectedHistoryForPhotos] = useState(null);
+  const [adminEnlargedPhoto, setAdminEnlargedPhoto] = useState(null);
   const [courseSummaryFilter, setCourseSummaryFilter] = useState('all');
   const [filterCustomerStatus, setFilterCustomerStatus] = useState('all'); 
   const [filterBookingStatus, setFilterBookingStatus] = useState('today_upcoming'); 
@@ -3686,7 +3689,9 @@ const flexMessage = {
                         "col_11": itemItems,
                         "claimedItems": [],
                         "createdAt": new Date().toISOString(),
-                        "promoOption": item.selectedPromoOption || item.promoOption || null
+                        "promoOption": item.selectedPromoOption || item.promoOption || null,
+                        "orderNo": String(order.orderNo || ''),
+                        "refOrderNo": String(order.orderNo || '')
                     });
 
                     const historyRef = doc(getCol('histories'));
@@ -3751,6 +3756,21 @@ const flexMessage = {
                 stockDeducted: true, 
                 updatedAt: new Date().toISOString() 
             });
+
+            // อัปเดตประวัติการสั่งซื้อเดิม (ถ้ามี) จาก "รอตรวจสอบ" เป็น "เรียบร้อย"
+            const matchingPendingHistories = (histories || []).filter(h => 
+                String(getFuzzyKey(h, ["หมายเลขคำสั่งซื้อ", "col_5", "Order", "Ref"]) || '').trim() === String(order.orderNo || '').trim()
+            );
+            matchingPendingHistories.forEach(h => {
+                if (h.id) {
+                    batch.update(getDocRef('histories', h.id), {
+                        "สถานะ": "เรียบร้อย",
+                        "col_22": "เรียบร้อย",
+                        status: "เรียบร้อย"
+                    });
+                }
+            });
+
             await batch.commit();
             showToast('อนุมัติคำสั่งซื้อ สร้างคอร์ส และเพิ่มยอดสะสมสำเร็จ!');
         }
@@ -4653,7 +4673,7 @@ const flexMessage = {
     }
   };
   const handleImageUpload = async (historyId, field, file) => { if (!file) return; const reader = new FileReader(); reader.onloadend = async () => { try { await updateDoc(getDocRef('histories', historyId), { [field]: reader.result }); showToast('อัปโหลดรูปภาพสำเร็จ'); } catch(e) { showToast('อัปโหลดล้มเหลว: ' + e.message); } }; reader.readAsDataURL(file); };
-  const handlePrintView = () => { setIsPrintMode(true); setTimeout(() => window.print(), 500); };
+  const handlePrintView = () => { setIsPrintMode(true); };
 
   // 🌟 Reusable History Table Component (แสดงลายเซ็นและยอดเบิกรูปแบบตาราง) 🌟
   const HistoryTable = ({ histories, showActions = false, onRefund }) => {
@@ -4726,8 +4746,27 @@ const flexMessage = {
                                       </div>
                                   </td>
                                   <td className="py-4 px-5 align-middle">
-                                      <div className="font-black text-gray-800 text-sm mb-2">{String(getFuzzyKey(h, ["รายการ", "สินค้า", "col_23", "col_18"]) || (isAdd ? 'อัพคอร์ส' : 'ตัดคอร์ส'))}</div>
-                                      <div className="flex flex-wrap gap-1.5">
+                                      {(() => {
+                                          const rawAction = String(getFuzzyKey(h, ["รายการ", "สินค้า", "col_23", "col_18"]) || '');
+                                          const displayAction = (rawAction === 'ตัดคอร์สผ่านระบบ POS' && Array.isArray(h.usedServices) && h.usedServices.length > 0)
+                                              ? h.usedServices.join(', ')
+                                              : (rawAction || (isAdd ? 'อัพคอร์ส' : 'ตัดคอร์ส'));
+                                          return (
+                                              <>
+                                                  <div className="font-black text-gray-800 text-sm mb-2 leading-relaxed">{displayAction}</div>
+                                                  {Array.isArray(h.usedServices) && h.usedServices.length > 0 && displayAction !== h.usedServices.join(', ') && (
+                                                      <div className="flex flex-wrap gap-1 mb-2">
+                                                          {h.usedServices.map((srv, sIdx) => (
+                                                              <span key={sIdx} className="text-[10px] bg-teal-50 text-teal-700 px-2 py-0.5 rounded-md font-medium border border-teal-100">
+                                                                  {srv}
+                                                              </span>
+                                                          ))}
+                                                      </div>
+                                                  )}
+                                              </>
+                                          );
+                                      })()}
+                                      <div className="flex flex-wrap items-center gap-1.5">
                                           {isFree ? (
                                               <span className="text-[10px] bg-rose-50 text-rose-600 px-2.5 py-0.5 rounded-md font-bold border border-rose-100 shadow-sm">ไม่หักยอด</span>
                                           ) : isAdd ? (
@@ -4735,6 +4774,21 @@ const flexMessage = {
                                           ) : (
                                               <span className="text-[10px] bg-white text-gray-600 px-2.5 py-0.5 rounded-md font-bold border border-gray-200 shadow-sm">หัก {extractHistoryQty(h)} ครั้ง</span>
                                           )}
+                                          {(() => {
+                                              const bPhotos = h.customerPhotos?.before || h.beforePhotos || [];
+                                              const aPhotos = h.customerPhotos?.after || h.afterPhotos || (h.customerPhoto ? [h.customerPhoto] : []);
+                                              const hasPhotos = (Array.isArray(bPhotos) && bPhotos.length > 0) || (Array.isArray(aPhotos) && aPhotos.length > 0);
+                                              if (!hasPhotos) return null;
+                                              return (
+                                                  <button
+                                                      type="button"
+                                                      onClick={() => setSelectedHistoryForPhotos(h)}
+                                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition-colors shadow-2xs"
+                                                  >
+                                                      <Camera size={11} /> ดูรูปก่อน-หลัง
+                                                  </button>
+                                              );
+                                          })()}
                                       </div>
                                   </td>
                                   <td className="py-4 px-5 align-middle text-center">
@@ -4817,33 +4871,15 @@ const flexMessage = {
 
   if (isPrintMode && selectedCustomer) {
     return (
-       <div className="p-8 bg-white min-h-screen text-black print:p-0">
-           <div className="print:hidden mb-6 flex gap-4"><button onClick={() => setIsPrintMode(false)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-xl font-bold">กลับ</button><button onClick={() => window.print()} className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold">สั่งพิมพ์</button></div>
-           <div className="max-w-2xl mx-auto border-2 border-gray-800 p-8 rounded-3xl shadow-sm">
-               <div className="text-center mb-8"><h1 className="text-3xl font-black mb-2">บัตรสมาชิก / สะสมยอด</h1><p className="text-gray-500 font-mono">IrisCare Clinic</p></div>
-               <div className="grid grid-cols-2 gap-6 mb-8 text-lg">
-                   <div><p className="text-sm text-gray-500 font-bold mb-1">ชื่อลูกค้า</p><p className="font-black">{selectedCustomer.computedName}</p></div>
-                   <div><p className="text-sm text-gray-500 font-bold mb-1">เบอร์โทรศัพท์</p><p className="font-mono font-bold">{selectedCustomer.computedPhone}</p></div>
-                   <div><p className="text-sm text-gray-500 font-bold mb-1">สถานะสมาชิก</p><p className="font-bold">{selectedCustomer.computedMemberStatus}</p></div>
-                   <div><p className="text-sm text-gray-500 font-bold mb-1">ปัญหาผิว</p><p className="font-bold">{selectedCustomer.computedIssue}</p></div>
-               </div>
-               <div className="grid grid-cols-2 gap-4 mb-8">
-                 <div className="bg-orange-50 border border-orange-100 p-6 rounded-2xl text-center shadow-sm">
-                    <p className="text-orange-500 font-bold mb-2 text-xs uppercase">ยอดสะสมสินค้า (VIP)</p>
-                    <p className="text-3xl font-black text-orange-600">฿{selectedCustomer.productAccumulatedAmount?.toLocaleString() || '0'}</p>
-                 </div>
-                 <div className="bg-gray-50 border border-gray-200 p-6 rounded-2xl text-center shadow-sm">
-                    <p className="text-gray-500 font-bold mb-2 text-xs uppercase">ยอดสะสมสุทธิ (รวม)</p>
-                    <p className="text-3xl font-black text-gray-900">฿{selectedCustomer.realAccumulatedAmount?.toLocaleString() || '0'}</p>
-                 </div>
-               </div>
-               <div className="mb-8">
-                   <h3 className="font-bold text-gray-800 mb-3 border-b border-gray-200 pb-2">ประวัติรายการสะสม</h3>
-                   <HistoryTable histories={selectedCustomer.myHistories?.filter(h => !(h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '') === 'ยกเลิก'))} />
-               </div>
-               <div className="text-center text-sm text-gray-400"><p>พิมพ์เมื่อ: {new Date().toLocaleString('th-TH')}</p></div>
-           </div>
-       </div>
+       <MemberCardPrintModal
+         isOpen={isPrintMode}
+         customer={selectedCustomer}
+         products={products}
+         orders={orders}
+         shopName={appSettings?.shopName || 'IrisCare Clinic'}
+         globalBranch={globalBranch || 'สาขาเฉวง'}
+         onClose={() => setIsPrintMode(false)}
+       />
     );
   }
 
@@ -10129,6 +10165,62 @@ const flexMessage = {
         onClose={() => setInspectorCourse(null)}
         showToast={showToast}
       />
+
+      {/* Before / After Photos Modal in Admin */}
+      {selectedHistoryForPhotos && (() => {
+        const h = selectedHistoryForPhotos;
+        const bPhotos = Array.isArray(h.customerPhotos?.before) ? h.customerPhotos.before : (Array.isArray(h.beforePhotos) ? h.beforePhotos : []);
+        const aPhotos = Array.isArray(h.customerPhotos?.after) ? h.customerPhotos.after : (Array.isArray(h.afterPhotos) ? h.afterPhotos : (h.customerPhoto ? [h.customerPhoto] : []));
+        const srvName = getFuzzyKey(h, ["รายการ", "col_23", "col_18"]) || 'ตัดคอร์ส';
+        const dateStr = getFuzzyKey(h, ["วันที่", "col_1"]) || '-';
+
+        return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+              <div className="p-4 bg-gradient-to-r from-teal-600 to-emerald-600 text-white flex justify-between items-center">
+                <div>
+                  <h3 className="font-black text-sm flex items-center gap-1.5"><Camera size={16} /> รูปภาพก่อน - หลังทำ (Before & After)</h3>
+                  <p className="text-[11px] text-teal-100 font-medium">{srvName} • {dateStr}</p>
+                </div>
+                <button onClick={() => setSelectedHistoryForPhotos(null)} className="p-1.5 rounded-full bg-white/10 hover:bg-white/20"><X size={16} /></button>
+              </div>
+              <div className="p-4 overflow-y-auto space-y-4 bg-slate-50/50">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="bg-white p-3 rounded-2xl border border-indigo-100 shadow-2xs space-y-2">
+                    <span className="text-xs font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">📸 ก่อนทำ ({bPhotos.length})</span>
+                    {bPhotos.length > 0 ? (
+                      bPhotos.map((url, idx) => (
+                        <img key={idx} src={url} alt="Before" onClick={() => setAdminEnlargedPhoto(url)} className="w-full aspect-[4/3] object-cover rounded-xl cursor-pointer hover:opacity-90 shadow-2xs" />
+                      ))
+                    ) : (
+                      <div className="py-8 text-center text-xs text-slate-400">ไม่มีรูปก่อนทำ</div>
+                    )}
+                  </div>
+                  <div className="bg-white p-3 rounded-2xl border border-emerald-100 shadow-2xs space-y-2">
+                    <span className="text-xs font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">✨ หลังทำ ({aPhotos.length})</span>
+                    {aPhotos.length > 0 ? (
+                      aPhotos.map((url, idx) => (
+                        <img key={idx} src={url} alt="After" onClick={() => setAdminEnlargedPhoto(url)} className="w-full aspect-[4/3] object-cover rounded-xl cursor-pointer hover:opacity-90 shadow-2xs" />
+                      ))
+                    ) : (
+                      <div className="py-8 text-center text-xs text-slate-400">ไม่มีรูปหลังทำ</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="p-3 bg-white border-t text-center">
+                <button onClick={() => setSelectedHistoryForPhotos(null)} className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl">ปิด</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {adminEnlargedPhoto && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/90 cursor-pointer" onClick={() => setAdminEnlargedPhoto(null)}>
+          <img src={adminEnlargedPhoto} alt="Enlarged" className="max-w-[95vw] max-h-[85vh] object-contain rounded-2xl shadow-2xl" />
+        </div>
+      )}
     </div>
   );
 }

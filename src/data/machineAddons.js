@@ -100,3 +100,4 @@ export const STANDARD_FACIAL_SERVICES = [
   { id: 'std-mask-redness', name: 'มาร์คลดรอยแดง', category: 'พื้นฐาน' },
   { id: 'std-body-scrub', name: 'สครับตัว', category: 'พื้นฐาน' }
 ];
+

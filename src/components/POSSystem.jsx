@@ -1337,6 +1337,10 @@ export default function POSSystem({
       const targetCartId = promoOption ? `${item.id}_opt_${promoOption.id || promoOption.name}` : item.id;
       const existing = prev.find(i => i.id === targetCartId && i.type === type);
       if (existing) {
+        if (type === 'usage') {
+          // ไม่เพิ่มจำนวนการตัดคอร์สซ้ำซ้อนเมื่อกดเข้ามาดู ให้คงไว้ที่ 1 เสมอ
+          return prev;
+        }
         if ((type === 'product' || type === 'claim_item') && existing.qty >= existing.maxQty) {
           showToast(type === 'claim_item' ? 'เบิกครบโควต้าแล้ว' : 'จำนวนสินค้าไม่เพียงพอ');
           return prev;
@@ -2295,6 +2299,13 @@ export default function POSSystem({
           const staffSignatureUrl = staffSigRef.current?.toDataURL() || null;
           const finalQty = item.qty;
 
+          const selectedServicesList = (usedServices && usedServices.length > 0)
+            ? usedServices.map(s => String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]) || s.name || s).trim()).filter(Boolean)
+            : [];
+          const selectedServicesStr = selectedServicesList.join(', ');
+          const courseName = String(getFuzzyKey(item.originalItem, ["ชื่อคอส", "col_8"]) || item.name || '').replace(/เบิกใช้:\s*/g, '').replace(/\(.*\)/g, '').trim();
+          const finalItemDescription = selectedServicesStr || courseName || "ตัดคอร์สผ่านระบบ POS";
+
           batch.set(historyRef, {
             "วันที่": customDateObj.toLocaleDateString('th-TH'),
             "เวลา": customDateObj.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
@@ -2305,11 +2316,12 @@ export default function POSSystem({
             "เลขที่ใบคอส": String(getFuzzyKey(item.originalItem, ["เลขที่ใบคอส", "col_2"]) || ''),
             "ประเภท": "รับบริการ",
             "สถานะ": "เรียบร้อย",
-            "รายการ": "ตัดคอร์สผ่านระบบ POS",
+            "รายการ": finalItemDescription,
             "จำนวน": String(finalQty),
             "สาขา": String(globalBranch || "สำนักงานใหญ่"),
             "courseId": item.id,
-            "usedServices": usedServices.map(s => getFuzzyKey(s, ["ชื่อคอส", "col_4"])),
+            "courseName": courseName,
+            "usedServices": selectedServicesList,
             "พนักงาน": paymentStaff,
             "courseUpdatedDirectly": true
           });
@@ -2338,12 +2350,10 @@ export default function POSSystem({
              const dateStr = localNowStr.split('T')[0];
              const timeStr = localNowStr.split('T')[1];
 
-             const usedServicesStr = usedServices.map(s => getFuzzyKey(s, ["ชื่อคอส", "col_4"])).join(', ');
-             
              batch.set(bookingRef, {
                  courseId: item.id || '',
                  courseRef: String(getFuzzyKey(item.originalItem, ["เลขที่ใบคอส", "col_2"]) || ''),
-                 courseName: usedServicesStr || item.name,
+                 courseName: finalItemDescription,
                  customerName: cName,
                  customerPhone: cPhone,
                  customerId: selectedCustomer ? selectedCustomer.id : '',
@@ -5380,17 +5390,67 @@ export default function POSSystem({
 
                 return (
                 <div className="space-y-3">
+                  {/* Summary of courses being deducted with qty controls */}
+                  <div className="bg-teal-50/70 border border-teal-200/80 rounded-2xl p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-teal-900 flex items-center gap-1.5">
+                        <Layers size={14} className="text-teal-600" /> คอร์สที่กำลังตัดยอด:
+                      </span>
+                      <span className="text-[10px] font-bold text-teal-700 bg-white border border-teal-200 px-2.5 py-0.5 rounded-lg shadow-2xs">
+                        ตัดยอดคอร์ส: {totalDeductingQty} ครั้ง (เลือกแล้ว {usedServices.length} บริการ)
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      {usageCourses.map(ci => {
+                        const remainQty = Number(ci.originalItem?.computedRemainQty ?? ci.maxQty ?? 99);
+                        const cName = String(getFuzzyKey(ci.originalItem, ["ชื่อคอส", "col_8"]) || ci.name || '').replace(/เบิกใช้:\s*/g, '');
+                        const cNo = String(getFuzzyKey(ci.originalItem, ["เลขที่ใบคอส", "col_2"]) || '');
+                        return (
+                          <div key={ci.id} className="flex items-center justify-between bg-white px-3 py-2 rounded-xl border border-teal-100 shadow-2xs text-xs">
+                            <div className="min-w-0 pr-2">
+                              <div className="font-bold text-slate-800 truncate">{cName}</div>
+                              <div className="text-[10px] text-slate-400">เลขที่: {cNo || ci.id} • คงเหลือ {remainQty} ครั้ง</div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-xs text-slate-500 font-medium">ตัด:</span>
+                              <div className="flex items-center border border-teal-200 rounded-lg bg-teal-50/50 overflow-hidden">
+                                <button
+                                  type="button"
+                                  onClick={() => updateCartQty(ci.id, 'usage', -1)}
+                                  disabled={ci.qty <= 1}
+                                  className="w-7 h-7 flex items-center justify-center text-teal-700 hover:bg-teal-100 disabled:opacity-30 disabled:hover:bg-transparent font-black"
+                                >
+                                  -
+                                </button>
+                                <span className="w-8 text-center font-black text-teal-800 text-xs">
+                                  {ci.qty}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => updateCartQty(ci.id, 'usage', 1)}
+                                  disabled={ci.qty >= remainQty}
+                                  className="w-7 h-7 flex items-center justify-center text-teal-700 hover:bg-teal-100 disabled:opacity-30 disabled:hover:bg-transparent font-black"
+                                >
+                                  +
+                                </button>
+                              </div>
+                              <span className="text-xs font-bold text-teal-700">ครั้ง</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   <div className="flex items-center justify-between">
                     <div>
                       <label className="block text-xs font-black text-slate-800">
-                        เลือกรายการบริการ / ลงเครื่องที่ทำในครั้งนี้ <span className="text-red-500">*</span>
+                        เลือกรายการบริการ / ลงเครื่องที่ทำในครั้งนี้ <span className="text-slate-400 font-normal">(ไม่บังคับ)</span>
                       </label>
                       <p className="text-[10px] text-slate-500">
-                        แตะเลือกได้ตามจริง (ครอบคลุมทั้งคอร์สหลักและคอร์สลงเครื่องที่ซื้อเพิ่ม)
+                        แตะเลือกได้ตามจริง (ครอบคลุมทั้งคอร์สหลักและคอร์สลงเครื่องที่ซื้อเพิ่ม) หรือปล่อยว่างเพื่อบันทึกชื่อคอร์ส
                       </p>
-                    </div>
-                    <div className="text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2.5 py-1 rounded-lg">
-                       ตัดยอดคอร์ส: {totalDeductingQty} ครั้ง (เลือกแล้ว {usedServices.length} บริการ)
                     </div>
                   </div>
 
@@ -5620,11 +5680,7 @@ export default function POSSystem({
                    if (custSigRef.current?.dataset?.isSigned !== "true" || staffSigRef.current?.dataset?.isSigned !== "true") {
                        return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
                    }
-                   if (hasCourseUsage) {
-                     if (usedServices.length === 0) {
-                         return showToast('กรุณาเลือกบริการที่ใช้ในครั้งนี้อย่างน้อย 1 รายการ', 'error');
-                     }
-                   }
+                   // รายการขั้นตอนที่ทำไม่บังคับ หากไม่เลือกจะบันทึกเป็นชื่อคอร์สให้อัตโนมัติ
                    setCheckoutStep(2);
                 }}
                 className="flex-1 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200"
@@ -8087,7 +8143,21 @@ export default function POSSystem({
                  </div>
                  <button 
                    onClick={() => {
-                      addToCart(selectedCourseForUsage, 'usage');
+                      setCart(prev => {
+                        const filtered = prev.filter(i => i.type !== 'usage');
+                        const maxQty = selectedCourseForUsage.computedRemainQty || 1;
+                        const nameStr = `เบิกใช้: ${String(getFuzzyKey(selectedCourseForUsage, ["ชื่อคอส", "col_8"]))} (${String(getFuzzyKey(selectedCourseForUsage, ["เลขที่ใบคอส", "col_2"]))})`;
+                        return [...filtered, {
+                          id: selectedCourseForUsage.id,
+                          name: nameStr,
+                          price: 0,
+                          qty: 1,
+                          type: 'usage',
+                          maxQty,
+                          originalItem: selectedCourseForUsage
+                        }];
+                      });
+                      setUsedServices([]);
                       setCheckoutStep(1);
                       setShowPaymentModal(true);
                       setSelectedCourseForUsage(null);
