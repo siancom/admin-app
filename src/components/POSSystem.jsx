@@ -184,6 +184,7 @@ export default function POSSystem({
 
   const COURSE_TABS = [
     { id: 'all', label: 'ทั้งหมด' },
+    { id: 'promo', label: 'โปรโมชั่น' },
     { id: 'facial', label: 'ผิวหน้า (A-J)' },
     { id: 'acne_clear', label: 'เคลียร์สิว' },
     { id: 'machine', label: 'ลงเครื่อง' },
@@ -196,7 +197,8 @@ export default function POSSystem({
   const getCourseCategory = (c) => {
     if (!c) return 'other';
     
-    const type = String(getFuzzyKey(c, ["ประเภท", "col_2"]) || '');
+    const type = String(getFuzzyKey(c, ["ประเภท", "col_2"]) || '').trim();
+    if (type === 'โปรโมชั่น' || type === 'โปร') return 'promo';
     if (type === 'ผิวหน้า (A-J)') return 'facial';
     if (type === 'เคลียร์สิว') return 'acne_clear';
     if (type === 'ลงเครื่อง') return 'machine';
@@ -205,8 +207,9 @@ export default function POSSystem({
     if (type === 'IPL กำจัดขน') return 'ipl';
     if (type === 'วอคอิน') return 'walkin';
     
-    let code = String(getFuzzyKey(c, ["รหัสคอส", "col_1"]) || '');
+    let code = String(getFuzzyKey(c, ["รหัสคอส", "col_1"]) || '').trim();
     if (!code) return 'other';
+    if (code.startsWith('PROMO-') || code.toLowerCase().startsWith('promo')) return 'promo';
     if (!code.startsWith('F-')) return 'old_courses';
     if (code.startsWith('F-MA') || code.startsWith('F-M')) return 'machine';
     if (code.startsWith('F-S')) return 'acne_sets';

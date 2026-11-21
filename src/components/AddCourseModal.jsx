@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Type, Hash, Banknote, Monitor, Package, Clock, Layers, CreditCard, Wallet, Plus, Search, X, Check, Image as ImageIcon, Upload, Trash2, Loader2, Edit3, Sparkles } from 'lucide-react';
+import { Type, Hash, Banknote, Monitor, Package, Clock, Layers, CreditCard, Wallet, Plus, Search, X, Check, Image as ImageIcon, Upload, Trash2, Loader2, Edit3, Sparkles, Calendar } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '../config/firebase';
-import { compressImage } from '../utils/parse';
+import { compressImage, parseThaiDate } from '../utils/parse';
 import { getFuzzyKey } from '../utils/fuzzy';
 
 const InputField = ({ icon: Icon, label, required, ...props }) => (
@@ -119,14 +119,15 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
   const [formData, setFormData] = useState({
     code: '',
     name: '',
-    category: 'ทั่วไป',
+    category: 'โปรโมชั่น',
     price: '',
     sessions: '',
     duration: '',
     credit: '',
     freeVip: false,
     image: '',
-    promoOptions: []
+    promoOptions: [],
+    endDate: ''
   });
   
   const [selectedProducts, setSelectedProducts] = useState([]);
@@ -134,23 +135,40 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
 
-  const categories = ['ผิวหน้า (A-J)', 'เคลียร์สิว', 'ลงเครื่อง', 'รักษาสิว/ฝ้า', 'บำรุงฟื้นฟู', 'IPL กำจัดขน', 'ทั่วไป'];
+  const categories = ['โปรโมชั่น', 'ผิวหน้า (A-J)', 'เคลียร์สิว', 'ลงเครื่อง', 'รักษาสิว/ฝ้า', 'บำรุงฟื้นฟู', 'IPL กำจัดขน', 'ทั่วไป'];
   const durations = ['1 เดือน', '2 เดือน', '3 เดือน', '6 เดือน', '1 ปี', 'ไม่มีกำหนด'];
 
   useEffect(() => {
     if (isOpen) {
       if (initialData) {
+        const rawEnd = String(getFuzzyKey(initialData, ["วันที่สิ้นสุด", "วันหมดเขต", "expireDate", "endDate", "col_10"]) || initialData.endDate || initialData.expireDate || '');
+        let formattedEnd = '';
+        if (rawEnd) {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(rawEnd)) {
+            formattedEnd = rawEnd;
+          } else {
+            const parsed = parseThaiDate(rawEnd);
+            if (parsed) {
+              formattedEnd = `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+            }
+          }
+        }
+
+        const initialCode = String(getFuzzyKey(initialData, ["รหัสคอส", "col_1"]) || initialData.code || '');
+        const defaultCat = initialCode.startsWith('PROMO-') ? 'โปรโมชั่น' : 'ทั่วไป';
+
         setFormData({
-          code: String(getFuzzyKey(initialData, ["รหัสคอส", "col_1"]) || initialData.code || ''),
+          code: initialCode,
           name: String(getFuzzyKey(initialData, ["ชื่อคอส", "col_4"]) || initialData.name || ''),
-          category: String(getFuzzyKey(initialData, ["ประเภท", "col_2"]) || initialData.category || 'ทั่วไป'),
+          category: String(getFuzzyKey(initialData, ["ประเภท", "col_2"]) || initialData.category || defaultCat),
           price: String(getFuzzyKey(initialData, ["ราคาขาย", "ราคา", "col_5", "col_6"]) || initialData.price || ''),
           sessions: String(getFuzzyKey(initialData, ["จำนวนครั้ง", "col_7"]) || initialData.sessions || ''),
           duration: String(getFuzzyKey(initialData, ["กำหนดเวลา"]) || initialData.duration || ''),
           credit: String(getFuzzyKey(initialData, ["เครดิตที่ได้รับ", "col_8"]) || initialData.credit || ''),
           freeVip: String(getFuzzyKey(initialData, ["ฟรีบัตรสมาชิก"])) === 'ใช่' || initialData.freeVip === true,
           image: String(getFuzzyKey(initialData, ["รูปภาพ", "รูป", "image", "img", "col_13"]) || initialData.image || ''),
-          promoOptions: Array.isArray(initialData.promoOptions) ? initialData.promoOptions : []
+          promoOptions: Array.isArray(initialData.promoOptions) ? initialData.promoOptions : [],
+          endDate: formattedEnd
         });
 
         // Parse existing items
@@ -175,14 +193,15 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
         setFormData({
           code: `PROMO-${Date.now().toString().slice(-6)}`,
           name: '',
-          category: 'ทั่วไป',
+          category: 'โปรโมชั่น',
           price: '',
           sessions: '',
           duration: '',
           credit: '',
           freeVip: false,
           image: '',
-          promoOptions: []
+          promoOptions: [],
+          endDate: ''
         });
         setSelectedProducts([]);
         setSelectedSubCourses([]);
@@ -275,14 +294,15 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
       setFormData({
         code: `PROMO-${Date.now().toString().slice(-6)}`,
         name: '',
-        category: 'ทั่วไป',
+        category: 'โปรโมชั่น',
         price: '',
         sessions: '',
         duration: '',
         credit: '',
         freeVip: false,
         image: '',
-        promoOptions: []
+        promoOptions: [],
+        endDate: ''
       });
       setSelectedProducts([]);
       setSelectedSubCourses([]);
@@ -527,6 +547,20 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <Calendar size={14} className="text-pink-500" />
+              วันหมดเขตโปรโมชั่น (ถ้ามี)
+            </label>
+            <input
+              type="date"
+              value={formData.endDate}
+              onChange={e => setFormData({...formData, endDate: e.target.value})}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:border-pink-500 focus:bg-white transition-all"
+            />
+            <span className="text-[10px] text-slate-400">เมื่อพ้นวันหมดเขต ฝั่งลูกค้าจะไม่แสดงคอร์สนี้</span>
           </div>
         </div>
 
