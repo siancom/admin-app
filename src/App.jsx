@@ -6339,18 +6339,69 @@ const flexMessage = {
                               <button onClick={(e) => { e.stopPropagation(); setActionConfirmModal({ isOpen: true, title: 'ลบประวัติคำสั่งซื้อ', message: 'ยืนยันการลบประวัติคำสั่งซื้อนี้ทิ้งถาวร ใช่หรือไม่?', action: () => executeDeleteOrder(o.id), confirmText: 'ลบทิ้ง', confirmColor: 'bg-red-600 hover:bg-red-700' }); }} className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-colors" title="ลบ"><Trash2 size={14}/></button>
                               <button onClick={(e) => {
                                 e.stopPropagation();
-                                const customer = customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(o.customerPhone || ''));
+                                const customer = customersRaw.find(c => {
+                                  const p = String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').replace(/\D/g, '');
+                                  const oPhone = String(o.customerPhone || '').replace(/\D/g, '');
+                                  return p && oPhone && (p === oPhone || p.endsWith(oPhone) || oPhone.endsWith(p));
+                                });
                                 let posItems = [];
                                 if (o.cartItems && Array.isArray(o.cartItems) && o.cartItems.length > 0) {
-                                    posItems = o.cartItems.map((item, i) => ({
-                                        id: `${o.id}_${i}`, name: String(item.name || 'สินค้าจากคำสั่งซื้อ'), price: parseNumber(item.price), qty: parseNumber(item.qty || '1'), type: 'product', skipStockUpdate: true, maxQty: 9999, originalItem: { id: o.id, "ชื่อสินค้า": item.name, "ราคาขาย": item.price }, isManualPrice: true
-                                    }));
+                                    posItems = o.cartItems.map((item, i) => {
+                                        const isCourse = item.type === 'course' || !!item.sessions || !!item.promoOption || !!item.courseId || (masterCourses && masterCourses.some(c => c.id === item.courseId || c.id === item.id || (item.id && String(item.id).startsWith(c.id))));
+                                        const itemType = item.type || (isCourse ? 'course' : 'product');
+                                        let origItem = null;
+                                        if (itemType === 'course') {
+                                            origItem = (masterCourses || []).find(c => c.id === item.courseId || c.id === item.id || (item.id && String(item.id).startsWith(c.id)) || String(c["ชื่อคอส"] || c.name || '') === String(item.name || '')) || null;
+                                        } else {
+                                            origItem = (products || []).find(p => p.id === item.id || String(p["ชื่อสินค้า"] || p.name || '') === String(item.name || '')) || null;
+                                        }
+                                        const totalSessions = item.sessions || item.promoOption?.sessions || (origItem ? getFuzzyKey(origItem, ["จำนวนครั้ง", "col_7"]) : 1);
+                                        const receivedItems = item.items || item.promoOption?.items || (origItem ? getFuzzyKey(origItem, ["รายการที่ได้รับ", "col_11"]) : '');
+                                        const creditAmt = item.credit || (origItem ? getFuzzyKey(origItem, ["เครดิตที่ได้รับ", "วงเงินคอร์ส", "col_14"]) : 0);
+                                        return {
+                                            id: item.id || `${o.id}_${i}`,
+                                            name: String(item.name || 'สินค้าจากคำสั่งซื้อ'),
+                                            price: parseNumber(item.price),
+                                            qty: parseNumber(item.qty || '1'),
+                                            type: itemType,
+                                            sessions: totalSessions,
+                                            items: receivedItems,
+                                            promoOption: item.promoOption || null,
+                                            credit: creditAmt,
+                                            skipStockUpdate: itemType === 'course',
+                                            maxQty: 9999,
+                                            originalItem: origItem || { id: item.id || o.id, "ชื่อสินค้า": item.name, "ชื่อคอส": item.name, "ราคาขาย": item.price, "จำนวนครั้ง": totalSessions, "รายการที่ได้รับ": receivedItems },
+                                            isManualPrice: true
+                                        };
+                                    });
                                 } else {
+                                    const isCourse = o.type === 'course' || !!o.courseName || !!o.sessions || !!o.courseId;
+                                    const itemType = isCourse ? 'course' : 'product';
+                                    let origItem = null;
+                                    if (itemType === 'course') {
+                                        origItem = (masterCourses || []).find(c => c.id === o.courseId || String(c["ชื่อคอส"] || c.name || '') === String(o.courseName || '')) || null;
+                                    } else {
+                                        origItem = (products || []).find(p => p.id === o.id || String(p["ชื่อสินค้า"] || p.name || '') === String(o.courseName || '')) || null;
+                                    }
+                                    const totalSessions = o.sessions || (origItem ? getFuzzyKey(origItem, ["จำนวนครั้ง", "col_7"]) : 1);
+                                    const receivedItems = o.items || (origItem ? getFuzzyKey(origItem, ["รายการที่ได้รับ", "col_11"]) : '');
+                                    const creditAmt = o.credit || (origItem ? getFuzzyKey(origItem, ["เครดิตที่ได้รับ", "วงเงินคอร์ส", "col_14"]) : 0);
                                     posItems = [{
-                                        id: o.id, name: String(o.courseName || 'สินค้าจากคำสั่งซื้อ'), price: parseNumber(o.price), qty: parseNumber(o.qty || '1'), type: 'product', skipStockUpdate: true, maxQty: 9999, originalItem: { id: o.id, "ชื่อสินค้า": o.courseName, "ราคาขาย": o.price }, isManualPrice: true
+                                        id: o.courseId || o.id,
+                                        name: String(o.courseName || 'สินค้าจากคำสั่งซื้อ'),
+                                        price: parseNumber(o.price || o.totalPrice),
+                                        qty: parseNumber(o.qty || '1'),
+                                        type: itemType,
+                                        sessions: totalSessions,
+                                        items: receivedItems,
+                                        credit: creditAmt,
+                                        skipStockUpdate: itemType === 'course',
+                                        maxQty: 9999,
+                                        originalItem: origItem || { id: o.id, "ชื่อสินค้า": o.courseName, "ชื่อคอส": o.courseName, "ราคาขาย": o.price || o.totalPrice, "จำนวนครั้ง": totalSessions, "รายการที่ได้รับ": receivedItems },
+                                        isManualPrice: true
                                     }];
                                 }
-                                const event = new CustomEvent('add-to-pos-cart', { detail: { items: posItems, customer: customer || null } });
+                                const event = new CustomEvent('add-to-pos-cart', { detail: { items: posItems, customer: customer || null, orderId: o.id, order: o } });
                                 setActiveTab('pos');
                                 setTimeout(() => { window.dispatchEvent(event); showToast('ส่งไปคิดเงินที่ POS สำเร็จ'); }, 100);
                               }} className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl transition-colors" title="คิดเงิน (POS)"><ShoppingCart size={14}/></button>

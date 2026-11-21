@@ -336,12 +336,23 @@ export default function POSSystem({
   const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
 
-  // Listen for items from MoleRemovalSystem
+  // Listen for items from MoleRemovalSystem or Orders tab
   React.useEffect(() => {
     const handleAddItems = (e) => {
-        const { items, customer } = e.detail;
-        if (customer && !selectedCustomer) {
+        const { items, customer, orderId, order } = e.detail || {};
+        if (customer) {
             setSelectedCustomer(customer);
+        }
+        if (orderId) {
+            setActiveCustomerAppOrderIds(prev => [...new Set([...prev, orderId])]);
+        }
+        if (order) {
+            if (order.discount && !isNaN(Number(order.discount))) {
+               const d = Number(order.discount);
+               setDiscountType('amount');
+               setDiscountVal(d);
+               setGlobalDiscount(prev => prev + d);
+            }
         }
         if (items && items.length > 0) {
             setCart(prev => {
@@ -3026,12 +3037,29 @@ export default function POSSystem({
       if (order.voucherDiscount && !isNaN(Number(order.voucherDiscount))) totalDiscountAmt += Number(order.voucherDiscount);
       
       
-      (order.cartItems || []).forEach(item => {
+      const itemsList = (order.cartItems && Array.isArray(order.cartItems) && order.cartItems.length > 0)
+        ? order.cartItems
+        : [{
+            id: order.courseId || order.id,
+            name: order.courseName || order.name || 'สินค้าจากคำสั่งซื้อ',
+            price: Number(order.itemPrice ?? order.totalPrice ?? order.price ?? 0),
+            qty: Number(order.qty || 1),
+            type: (order.courseName || order.courseId || order.type === 'course') ? 'course' : 'product',
+            sessions: order.sessions || 1,
+            items: order.items || ''
+          }];
+
+      itemsList.forEach(item => {
+        const isCourse = item.type === 'course' || !!item.sessions || !!item.promoOption || !!item.courseId || (masterCourses && masterCourses.some(c => c.id === item.courseId || c.id === item.id || (item.id && String(item.id).startsWith(c.id))));
+        const itemType = item.type || (isCourse ? 'course' : 'product');
         let origItem = null;
-        if (item.type === 'product') origItem = products.find(p => p.id === item.id) || null;
-        else if (item.type === 'course') origItem = masterCourses.find(c => c.id === item.id) || null;
+        if (itemType === 'product') {
+          origItem = (products || []).find(p => p.id === item.id || String(p["ชื่อสินค้า"] || p.name) === String(item.name)) || null;
+        } else if (itemType === 'course') {
+          origItem = (masterCourses || []).find(c => c.id === item.courseId || c.id === item.id || (item.id && String(item.id).startsWith(c.id)) || String(c["ชื่อคอส"] || c.name) === String(item.name)) || null;
+        }
         
-        const existingIdx = newCart.findIndex(ci => ci.id === item.id && ci.type === item.type);
+        const existingIdx = newCart.findIndex(ci => ci.id === item.id && ci.type === itemType);
         if (existingIdx >= 0) {
            newCart[existingIdx].qty += Number(item.qty || 1);
         } else {
@@ -3041,7 +3069,11 @@ export default function POSSystem({
             name: item.name,
             price: Number(item.price || 0),
             qty: Number(item.qty || 1),
-            type: item.type || 'product'
+            type: itemType,
+            sessions: item.sessions || item.promoOption?.sessions || (origItem ? getFuzzyKey(origItem, ["จำนวนครั้ง", "col_7"]) : 1),
+            items: item.items || item.promoOption?.items || (origItem ? getFuzzyKey(origItem, ["รายการที่ได้รับ", "col_11"]) : ''),
+            promoOption: item.promoOption || null,
+            credit: item.credit || (origItem ? getFuzzyKey(origItem, ["เครดิตที่ได้รับ", "วงเงินคอร์ส", "col_14"]) : 0)
           });
         }
       });
