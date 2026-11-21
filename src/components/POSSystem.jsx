@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle,
   Scissors, Search, Info, ShoppingCart, Package, Layers, User, Trash2, UserPlus,
-  CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket
+  Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket
 } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, getDocs, query, where, writeBatch, orderBy, limit, collection } from 'firebase/firestore';
@@ -234,6 +234,7 @@ export default function POSSystem({
   const [showShopeeModal, setShowShopeeModal] = useState(false);
   const [showDiscountSection, setShowDiscountSection] = useState(false);
   const [viewCourseDetails, setViewCourseDetails] = useState(null);
+  const [selectedCourseForPromoModal, setSelectedCourseForPromoModal] = useState(null);
   const [selectedCourseForUsage, setSelectedCourseForUsage] = useState(null);
   const [isSyncingWoo, setIsSyncingWoo] = useState(false);
   const [isLoadingCompare, setIsLoadingCompare] = useState(false);
@@ -1313,15 +1314,22 @@ export default function POSSystem({
     }
   };
 
-  const addToCart = (item, type, actionType = null) => {
+  const addToCart = (item, type, actionType = null, promoOption = null) => {
+    // If course with promo options is added without choosing an option, prompt modal
+    if (type === 'course' && !promoOption && Array.isArray(item.promoOptions) && item.promoOptions.length > 0) {
+      setSelectedCourseForPromoModal(item);
+      return;
+    }
+
     setCart(prev => {
-      const existing = prev.find(i => i.id === item.id && i.type === type);
+      const targetCartId = promoOption ? `${item.id}_opt_${promoOption.id || promoOption.name}` : item.id;
+      const existing = prev.find(i => i.id === targetCartId && i.type === type);
       if (existing) {
         if ((type === 'product' || type === 'claim_item') && existing.qty >= existing.maxQty) {
           showToast(type === 'claim_item' ? 'เบิกครบโควต้าแล้ว' : 'จำนวนสินค้าไม่เพียงพอ');
           return prev;
         }
-        return prev.map(i => i.id === item.id && i.type === type ? { ...i, qty: i.qty + 1 } : i);
+        return prev.map(i => i.id === targetCartId && i.type === type ? { ...i, qty: i.qty + 1 } : i);
       } else {
         if (type === 'product') {
           let maxQty = parseQty(getBranchStock(item, globalBranch || 'สำนักงานใหญ่'));
@@ -1345,11 +1353,38 @@ export default function POSSystem({
           
           return [...prev, { id: item.id, name: nameStr, price, originalPrice: fullPrice, qty: 1, type, actionType, maxQty, originalItem: item, isManualPrice: false }];
         } else if (type === 'course') {
-          const price = parseNumber(getFuzzyKey(item, ["ราคา", "ราคาขาย", "col_5"]));
-          return [...prev, { id: item.id, name: String(getFuzzyKey(item, ["ชื่อคอส", "col_4"])), price, qty: 1, type, maxQty: 999, originalItem: item }];
+          let price = parseNumber(getFuzzyKey(item, ["ราคา", "ราคาขาย", "col_5"]));
+          let nameStr = String(getFuzzyKey(item, ["ชื่อคอส", "col_4"]));
+          let sessions = String(getFuzzyKey(item, ["จำนวนครั้ง", "col_7"]) || '1');
+          let itemsDesc = String(getFuzzyKey(item, ["รายการที่ได้รับ", "col_11"]) || '');
+          let badgeStr = '';
+
+          if (promoOption) {
+            price = parseNumber(promoOption.price) || price;
+            nameStr = `${nameStr} (${promoOption.name})`;
+            sessions = String(promoOption.sessions || sessions || '1');
+            itemsDesc = promoOption.items || itemsDesc;
+            badgeStr = promoOption.badge || '';
+          }
+
+          return [...prev, { 
+            id: targetCartId, 
+            courseId: item.id,
+            name: nameStr, 
+            price, 
+            originalPrice: price,
+            qty: 1, 
+            type, 
+            maxQty: 999, 
+            originalItem: item,
+            promoOption: promoOption || null,
+            sessions: sessions,
+            items: itemsDesc,
+            badge: badgeStr
+          }];
         } else if (type === 'single_course') {
           const price = parseNumber(getFuzzyKey(item, ["ราคา", "ราคาขาย", "col_5"]));
-          return [...prev, { id: item.id, name: String(getFuzzyKey(item, ["ชื่อคอส", "col_4"])), price, qty: 1, type, maxQty: 999, originalItem: item }];
+          return [...prev, { id: item.id, name: String(getFuzzyKey(item, ["ชื่อคอส", "col_4"])), price, qty: 1, type, maxQty: 999, originalItem: item, sessions: '1' }];
         } else if (type === 'debt_payment') {
           const pendingAmt = item.computedPendingAmount || 0;
           return [...prev, { id: `debt_${item.id}`, name: `ชำระค้าง: ${String(getFuzzyKey(item, ["เลขที่ใบคอส", "col_2"]))}`, price: pendingAmt, qty: 1, type, maxQty: 1, originalItem: item, isManualPrice: true }];
@@ -2037,12 +2072,7 @@ export default function POSSystem({
       showToast('ไม่มีสินค้าในตะกร้า');
       return;
     }
-    const hasCourse = cart.some(i => {
-      if (i.type !== 'course') return false;
-      const qty = String(getFuzzyKey(i.originalItem, ["จำนวนครั้ง", "col_7"]) || '').trim();
-      const isTopup = String(i.name).match(/(เติมเงิน|เครดิต|วงเงิน|ฝากเงิน)/);
-      return qty !== '1' || isTopup;
-    });
+    const hasCourse = cart.some(i => i.type === 'course' || i.type === 'single_course');
     const hasService = cart.some(i => i.type === 'service' || i.type === 'usage' || i.type === 'claim_item');
     if (hasService && !paymentStaff) {
       showToast('มีรายการตัดคอร์ส/เบิกสินค้าในตะกร้า โปรดเลือกพนักงานผู้ทำรายการ', 'error');
@@ -2093,9 +2123,9 @@ export default function POSSystem({
       const batch = writeBatch(db);
       const delayedHistoryUpdates = [];
       
-      const cName = selectedCustomer ? String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"])) : 'ลูกค้าทั่วไป (POS)';
-      const cPhone = selectedCustomer ? String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"])) : '';
-      const custCleanPhone = cPhone.replace(/[^0-9]/g, '');
+      const cName = selectedCustomer ? String(selectedCustomer.computedName || getFuzzyKey(selectedCustomer, ["ชื่อ", "ชื่อลูกค้า", "col_1", "col_2"]) || 'ลูกค้าทั่วไป') : 'ลูกค้าทั่วไป (POS)';
+      const cPhone = selectedCustomer ? String(selectedCustomer.computedPhone || selectedCustomer.phone || getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3", "phone"]) || '') : '';
+      const custCleanPhone = cPhone.replace(/\D/g, '');
 
       // Handle Credit Deduction
       if (splitPayment.credit > 0 && selectedCustomer) {
@@ -2446,8 +2476,18 @@ export default function POSSystem({
           for (let i = 0; i < item.qty; i++) {
             const courseNo = `IC${Date.now().toString().slice(-6)}${i}`;
             const courseRef = doc(getCol('courses'));
-            const courseTotalQty = String(getFuzzyKey(item.originalItem, ["จำนวนครั้ง", "col_7"]) || "1");
-            let creditReceived = String(getFuzzyKey(item.originalItem, ["เครดิตที่ได้รับ", "เครดิตที่ได้", "ยอดเครดิต", "เครดิต", "วงเงินคอร์ส", "col_14"]) || "0");
+            const courseTotalQty = String(
+              item.sessions || 
+              item.promoOption?.sessions || 
+              item.selectedPromoOption?.sessions || 
+              getFuzzyKey(item.originalItem, ["จำนวนครั้ง", "col_7"]) || 
+              "1"
+            );
+            let creditReceived = String(
+              item.credit || 
+              getFuzzyKey(item.originalItem, ["เครดิตที่ได้รับ", "เครดิตที่ได้", "ยอดเครดิต", "เครดิต", "วงเงินคอร์ส", "col_14"]) || 
+              "0"
+            );
             if (parseNumber(creditReceived) === 0 && String(item.name).match(/(เติมเงิน|เครดิต|วงเงิน|ฝากเงิน|voucher)/i)) {
                 creditReceived = String(item.price);
             }
@@ -2460,26 +2500,49 @@ export default function POSSystem({
                 expireDateStr = `${String(expDate.getDate()).padStart(2, '0')}/${String(expDate.getMonth() + 1).padStart(2, '0')}/${exY}`;
             }
 
+            const courseReceivedItems = String(
+              item.items || 
+              item.promoOption?.items || 
+              getFuzzyKey(item.originalItem, ["รายการที่ได้รับ", "col_11"]) || 
+              ''
+            );
+
             const courseData = {
               "เบอร์โทร": cPhone,
+              "col_1": cPhone,
               "cleanPhone": custCleanPhone,
               "เลขที่ใบคอส": courseNo,
+              "col_2": courseNo,
+              "รหัสคอส": String(getFuzzyKey(item.originalItem, ["รหัสคอส", "col_1", "code"]) || item.id || ''),
               "วันที่ซื้อ": customDateObj.toLocaleDateString('th-TH'),
+              "col_3": customDateObj.toLocaleDateString('th-TH'),
               "ผู้ซื้อคอส": cName,
+              "col_9": cName,
               "ชื่อคอส": item.name,
+              "col_8": item.name,
               "สาขาที่ซื้อ": String(globalBranch || "สำนักงานใหญ่"),
               "ราคา": String(item.price),
+              "col_13": String(item.price),
               "เครดิตที่ได้รับ": creditReceived,
+              "col_14": creditReceived,
               "จำนวนครั้งที่ได้": courseTotalQty,
+              "col_10": courseTotalQty,
+              "col_4": courseTotalQty,
               "ยอดค้างชำระ": "0",
               "ยอดชำระแล้วทั้งหมด": String(item.price),
               "ครั้งที่ใช้": "0",
+              "col_5": "0",
               "ครั้งที่เหลือดิบ": courseTotalQty,
+              "col_33": courseTotalQty,
               "สถานะ": "ยังคงเหลือ",
+              "col_6": "ยังคงเหลือ",
               "ประเภทการชำระ": paymentMethodStr,
-              "รายการที่ได้รับ": String(getFuzzyKey(item.originalItem, ["รายการที่ได้รับ", "col_11"]) || ''),
+              "รายการที่ได้รับ": courseReceivedItems,
+              "col_11": courseReceivedItems,
               "ฟรีบัตรสมาชิก": String(getFuzzyKey(item.originalItem, ["ฟรีบัตรสมาชิก"]) || 'ไม่'),
-              "claimedItems": []
+              "claimedItems": [],
+              "createdAt": customDateObj.toISOString(),
+              "promoOption": item.promoOption || null
             };
             if (expireDateStr) courseData["วันหมดอายุ"] = expireDateStr;
             batch.set(courseRef, courseData);
@@ -2489,15 +2552,21 @@ export default function POSSystem({
             batch.set(historyRef, {
               "วันที่": customDateObj.toLocaleDateString('th-TH'),
               "ชื่อลูกค้า": cName,
+              "col_2": cName,
               "เบอร์โทร": cPhone,
+              "col_3": cPhone,
               "cleanPhone": custCleanPhone,
               "หมายเลขคำสั่งซื้อ": orderNo,
               "ประเภท": "ซื้อคอร์ส",
+              "col_4": "ซื้อคอร์ส",
               "สถานะ": "เรียบร้อย",
               "สินค้า": item.name,
+              "col_18": item.name,
               "ยอดเงิน": String(item.price),
+              "col_19": String(item.price),
               "สาขา": String(globalBranch || "สำนักงานใหญ่"),
               "อ้างอิง": courseNo,
+              "col_6": courseNo,
               "พนักงาน": paymentStaff
             });
           }
@@ -3870,12 +3939,17 @@ export default function POSSystem({
                       const subItems = String(getFuzzyKey(c, ["รายการที่ได้รับ", "col_11"]) || '').trim();
                       const courseName = String(getFuzzyKey(c, ["ชื่อคอส", "col_4"]));
                       
+                      const promoOptions = Array.isArray(c.promoOptions) ? c.promoOptions.filter(o => o && (o.name || o.price)) : [];
+                      const hasPromoOptions = promoOptions.length > 0;
+
                       let sessionCount = null;
                       const match = courseName.match(/\(?(\d+)\s*ครั้ง\)?/);
                       if (match) {
                         sessionCount = parseInt(match[1]);
                       } else if (courseName.includes('รายครั้ง')) {
                         sessionCount = 1;
+                      } else if (hasPromoOptions && promoOptions[0]?.sessions) {
+                        sessionCount = parseInt(promoOptions[0].sessions);
                       }
                       
                       const isSingle = sessionCount === 1;
@@ -3888,10 +3962,27 @@ export default function POSSystem({
                           else if (lowerName.includes('set c') || lowerName.includes('set.c')) duration = 'อายุ 1 ปี';
                           else duration = getCourseCategory(c) === 'old_courses' ? 'คอร์สเก่า' : (getCourseCategory(c) === 'acne_sets' ? 'อายุ 1 ปี' : 'อายุ 3 เดือน');
                       }
+
+                      // Price range or starting price calculation for promo courses
+                      let displayPriceStr = `฿${parseNumber(getFuzzyKey(c, ["ราคา", "ราคาขาย", "col_5"])).toLocaleString()}`;
+                      if (hasPromoOptions) {
+                        const validPrices = promoOptions.map(o => Number(o.price) || 0).filter(p => p > 0);
+                        if (validPrices.length > 0) {
+                          const minP = Math.min(...validPrices);
+                          const maxP = Math.max(...validPrices);
+                          if (minP !== maxP) {
+                            displayPriceStr = `฿${minP.toLocaleString()} - ฿${maxP.toLocaleString()}`;
+                          } else {
+                            displayPriceStr = `฿${minP.toLocaleString()}`;
+                          }
+                        }
+                      }
                       
                       const cardStyle = isSingle 
                         ? "bg-gradient-to-br from-indigo-50 to-blue-50 border-indigo-200 hover:border-indigo-300"
-                        : "bg-gradient-to-br from-pink-50 to-rose-50 border-pink-200 hover:border-pink-300";
+                        : (hasPromoOptions 
+                            ? "bg-gradient-to-br from-pink-50 via-rose-50 to-amber-50/40 border-pink-300 hover:border-pink-400 shadow-sm ring-1 ring-pink-400/20"
+                            : "bg-gradient-to-br from-pink-50 to-rose-50 border-pink-200 hover:border-pink-300");
                         
                       const priceStyle = isSingle ? "text-indigo-600" : "text-rose-600";
                       const watermarkStyle = isSingle ? "text-indigo-500/10" : "text-pink-500/10";
@@ -3901,7 +3992,7 @@ export default function POSSystem({
                       return (
                       <div 
                         key={c.id} 
-                        onClick={() => addToCart(c, 'course')}
+                        onClick={() => hasPromoOptions ? setSelectedCourseForPromoModal(c) : addToCart(c, 'course')}
                         className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-md cursor-pointer transition-all active:scale-95 flex flex-col h-full border relative overflow-hidden ${cardStyle}`}
                       >
                         <div className={`absolute -right-2 -bottom-4 text-[80px] font-black rotate-12 pointer-events-none select-none z-0 leading-none truncate w-24 text-center ${watermarkStyle}`}>{letter}</div>
@@ -3918,6 +4009,13 @@ export default function POSSystem({
                           <span className="line-clamp-2 text-xs sm:text-sm leading-snug">{courseName}</span>
                         </div>
                         
+                        {hasPromoOptions && (
+                          <div className="text-[9px] sm:text-[10px] text-pink-700 bg-pink-100/90 font-bold px-2 py-0.5 rounded-md flex items-center justify-between border border-pink-200 mt-1 relative z-10 shadow-2xs">
+                            <span className="flex items-center gap-1"><Sparkles size={11} className="text-pink-600 fill-pink-500 shrink-0" /> มี {promoOptions.length} โปรโมชั่นย่อย</span>
+                            <span className="text-[9px] bg-pink-600 text-white px-1.5 py-0.2 rounded font-extrabold shrink-0">เลือกโปร</span>
+                          </div>
+                        )}
+
                         {subItems && (
                           <div className="text-[10px] text-slate-500 mt-1 line-clamp-2 leading-tight relative z-10 whitespace-pre-line">
                             {subItems.replace(/\\n/g, '\n')}
@@ -3927,11 +4025,15 @@ export default function POSSystem({
                         <div className="mt-2 sm:mt-3 flex flex-col gap-1.5 relative z-10">
                           <div className="flex items-end justify-between">
                             <div className={`font-bold text-sm sm:text-lg flex flex-col ${priceStyle}`}>
-                              <span>฿{parseNumber(getFuzzyKey(c, ["ราคา", "ราคาขาย", "col_5"])).toLocaleString()}</span>
+                              <span>{displayPriceStr}</span>
                               {credit > 0 && <span className="text-[10px] text-emerald-600 font-medium mt-0.5">ได้เครดิต {credit.toLocaleString()}</span>}
                             </div>
                             <div className="flex flex-col items-end gap-1">
-                              {sessionCount && (
+                              {hasPromoOptions ? (
+                                <div className="text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-md shadow-sm border bg-rose-100 text-rose-700 border-rose-200">
+                                  {promoOptions.length} แพ็กเกจ
+                                </div>
+                              ) : sessionCount && (
                                 <div className={`text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-md shadow-sm border ${badgeStyle}`}>
                                   {isSingle ? 'รายครั้ง' : `${sessionCount} ครั้ง`}
                                 </div>
@@ -4726,11 +4828,7 @@ export default function POSSystem({
                   showToast('ไม่มีสินค้าในตะกร้า');
                   return;
                 }
-                const hasCourse = cart.some(i => {
-                  if (i.type !== 'course') return false;
-                  const qty = String(getFuzzyKey(i.originalItem, ["จำนวนครั้ง", "col_7"]) || '').trim();
-                  return qty !== '1';
-                });
+                const hasCourse = cart.some(i => i.type === 'course' || i.type === 'single_course');
                 if (hasCourse && !selectedCustomer && !isRequisitionMode) {
                   showToast('มีรายการคอร์สในตะกร้า โปรดเลือกลูกค้าก่อนชำระเงิน', 'error');
                   return;
@@ -7698,9 +7796,115 @@ export default function POSSystem({
               )}
             </div>
             <div className="p-4 border-t border-slate-100 bg-slate-50">
-              <button onClick={() => { addToCart(viewCourseDetails, 'course'); setViewCourseDetails(null); }} className="w-full bg-pink-500 hover:bg-pink-600 text-white font-bold py-2.5 rounded-xl transition-all shadow-sm shadow-pink-500/20">
-                เพิ่มลงตะกร้า
+              <button 
+                onClick={() => { 
+                  if (Array.isArray(viewCourseDetails.promoOptions) && viewCourseDetails.promoOptions.length > 0) {
+                    setSelectedCourseForPromoModal(viewCourseDetails);
+                    setViewCourseDetails(null);
+                  } else {
+                    addToCart(viewCourseDetails, 'course'); 
+                    setViewCourseDetails(null); 
+                  }
+                }} 
+                className="w-full bg-pink-500 hover:bg-pink-600 text-white font-bold py-2.5 rounded-xl transition-all shadow-sm shadow-pink-500/20"
+              >
+                {Array.isArray(viewCourseDetails.promoOptions) && viewCourseDetails.promoOptions.length > 0 ? 'เลือกโปรโมชั่นย่อย' : 'เพิ่มลงตะกร้า'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🌟 Modal เลือกตัวเลือกโปรโมชั่นย่อยสำหรับ POS (Promo Options Picker) 🌟 */}
+      {selectedCourseForPromoModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" 
+            onClick={() => setSelectedCourseForPromoModal(null)}
+          ></div>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden relative z-10 animate-in fade-in zoom-in-95 duration-200 border border-slate-100 flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="p-5 border-b border-pink-100 flex justify-between items-start bg-gradient-to-r from-pink-500 via-rose-500 to-amber-500 text-white">
+              <div className="pr-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[11px] font-mono font-bold uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-full inline-block text-pink-100">
+                    {String(getFuzzyKey(selectedCourseForPromoModal, ["รหัสคอส", "col_1"]) || 'PROMO')}
+                  </span>
+                  <span className="text-[11px] font-bold bg-white/20 text-white px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Sparkles size={11} /> {selectedCourseForPromoModal.promoOptions?.length || 0} ตัวเลือกโปร
+                  </span>
+                </div>
+                <h3 className="font-extrabold text-lg text-white leading-tight">
+                  {String(getFuzzyKey(selectedCourseForPromoModal, ["ชื่อคอส", "col_4"]) || selectedCourseForPromoModal.name)}
+                </h3>
+                <p className="text-xs text-pink-100 mt-1">แตะเลือกแพ็กเกจโปรโมชั่นที่ลูกค้าต้องการซื้อเพื่อใส่ลงตะกร้า</p>
+              </div>
+              <button 
+                onClick={() => setSelectedCourseForPromoModal(null)} 
+                className="text-white/80 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors shrink-0"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Options List */}
+            <div className="p-5 space-y-3 overflow-y-auto flex-1">
+              {(selectedCourseForPromoModal.promoOptions || []).map((opt, idx) => {
+                const optPrice = parseNumber(opt.price);
+                const optSessions = opt.sessions || 1;
+                return (
+                  <div 
+                    key={opt.id || idx}
+                    onClick={() => {
+                      addToCart(selectedCourseForPromoModal, 'course', null, opt);
+                      setSelectedCourseForPromoModal(null);
+                      showToast(`เพิ่ม "${opt.name}" ลงในตะกร้าแล้ว`, 'success');
+                    }}
+                    className="p-4 rounded-2xl border-2 border-pink-100 hover:border-pink-500 hover:bg-pink-50/40 bg-white transition-all cursor-pointer shadow-sm hover:shadow-md flex flex-col gap-2.5 group relative overflow-hidden"
+                  >
+                    <div className="flex justify-between items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="font-extrabold text-slate-800 text-sm sm:text-base group-hover:text-pink-600 transition-colors">
+                            {opt.name}
+                          </span>
+                          {opt.badge && (
+                            <span className="bg-gradient-to-r from-red-500 to-pink-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs flex items-center gap-1">
+                              <Sparkles size={9} /> {opt.badge}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="inline-block text-[11px] font-bold text-teal-700 bg-teal-50 border border-teal-200/60 px-2 py-0.5 rounded-md mb-1.5">
+                          ✨ จำนวน {optSessions} ครั้ง
+                        </div>
+
+                        {opt.items && (
+                          <div className="text-xs text-slate-500 mt-1 whitespace-pre-line leading-relaxed bg-slate-50/80 p-2.5 rounded-xl border border-slate-100">
+                            {opt.items}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="text-[10px] text-slate-400 font-bold">จ่ายเพียง</div>
+                        <div className="font-black text-xl text-pink-600">
+                          ฿{optPrice.toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-dashed border-pink-100 flex items-center justify-between text-xs font-bold text-pink-600 group-hover:text-pink-700">
+                      <span className="flex items-center gap-1 text-[11px]">
+                        <Check size={14} className="text-pink-600" /> แตะเพื่อเลือกโปรนี้
+                      </span>
+                      <span className="bg-pink-100 group-hover:bg-pink-600 group-hover:text-white text-pink-700 px-3.5 py-1 rounded-xl text-xs font-bold transition-colors shadow-2xs">
+                        เลือกใส่ตะกร้า
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

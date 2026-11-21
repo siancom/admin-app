@@ -1665,6 +1665,7 @@ export default function App() {
         computedCustomerName: courseCustomerName || '-',
         computedCourseName: courseName || '-',
         computedPhone: coursePhone,
+        cleanPhone: cleanCoursePhone,
         myHistories,
         computedTotalQty: currentTotal, 
         computedUsedQty: finalUsed, 
@@ -1693,7 +1694,14 @@ export default function App() {
     });
   }, [courses, precomputedHistories, customers, customersRaw, masterCourses]);
 
-  const getCustomerCourses = (phone) => processedCourses.filter(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '') === String(phone || ''));
+  const getCustomerCourses = (phone) => {
+    const targetClean = String(phone || '').replace(/\D/g, '');
+    if (!targetClean) return [];
+    return processedCourses.filter(c => {
+      const cp = String(c.cleanPhone || c.computedPhone || getFuzzyKey(c, ["เบอร์โทร", "col_1", "phone"]) || '').replace(/\D/g, '');
+      return cp === targetClean;
+    });
+  };
   const getDisplayCourses = (phone) => getCustomerCourses(phone).filter(c => {
       const courseName = String(getFuzzyKey(c, ["ชื่อคอส", "ชื่อคอร์ส", "col_8"]) || '').toLowerCase();
       const isCreditCourse = courseName.includes('วงเงิน') || courseName.includes('เติมเงิน') || courseName.includes('เครดิต') || courseName.includes('voucher') || courseName.includes('บัตรกำนัล') || courseName.includes('ฝากเงิน');
@@ -3547,17 +3555,24 @@ const flexMessage = {
             showToast('⚠️ นี่คือคำสั่งซื้อ "เติมเครดิต" — อย่าอนุมัติผ่านปุ่มนี้ ให้ใช้หน้าเติมวงเงินเครดิต (Wallet) เพื่อเพิ่มเครดิตให้ลูกค้าแทน');
             return;
         }
-        const matchedCustomer = customersRaw.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '') === String(order.customerPhone || ''));
-        const cName = matchedCustomer ? String(getFuzzyKey(matchedCustomer, ["ชื่อ", "col_1"])) : String(order.customerName || 'ลูกค้าทั่วไป');
+        const cleanOrderPhone = String(order.customerPhone || order.cleanPhone || '').replace(/\D/g, '');
+        const matchedCustomer = customersRaw.find(c => {
+            const cp = String(c.computedPhone || getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || '').replace(/\D/g, '');
+            return cp && cleanOrderPhone && cp === cleanOrderPhone;
+        });
+        const cName = matchedCustomer ? String(matchedCustomer.computedName || getFuzzyKey(matchedCustomer, ["ชื่อ", "col_1"])) : String(order.customerName || 'ลูกค้าทั่วไป');
         const resolvedPrice = parseNumber(order.price ?? order.totalPrice ?? order.itemPrice ?? 0);
         const targetBranch = normalizeBranchName(order.branch || globalBranch || 'เฉวง') || 'เฉวง';
-        const isProductOrder = order.itemType === 'product' || (Array.isArray(order.cartItems) && order.cartItems.length > 0 && order.cartItems.every(i => i.type === 'product' || i.type === 'simple' || !i.type));
+
+        const cartItems = Array.isArray(order.cartItems) ? order.cartItems : (Array.isArray(order.cart) ? order.cart : []);
+        const hasCourseItem = order.courseName || order.itemType === 'course' || cartItems.some(i => i.type === 'course' || i.type === 'single_course' || i.sessions || i.selectedPromoOption || i.promoOption);
+        const isProductOrder = !hasCourseItem && (order.itemType === 'product' || (cartItems.length > 0 && cartItems.every(i => i.type === 'product' || i.type === 'simple')));
 
         if (isProductOrder) {
             const batch = writeBatch(db);
-            if (!order.stockDeducted && Array.isArray(order.cartItems) && order.cartItems.length > 0) {
+            if (!order.stockDeducted && cartItems.length > 0) {
                 const deductMap = new Map();
-                order.cartItems.forEach(item => {
+                cartItems.forEach(item => {
                     const qty = Number(item.qty) || 1;
                     const prod = products.find(p =>
                         (item.productId && p.id === item.productId) ||
@@ -3585,20 +3600,26 @@ const flexMessage = {
                     });
                 });
             }
-            const itemSummary = Array.isArray(order.cartItems) && order.cartItems.length > 0
-                ? order.cartItems.map(i => `${i.name || i.itemName || 'สินค้า'} x${i.qty || 1}`).join(', ')
+            const itemSummary = cartItems.length > 0
+                ? cartItems.map(i => `${i.name || i.itemName || 'สินค้า'} x${i.qty || 1}`).join(', ')
                 : String(order.itemName || order.courseName || 'สินค้า');
             batch.set(doc(getCol('histories')), {
                 "วันที่": new Date().toLocaleDateString('th-TH'),
                 "เวลา": new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
                 "ชื่อลูกค้า": cName,
+                "col_2": cName,
                 "เบอร์โทร": String(order.customerPhone || ''),
+                "col_3": String(order.customerPhone || ''),
+                "cleanPhone": cleanOrderPhone,
                 "หมายเลขคำสั่งซื้อ": String(order.orderNo || ''),
                 "ประเภท": "ซื้อสินค้า",
+                "col_4": "ซื้อสินค้า",
                 "สถานะ": "เรียบร้อย",
                 "สินค้า": itemSummary,
+                "col_18": itemSummary,
                 "รายการ": itemSummary,
                 "ยอดเงิน": String(resolvedPrice),
+                "col_19": String(resolvedPrice),
                 "สาขา": String(order.branch || "เฉวง")
             });
             batch.update(getDocRef('orders', order.id), {
@@ -3609,39 +3630,128 @@ const flexMessage = {
             await batch.commit();
             showToast('อนุมัติคำสั่งซื้อสินค้าและตัดสต็อกสำเร็จ!');
         } else {
-            const resolvedCourseName = String(order.courseName || order.itemName || (Array.isArray(order.cartItems) && order.cartItems[0]?.name) || 'คอร์สบริการ');
-            const resolvedCredit = order.credit !== undefined && order.credit !== '' ? String(order.credit) : "0";
-            const courseNo = `IC${Date.now().toString().slice(-6)}`;
-            await addDoc(getCol('courses'), {
-                "เบอร์โทร": String(order.customerPhone || ''),
-                "เลขที่ใบคอส": courseNo,
-                "วันที่ซื้อ": new Date().toLocaleDateString('th-TH'),
-                "ผู้ซื้อคอส": cName,
-                "ชื่อคอส": resolvedCourseName,
-                "สาขาที่ซื้อ": String(order.branch || "เฉวง"),
-                "ราคา": String(resolvedPrice),
-                "เครดิตที่ได้รับ": resolvedCredit,
-                "จำนวนครั้งที่ได้": String(order.qty || "1"),
-                "ยอดค้างชำระ": "0",
-                "ยอดชำระแล้วทั้งหมด": String(resolvedPrice),
-                "ครั้งที่ใช้": "0",
-                "ครั้งที่เหลือดิบ": String(order.qty || "1"),
-                "สถานะ": "ยังคงเหลือ",
-                "ประเภทการชำระ": "จ่ายเต็ม"
+            const courseItems = cartItems.filter(i => i.type === 'course' || i.type === 'single_course' || i.sessions || i.selectedPromoOption || i.promoOption);
+            const itemsToCreate = courseItems.length > 0 ? courseItems : [{
+                name: order.courseName || order.itemName || 'คอร์สบริการ',
+                price: resolvedPrice,
+                qty: Number(order.qty) || 1,
+                sessions: order.sessions || order.qty || "1",
+                credit: order.credit || "0",
+                desc: order.items || order.desc || ''
+            }];
+
+            const batch = writeBatch(db);
+
+            for (const item of itemsToCreate) {
+                const itemQty = Number(item.qty) || 1;
+                const itemSessions = String(item.sessions || item.selectedPromoOption?.sessions || item.promoOption?.sessions || "1");
+                const itemPrice = parseNumber(item.price ?? resolvedPrice);
+                const itemCredit = String(item.credit || (order.credit !== undefined && order.credit !== '' ? order.credit : "0"));
+                const itemItems = String(item.items || item.selectedPromoOption?.items || item.desc || '');
+                const itemName = String(item.name || order.courseName || 'คอร์สบริการ');
+
+                for (let q = 0; q < itemQty; q++) {
+                    const courseNo = `IC${Date.now().toString().slice(-6)}${q}`;
+                    const courseRef = doc(getCol('courses'));
+                    batch.set(courseRef, {
+                        "เบอร์โทร": String(order.customerPhone || order.cleanPhone || ''),
+                        "col_1": String(order.customerPhone || order.cleanPhone || ''),
+                        "cleanPhone": cleanOrderPhone,
+                        "เลขที่ใบคอส": courseNo,
+                        "col_2": courseNo,
+                        "วันที่ซื้อ": new Date().toLocaleDateString('th-TH'),
+                        "col_3": new Date().toLocaleDateString('th-TH'),
+                        "ผู้ซื้อคอส": cName,
+                        "col_9": cName,
+                        "ชื่อคอส": itemName,
+                        "col_8": itemName,
+                        "สาขาที่ซื้อ": String(order.branch || "เฉวง"),
+                        "ราคา": String(itemPrice),
+                        "col_13": String(itemPrice),
+                        "เครดิตที่ได้รับ": itemCredit,
+                        "col_14": itemCredit,
+                        "จำนวนครั้งที่ได้": itemSessions,
+                        "col_10": itemSessions,
+                        "col_4": itemSessions,
+                        "ยอดค้างชำระ": "0",
+                        "ยอดชำระแล้วทั้งหมด": String(itemPrice),
+                        "ครั้งที่ใช้": "0",
+                        "col_5": "0",
+                        "ครั้งที่เหลือดิบ": itemSessions,
+                        "col_33": itemSessions,
+                        "สถานะ": "ยังคงเหลือ",
+                        "col_6": "ยังคงเหลือ",
+                        "ประเภทการชำระ": "จ่ายเต็ม",
+                        "รายการที่ได้รับ": itemItems,
+                        "col_11": itemItems,
+                        "claimedItems": [],
+                        "createdAt": new Date().toISOString(),
+                        "promoOption": item.selectedPromoOption || item.promoOption || null
+                    });
+
+                    const historyRef = doc(getCol('histories'));
+                    batch.set(historyRef, {
+                        "วันที่": new Date().toLocaleDateString('th-TH'),
+                        "เวลา": new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+                        "ชื่อลูกค้า": cName,
+                        "col_2": cName,
+                        "เบอร์โทร": String(order.customerPhone || order.cleanPhone || ''),
+                        "col_3": String(order.customerPhone || order.cleanPhone || ''),
+                        "cleanPhone": cleanOrderPhone,
+                        "หมายเลขคำสั่งซื้อ": String(order.orderNo || ''),
+                        "ประเภท": "ซื้อคอร์ส",
+                        "col_4": "ซื้อคอร์ส",
+                        "สถานะ": "เรียบร้อย",
+                        "สินค้า": itemName,
+                        "col_18": itemName,
+                        "ยอดเงิน": String(itemPrice),
+                        "col_19": String(itemPrice),
+                        "สาขา": String(order.branch || "เฉวง"),
+                        "อ้างอิง": courseNo,
+                        "col_6": courseNo
+                    });
+                }
+            }
+
+            // Deduct product stock if mixed cart
+            const productItems = cartItems.filter(i => i.type === 'product' || i.type === 'simple');
+            if (!order.stockDeducted && productItems.length > 0) {
+                const deductMap = new Map();
+                productItems.forEach(item => {
+                    const qty = Number(item.qty) || 1;
+                    const prod = products.find(p =>
+                        (item.productId && p.id === item.productId) ||
+                        (item.id && p.id === item.id) ||
+                        (item.sku && String(getFuzzyKey(p, ["รหัส", "รหัสสินค้า", "col_1"]) || '').trim() === String(item.sku).trim()) ||
+                        (item.name && String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim() === String(item.name).trim())
+                    );
+                    if (prod) {
+                        deductMap.set(prod.id, (deductMap.get(prod.id) || 0) + qty);
+                    }
+                });
+                deductMap.forEach((deductQty, prodId) => {
+                    const prod = products.find(p => p.id === prodId);
+                    if (!prod) return;
+                    const nextStockByBranch = { ...(prod.stock_by_branch || {}) };
+                    const curBr = getBranchStock(prod, targetBranch);
+                    nextStockByBranch[targetBranch] = Math.max(0, curBr - deductQty);
+                    const curTotal = getTotalStock(prod, branches);
+                    const nextTotal = prod.stock_by_branch && Object.keys(prod.stock_by_branch).length > 0
+                        ? Object.values(nextStockByBranch).reduce((sum, v) => sum + (Number(v) || 0), 0)
+                        : Math.max(0, curTotal - deductQty);
+                    batch.update(getDocRef('products', prod.id), {
+                        stock_by_branch: nextStockByBranch,
+                        "จำนวนคงเหลือ": String(nextTotal)
+                    });
+                });
+            }
+
+            batch.update(getDocRef('orders', order.id), { 
+                status: 'ชำระเงินแล้ว', 
+                stockDeducted: true, 
+                updatedAt: new Date().toISOString() 
             });
-            await addDoc(getCol('histories'), {
-                "วันที่": new Date().toLocaleDateString('th-TH'),
-                "ชื่อลูกค้า": cName,
-                "เบอร์โทร": String(order.customerPhone || ''),
-                "หมายเลขคำสั่งซื้อ": String(order.orderNo || ''),
-                "ประเภท": "ซื้อคอร์ส",
-                "สถานะ": "เรียบร้อย",
-                "สินค้า": resolvedCourseName,
-                "ยอดเงิน": String(resolvedPrice),
-                "สาขา": String(order.branch || "เฉวง"),
-                "อ้างอิง": courseNo
-            });
-            await updateDoc(getDocRef('orders', order.id), { status: 'ชำระเงินแล้ว', updatedAt: new Date().toISOString() });
+            await batch.commit();
             showToast('อนุมัติคำสั่งซื้อ สร้างคอร์ส และเพิ่มยอดสะสมสำเร็จ!');
         }
         const targetCustomer = matchedCustomer;
