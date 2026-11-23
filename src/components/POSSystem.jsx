@@ -2079,43 +2079,82 @@ export default function POSSystem({
                   }]);
                   showToast(`เพิ่มสิทธิ์ "${itemLabel}" ลงในบิลแล้ว`, 'success');
               } else if (voucher.type === 'course_percent' || voucher.type === 'course_fixed') {
-                  const targetName = (voucher.posItemName || voucher.courseName || '').toLowerCase().trim();
+                  const scope = voucher.scope || (voucher.targetCategory ? 'category' : (voucher.posItemName === 'ทุกคอร์ส' || !voucher.posItemName ? 'all_courses' : 'specific'));
                   const targetPercent = Number(voucher.value) || 0;
-                  
-                  // Check if course is already in cart
-                  const cartItem = cart.find(ci => (ci.name || '').toLowerCase().trim().includes(targetName) || targetName.includes((ci.name || '').toLowerCase().trim()));
-                  
-                  let matchedCourse = null;
-                  if (!cartItem) {
-                      matchedCourse = masterCourses.find(c => (c['ชื่อคอส'] || c.col_4 || c.name || '').toLowerCase().trim().includes(targetName) || targetName.includes((c['ชื่อคอส'] || c.col_4 || c.name || '').toLowerCase().trim()))
-                                   || products.find(p => (p['ชื่อสินค้า'] || p.col_2 || p.name || '').toLowerCase().trim().includes(targetName) || targetName.includes((p['ชื่อสินค้า'] || p.col_2 || p.name || '').toLowerCase().trim()));
-                      if (matchedCourse) {
-                          const priceStr = matchedCourse['ราคา'] || matchedCourse['ราคาขาย'] || matchedCourse['ราคาขายเต็ม'] || matchedCourse.col_5 || matchedCourse.col_6 || 0;
-                          const cPrice = typeof priceStr === 'string' ? parseFloat(priceStr.replace(/,/g, '')) || 0 : Number(priceStr) || 0;
-                          setCart(prev => [...prev, {
-                              id: matchedCourse.id,
-                              name: matchedCourse['ชื่อคอส'] || matchedCourse['ชื่อสินค้า'] || matchedCourse.name,
-                              price: cPrice,
-                              originalPrice: cPrice,
-                              qty: 1,
-                              type: 'service',
-                              originalItem: matchedCourse
-                          }]);
+                  const isPercent = voucher.type === 'course_percent';
+
+                  if (scope === 'all_courses') {
+                      // Applies to all course/service items in cart
+                      const courseItems = cart.filter(ci => ci.type === 'course' || ci.type === 'service' || ci.isCourse);
+                      const applicableItems = courseItems.length > 0 ? courseItems : cart;
+                      if (applicableItems.length === 0) {
+                          showToast('กรุณาเลือกรายการคอร์สลงตะกร้าก่อนใช้คูปอง', 'warning');
+                          return;
                       }
+                      const eligibleSubtotal = applicableItems.reduce((s, ci) => s + (Number(ci.price || 0) * Number(ci.qty || 1)), 0);
+                      const actualDiscount = isPercent
+                          ? Math.round((eligibleSubtotal * targetPercent) / 100)
+                          : Math.min(eligibleSubtotal, Number(voucher.value) || 0);
+
+                      setGlobalDiscount(prev => prev + actualDiscount);
+                      showToast('เพิ่มคูปองเป็นส่วนลดทุกคอร์สแล้ว', `ลด ${isPercent ? targetPercent + '%' : '฿' + actualDiscount} ทุกคอร์ส (-฿${actualDiscount.toLocaleString()})`, 'success');
+                  } else if (scope === 'category') {
+                      const targetCat = voucher.targetCategory;
+                      const targetCatLabel = (voucher.targetCategoryLabel || '').toLowerCase();
+                      const matchedItems = cart.filter(ci => {
+                          const itemCat = getCourseCategory(ci.originalItem || ci);
+                          const itemName = String(ci.name || '').toLowerCase();
+                          return itemCat === targetCat || (targetCatLabel && (itemName.includes(targetCatLabel) || itemCat.includes(targetCatLabel)));
+                      });
+                      if (matchedItems.length === 0) {
+                          showToast(`คูปองนี้ใช้สำหรับหมวด "${voucher.targetCategoryLabel || targetCat}" กรุณาเลือกคอร์สในหมวดนี้ลงตะกร้าก่อน`, 'warning');
+                          return;
+                      }
+                      const matchedSubtotal = matchedItems.reduce((s, ci) => s + (Number(ci.price || 0) * Number(ci.qty || 1)), 0);
+                      const actualDiscount = isPercent
+                          ? Math.round((matchedSubtotal * targetPercent) / 100)
+                          : Math.min(matchedSubtotal, Number(voucher.value) || 0);
+
+                      setGlobalDiscount(prev => prev + actualDiscount);
+                      showToast(`เพิ่มคูปองส่วนลดหมวด ${voucher.targetCategoryLabel || targetCat}`, `ลด ${isPercent ? targetPercent + '%' : '฿' + actualDiscount} (-฿${actualDiscount.toLocaleString()})`, 'success');
+                  } else {
+                      const targetName = (voucher.posItemName || voucher.courseName || '').toLowerCase().trim();
+                      
+                      // Check if course is already in cart
+                      const cartItem = cart.find(ci => (ci.name || '').toLowerCase().trim().includes(targetName) || targetName.includes((ci.name || '').toLowerCase().trim()));
+                      
+                      let matchedCourse = null;
+                      if (!cartItem) {
+                          matchedCourse = masterCourses.find(c => (c['ชื่อคอส'] || c.col_4 || c.name || '').toLowerCase().trim().includes(targetName) || targetName.includes((c['ชื่อคอส'] || c.col_4 || c.name || '').toLowerCase().trim()))
+                                       || products.find(p => (p['ชื่อสินค้า'] || p.col_2 || p.name || '').toLowerCase().trim().includes(targetName) || targetName.includes((p['ชื่อสินค้า'] || p.col_2 || p.name || '').toLowerCase().trim()));
+                          if (matchedCourse) {
+                              const priceStr = matchedCourse['ราคา'] || matchedCourse['ราคาขาย'] || matchedCourse['ราคาขายเต็ม'] || matchedCourse.col_5 || matchedCourse.col_6 || 0;
+                              const cPrice = typeof priceStr === 'string' ? parseFloat(priceStr.replace(/,/g, '')) || 0 : Number(priceStr) || 0;
+                              setCart(prev => [...prev, {
+                                  id: matchedCourse.id,
+                                  name: matchedCourse['ชื่อคอส'] || matchedCourse['ชื่อสินค้า'] || matchedCourse.name,
+                                  price: cPrice,
+                                  originalPrice: cPrice,
+                                  qty: 1,
+                                  type: 'service',
+                                  originalItem: matchedCourse
+                              }]);
+                          }
+                      }
+
+                      const targetPrice = cartItem 
+                          ? (Number(cartItem.price) || 0) 
+                          : matchedCourse 
+                          ? (typeof (matchedCourse['ราคา'] || matchedCourse.col_5) === 'string' ? parseFloat(String(matchedCourse['ราคา'] || matchedCourse.col_5).replace(/,/g, '')) || 0 : Number(matchedCourse['ราคา'] || matchedCourse.col_5) || 0) 
+                          : 0;
+                      
+                      const actualDiscount = isPercent
+                          ? Math.round((targetPrice * targetPercent) / 100)
+                          : Math.min(targetPrice, Number(voucher.value) || 0);
+
+                      setGlobalDiscount(prev => prev + actualDiscount);
+                      showToast('เพิ่มคูปองเป็นส่วนลดคอร์สแล้ว', `ลด ${isPercent ? targetPercent + '%' : '฿' + actualDiscount} สำหรับ ${voucher.posItemName || targetName} (-฿${actualDiscount.toLocaleString()})`, 'success');
                   }
-
-                  const targetPrice = cartItem 
-                      ? (Number(cartItem.price) || 0) 
-                      : matchedCourse 
-                      ? (typeof (matchedCourse['ราคา'] || matchedCourse.col_5) === 'string' ? parseFloat(String(matchedCourse['ราคา'] || matchedCourse.col_5).replace(/,/g, '')) || 0 : Number(matchedCourse['ราคา'] || matchedCourse.col_5) || 0) 
-                      : 0;
-                  
-                  const actualDiscount = voucher.type === 'course_percent'
-                      ? Math.round((targetPrice * targetPercent) / 100)
-                      : Math.min(targetPrice, Number(voucher.value) || 0);
-
-                  setGlobalDiscount(prev => prev + actualDiscount);
-                  showToast('เพิ่มคูปองเป็นส่วนลดคอร์สแล้ว', `ลด ${voucher.type === 'course_percent' ? targetPercent + '%' : '฿' + actualDiscount} สำหรับ ${voucher.posItemName || targetName} (-฿${actualDiscount.toLocaleString()})`, 'success');
               } else {
                   const discountVal = Number(voucher.value) || 0;
                   let actualDiscount = discountVal;

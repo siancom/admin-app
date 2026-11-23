@@ -1,8 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Ticket, Plus, Edit2, Trash2, X, Save, Percent, BadgeDollarSign, User, CheckCircle, RefreshCw, Gift, Printer, Search } from 'lucide-react';
+import { Ticket, Plus, Edit2, Trash2, X, Save, Percent, BadgeDollarSign, User, CheckCircle, RefreshCw, Gift, Printer, Search, Layers, Sparkles, Filter } from 'lucide-react';
 import { addDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { getCol, getDocRef } from '../config/firebase';
 import { QRCodeSVG } from 'qrcode.react';
+
+export const COURSE_CATEGORIES = [
+  { id: 'facial', label: 'ผิวหน้า (A-J)', desc: 'ทรีทเม้นท์ผิวหน้า 10 โปรแกรม' },
+  { id: 'acne_clear', label: 'เคลียร์สิว', desc: 'กดสิว ดูดสิว มาร์คสิว' },
+  { id: 'machine', label: 'ลงเครื่อง', desc: 'RF, ไครโอ, เมโส, ยกกระชับ' },
+  { id: 'acne_sets', label: 'รักษาสิว/ฝ้า', desc: 'คอร์สริดพิกเม้น ฝ้า กระ จุดด่างดำ' },
+  { id: 'nourish', label: 'บำรุงฟื้นฟู', desc: 'สปาเย็น ขัดผิว นวดหน้าใส' },
+  { id: 'ipl', label: 'IPL กำจัดขน', desc: 'เลเซอร์กำจัดขน' },
+  { id: 'promo', label: 'โปรโมชั่น', desc: 'Hot Deals / 1 แถม 1' },
+  { id: 'product', label: 'สินค้า/ผลิตภัณฑ์', desc: 'ครีม ยาทา เซรั่ม โฟม' }
+];
 
 const CouponManager = ({ showToast, customers = [], products = [], masterCourses = [] }) => {
   const [coupons, setCoupons] = useState([]);
@@ -18,11 +29,14 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
     code: '',
     type: 'course_percent', // 'course_percent' | 'course_fixed' | 'percent' | 'fixed' | 'pos_item' | 'free_item' | 'gamification_spins'
     value: 50,
-    posItemName: '',
+    scope: 'all_courses', // 'all_courses' | 'category' | 'specific'
+    targetCategory: 'facial',
+    targetCategoryLabel: 'ผิวหน้า (A-J)',
+    posItemName: 'ทุกคอร์ส',
     posItemId: '',
     posItemType: 'course',
     coursePercent: 50,
-    desc: '',
+    desc: 'ส่วนลด 50% ทุกคอร์ส',
     isPersonal: false,
     customerPhone: '',
     batchCount: 50,
@@ -71,10 +85,15 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
 
   const handleOpenModal = (coupon = null) => {
     if (coupon) {
+      const derivedScope = coupon.scope || (coupon.targetCategory ? 'category' : (coupon.posItemName === 'ทุกคอร์ส' || !coupon.posItemName ? 'all_courses' : 'specific'));
+      const catObj = COURSE_CATEGORIES.find(c => c.id === coupon.targetCategory) || COURSE_CATEGORIES[0];
       setFormData({
         code: coupon.code || '',
         type: coupon.type || 'fixed',
         value: coupon.value !== undefined && coupon.value !== null ? String(coupon.value) : '',
+        scope: derivedScope,
+        targetCategory: coupon.targetCategory || catObj.id,
+        targetCategoryLabel: coupon.targetCategoryLabel || catObj.label,
         posItemName: coupon.posItemName || (coupon.type === 'pos_item' ? String(coupon.value ?? '') : ''),
         posItemId: coupon.posItemId || '',
         posItemType: coupon.posItemType || 'course',
@@ -96,11 +115,14 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
         code: '',
         type: 'course_percent',
         value: 50,
-        posItemName: '',
+        scope: 'all_courses',
+        targetCategory: 'facial',
+        targetCategoryLabel: 'ผิวหน้า (A-J)',
+        posItemName: 'ทุกคอร์ส',
         posItemId: '',
         posItemType: 'course',
         coursePercent: 50,
-        desc: '',
+        desc: 'ส่วนลด 50% ทุกคอร์ส',
         isPersonal: activeTab === 'personal',
         customerPhone: '',
         batchCount: 50,
@@ -131,17 +153,35 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
     const rawVal = formData.value;
     let hasValidValue = false;
     let resolvedValue = 0;
-    const posItemName = formData.posItemName || itemSearch || '';
+    const scope = formData.scope || 'all_courses';
+    let posItemName = formData.posItemName || itemSearch || '';
     const posItemId = formData.posItemId || '';
     const posItemType = formData.posItemType || 'course';
 
     if (formData.type === 'course_percent') {
       const pct = Number(formData.coursePercent || rawVal);
-      hasValidValue = Boolean(posItemName.trim()) && pct > 0 && pct <= 100;
+      if (scope === 'all_courses') {
+        hasValidValue = pct > 0 && pct <= 100;
+        posItemName = 'ทุกคอร์ส';
+      } else if (scope === 'category') {
+        hasValidValue = Boolean(formData.targetCategory) && pct > 0 && pct <= 100;
+        posItemName = `หมวด ${formData.targetCategoryLabel || formData.targetCategory}`;
+      } else {
+        hasValidValue = Boolean(posItemName.trim()) && pct > 0 && pct <= 100;
+      }
       resolvedValue = pct || 50;
     } else if (formData.type === 'course_fixed') {
-      hasValidValue = Boolean(posItemName.trim()) && Number(rawVal) > 0;
-      resolvedValue = Number(rawVal) || 0;
+      const fixVal = Number(rawVal);
+      if (scope === 'all_courses') {
+        hasValidValue = fixVal > 0;
+        posItemName = 'ทุกคอร์ส';
+      } else if (scope === 'category') {
+        hasValidValue = Boolean(formData.targetCategory) && fixVal > 0;
+        posItemName = `หมวด ${formData.targetCategoryLabel || formData.targetCategory}`;
+      } else {
+        hasValidValue = Boolean(posItemName.trim()) && fixVal > 0;
+      }
+      resolvedValue = fixVal;
     } else if (formData.type === 'pos_item') {
       hasValidValue = Boolean(String(rawVal ?? posItemName).trim());
       resolvedValue = String(rawVal ?? posItemName).trim();
@@ -170,9 +210,12 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
            code: formData.code.toUpperCase(),
            type: formData.type,
            value: resolvedValue,
+           scope: (formData.type === 'course_percent' || formData.type === 'course_fixed') ? scope : 'all',
+           targetCategory: scope === 'category' ? formData.targetCategory : '',
+           targetCategoryLabel: scope === 'category' ? (formData.targetCategoryLabel || '') : '',
            posItemName: posItemName,
-           posItemId: posItemId,
-           posItemType: posItemType,
+           posItemId: scope === 'specific' ? posItemId : '',
+           posItemType: scope === 'specific' ? posItemType : 'course',
            desc: formData.desc,
            isPersonal: formData.isPersonal,
            customerPhone: formData.isPersonal ? formData.customerPhone.replace(/[^0-9]/g, '') : '',
@@ -192,9 +235,12 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
                 code: uniqueCode,
                 type: formData.type,
                 value: resolvedValue,
+                scope: (formData.type === 'course_percent' || formData.type === 'course_fixed') ? scope : 'all',
+                targetCategory: scope === 'category' ? formData.targetCategory : '',
+                targetCategoryLabel: scope === 'category' ? (formData.targetCategoryLabel || '') : '',
                 posItemName: posItemName,
-                posItemId: posItemId,
-                posItemType: posItemType,
+                posItemId: scope === 'specific' ? posItemId : '',
+                posItemType: scope === 'specific' ? posItemType : 'course',
                 desc: formData.desc,
                 isPersonal: false,
                 isBatch: true, // Special flag for batch
@@ -214,9 +260,12 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
            code: formData.code.toUpperCase(),
            type: formData.type,
            value: resolvedValue,
+           scope: (formData.type === 'course_percent' || formData.type === 'course_fixed') ? scope : 'all',
+           targetCategory: scope === 'category' ? formData.targetCategory : '',
+           targetCategoryLabel: scope === 'category' ? (formData.targetCategoryLabel || '') : '',
            posItemName: posItemName,
-           posItemId: posItemId,
-           posItemType: posItemType,
+           posItemId: scope === 'specific' ? posItemId : '',
+           posItemType: scope === 'specific' ? posItemType : 'course',
            desc: formData.desc,
            isPersonal: formData.isPersonal,
            customerPhone: formData.isPersonal ? formData.customerPhone.replace(/[^0-9]/g, '') : '',
@@ -460,8 +509,12 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
                             <span className="text-pink-600 flex items-center gap-1 font-bold">
                               <Percent size={14} /> ลด {coupon.value}%
                             </span>
-                            <span className="text-[11px] text-slate-500 font-medium truncate max-w-[150px]" title={coupon.posItemName || coupon.value}>
-                              คอร์ส: {coupon.posItemName || coupon.value || '-'}
+                            <span className="text-[11px] text-slate-500 font-medium truncate max-w-[170px]" title={coupon.posItemName || coupon.value}>
+                              {coupon.scope === 'all_courses' || coupon.posItemName === 'ทุกคอร์ส' 
+                                ? '🌟 ทุกคอร์ส' 
+                                : coupon.scope === 'category' 
+                                ? `📁 ${coupon.targetCategoryLabel ? 'หมวด: ' + coupon.targetCategoryLabel : (coupon.posItemName || coupon.targetCategory)}`
+                                : `🎯 คอร์ส: ${coupon.posItemName || coupon.value || '-'}`}
                             </span>
                           </div>
                         ) : coupon.type === 'course_fixed' ? (
@@ -469,8 +522,12 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
                             <span className="text-emerald-600 flex items-center gap-1 font-bold">
                               <BadgeDollarSign size={14} /> ลด ฿{coupon.value}
                             </span>
-                            <span className="text-[11px] text-slate-500 font-medium truncate max-w-[150px]" title={coupon.posItemName || coupon.value}>
-                              คอร์ส: {coupon.posItemName || coupon.value || '-'}
+                            <span className="text-[11px] text-slate-500 font-medium truncate max-w-[170px]" title={coupon.posItemName || coupon.value}>
+                              {coupon.scope === 'all_courses' || coupon.posItemName === 'ทุกคอร์ส' 
+                                ? '🌟 ทุกคอร์ส' 
+                                : coupon.scope === 'category' 
+                                ? `📁 ${coupon.targetCategoryLabel ? 'หมวด: ' + coupon.targetCategoryLabel : (coupon.posItemName || coupon.targetCategory)}`
+                                : `🎯 คอร์ส: ${coupon.posItemName || coupon.value || '-'}`}
                             </span>
                           </div>
                         ) : coupon.type === 'percent' ? (
@@ -697,63 +754,192 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
 
                     {(formData.type === 'course_percent' || formData.type === 'course_fixed') ? (
                       <>
-                        <div className="sm:col-span-2 relative">
-                          <label className="block text-sm font-bold text-slate-700 mb-1 flex items-center justify-between">
-                            <span>คอร์สหรือสินค้าที่ได้รับส่วนลด *</span>
-                            {formData.posItemName && (
-                              <span className="text-[11px] text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded-md">
-                                เลือกแล้ว: {formData.posItemName}
-                              </span>
-                            )}
+                        {/* 🌟 1. ขอบเขตส่วนลด: ทุกคอร์ส / เฉพาะหมวด / เจาะจง 🌟 */}
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                            <span className="flex items-center gap-1.5">
+                              <Filter size={15} className="text-rose-500" />
+                              ขอบเขตส่วนลดคอร์ส *
+                            </span>
+                            <span className="text-xs text-slate-400 font-normal">เลือกลดทั้งระบบ เฉพาะหมวด หรือเจาะจง</span>
                           </label>
-                          <div className="relative">
-                            <input 
-                              type="text" 
-                              required
-                              className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none font-medium text-slate-800"
-                              value={itemSearch}
-                              onChange={e => {
-                                 setItemSearch(e.target.value);
-                                 setFormData(prev => ({ ...prev, posItemName: e.target.value }));
-                                 setShowItemDropdown(true);
+                          <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  scope: 'all_courses',
+                                  posItemName: 'ทุกคอร์ส',
+                                  desc: prev.desc || (prev.type === 'course_percent' ? `ส่วนลด ${prev.coursePercent || 50}% ทุกคอร์ส` : `ส่วนลด ฿${prev.value || 0} ทุกคอร์ส`)
+                                }));
                               }}
-                              onFocus={() => setShowItemDropdown(true)}
-                              onBlur={() => setTimeout(() => setShowItemDropdown(false), 200)}
-                              placeholder="พิมพ์ค้นหาชื่อคอร์สหรือสินค้า..."
-                              autoComplete="off"
-                            />
-                            <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+                              className={`py-2 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1 ${
+                                (formData.scope || 'all_courses') === 'all_courses'
+                                  ? 'bg-white text-rose-600 shadow-sm border border-slate-200/80'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              <span>🌟 ทุกคอร์ส</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  scope: 'category',
+                                  targetCategory: prev.targetCategory || 'facial',
+                                  targetCategoryLabel: prev.targetCategoryLabel || 'ผิวหน้า (A-J)',
+                                  posItemName: `หมวด ${prev.targetCategoryLabel || 'ผิวหน้า (A-J)'}`,
+                                  desc: prev.desc || (prev.type === 'course_percent' ? `ส่วนลด ${prev.coursePercent || 50}% หมวด ${prev.targetCategoryLabel || 'ผิวหน้า'}` : `ส่วนลด ฿${prev.value || 0} หมวด ${prev.targetCategoryLabel || 'ผิวหน้า'}`)
+                                }));
+                              }}
+                              className={`py-2 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1 ${
+                                formData.scope === 'category'
+                                  ? 'bg-white text-rose-600 shadow-sm border border-slate-200/80'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              <span>📁 เฉพาะหมวด</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  scope: 'specific',
+                                  posItemName: itemSearch || prev.posItemName || '',
+                                  desc: prev.desc || ''
+                                }));
+                              }}
+                              className={`py-2 px-2 rounded-lg text-xs font-black transition-all flex items-center justify-center gap-1 ${
+                                formData.scope === 'specific'
+                                  ? 'bg-white text-rose-600 shadow-sm border border-slate-200/80'
+                                  : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              <span>🎯 เจาะจง</span>
+                            </button>
                           </div>
-                          {showItemDropdown && itemSearch && (
-                            <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
-                              {filteredItems.length > 0 ? filteredItems.map(i => (
-                                <button
-                                  key={i.id || i._name}
-                                  type="button"
-                                  className="w-full text-left px-4 py-2 hover:bg-rose-50/60 border-b border-slate-100 last:border-0 transition-colors"
-                                  onClick={() => {
-                                     setItemSearch(i._name);
-                                     setFormData(prev => ({
-                                       ...prev, 
-                                       posItemName: i._name,
-                                       posItemId: i.id || '',
-                                       posItemType: i._type || 'course',
-                                       desc: prev.desc || (formData.type === 'course_percent' ? `ส่วนลด ${prev.coursePercent || 50}% คอร์ส ${i._name}` : `ส่วนลด ฿${prev.value || 0} คอร์ส ${i._name}`)
-                                     }));
-                                     setShowItemDropdown(false);
-                                  }}
-                                >
-                                  <div className="font-bold text-slate-800">{i._name} {i._price > 0 && <span className="text-emerald-600 font-bold ml-1">(฿{i._price.toLocaleString()})</span>}</div>
-                                  <div className="text-[10px] text-slate-400 font-medium mt-0.5">
-                                     {i._type === 'course' ? '📦 คอร์ส' : '🛍️ สินค้า'}
-                                  </div>
-                                </button>
-                              )) : (
-                                <div className="px-4 py-3 text-sm text-slate-500 text-center">ไม่พบรายการ</div>
-                              )}
-                            </div>
-                          )}
                         </div>
+
+                        {/* 1. กรณี: ทุกคอร์ส */}
+                        {(formData.scope || 'all_courses') === 'all_courses' && (
+                          <div className="sm:col-span-2 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 rounded-2xl p-3.5 flex items-start gap-3">
+                            <span className="text-2xl mt-0.5">🌟</span>
+                            <div className="text-xs">
+                              <div className="font-black text-amber-950">ใช้ได้กับทุกคอร์สบริการในระบบ (All Courses)</div>
+                              <div className="text-amber-800/80 mt-1 leading-relaxed">
+                                ลูกค้าที่สั่งซื้อหรือใช้บริการคอร์สใดก็ได้ จะได้รับส่วนลด {formData.type === 'course_percent' ? `${formData.coursePercent || formData.value || 50}%` : `฿${Number(formData.value || 0).toLocaleString()}`} ทันที
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 2. กรณี: เฉพาะหมวด */}
+                        {formData.scope === 'category' && (
+                          <div className="sm:col-span-2 space-y-2">
+                            <label className="block text-sm font-bold text-slate-700 flex items-center justify-between">
+                              <span className="flex items-center gap-1.5">
+                                <Layers size={14} className="text-rose-500" />
+                                เลือกหมวดหมู่คอร์สที่ร่วมรายการ *
+                              </span>
+                              {formData.targetCategoryLabel && (
+                                <span className="text-[11px] text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                                  หมวด: {formData.targetCategoryLabel}
+                                </span>
+                              )}
+                            </label>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              {COURSE_CATEGORIES.map(cat => (
+                                <button
+                                  key={cat.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      targetCategory: cat.id,
+                                      targetCategoryLabel: cat.label,
+                                      posItemName: `หมวด ${cat.label}`,
+                                      desc: prev.desc || (prev.type === 'course_percent' ? `ส่วนลด ${prev.coursePercent || 50}% หมวด ${cat.label}` : `ส่วนลด ฿${prev.value || 0} หมวด ${cat.label}`)
+                                    }));
+                                  }}
+                                  className={`p-2.5 rounded-xl text-left border transition-all ${
+                                    formData.targetCategory === cat.id
+                                      ? 'bg-rose-50 border-rose-500 text-rose-700 shadow-xs ring-2 ring-rose-400/40'
+                                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <div className="text-xs font-black truncate">{cat.label}</div>
+                                  <div className="text-[10px] text-slate-400 truncate mt-0.5">{cat.desc}</div>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 3. กรณี: เจาะจงคอร์สหรือสินค้า */}
+                        {formData.scope === 'specific' && (
+                          <div className="sm:col-span-2 relative">
+                            <label className="block text-sm font-bold text-slate-700 mb-1 flex items-center justify-between">
+                              <span>คอร์สหรือสินค้าที่เจาะจง *</span>
+                              {formData.posItemName && (
+                                <span className="text-[11px] text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded-md">
+                                  เลือกแล้ว: {formData.posItemName}
+                                </span>
+                              )}
+                            </label>
+                            <div className="relative">
+                              <input 
+                                type="text" 
+                                required={formData.scope === 'specific'}
+                                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none font-medium text-slate-800"
+                                value={itemSearch}
+                                onChange={e => {
+                                   setItemSearch(e.target.value);
+                                   setFormData(prev => ({ ...prev, posItemName: e.target.value }));
+                                   setShowItemDropdown(true);
+                                }}
+                                onFocus={() => setShowItemDropdown(true)}
+                                onBlur={() => setTimeout(() => setShowItemDropdown(false), 200)}
+                                placeholder="พิมพ์ค้นหาชื่อคอร์สหรือสินค้า..."
+                                autoComplete="off"
+                              />
+                              <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+                            </div>
+                            {showItemDropdown && itemSearch && (
+                              <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                                {filteredItems.length > 0 ? filteredItems.map(i => (
+                                  <button
+                                    key={i.id || i._name}
+                                    type="button"
+                                    className="w-full text-left px-4 py-2 hover:bg-rose-50/60 border-b border-slate-100 last:border-0 transition-colors"
+                                    onClick={() => {
+                                       setItemSearch(i._name);
+                                       setFormData(prev => ({
+                                         ...prev, 
+                                         posItemName: i._name,
+                                         posItemId: i.id || '',
+                                         posItemType: i._type || 'course',
+                                         desc: prev.desc || (formData.type === 'course_percent' ? `ส่วนลด ${prev.coursePercent || 50}% คอร์ส ${i._name}` : `ส่วนลด ฿${prev.value || 0} คอร์ส ${i._name}`)
+                                       }));
+                                       setShowItemDropdown(false);
+                                    }}
+                                  >
+                                    <div className="font-bold text-slate-800">{i._name} {i._price > 0 && <span className="text-emerald-600 font-bold ml-1">(฿{i._price.toLocaleString()})</span>}</div>
+                                    <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                       {i._type === 'course' ? '📦 คอร์ส' : '🛍️ สินค้า'}
+                                    </div>
+                                  </button>
+                                )) : (
+                                  <div className="px-4 py-3 text-sm text-slate-500 text-center">ไม่พบรายการ</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         <div className="sm:col-span-2">
                           <label className="block text-sm font-bold text-slate-700 mb-1">
