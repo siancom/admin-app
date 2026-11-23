@@ -289,6 +289,7 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
         sessions: formData.sessions || (formData.promoOptions?.[0]?.sessions) || '1',
         products: formattedProducts,
         subCourses: formattedSubCourses,
+        isPOSCourse: Boolean(initialData?.isPOSCourse)
       }, initialData?.id || null);
       
       setFormData({

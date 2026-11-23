@@ -665,7 +665,38 @@ export default function App() {
         events: allEvents.slice(-8).reverse().map(e => ({ time: e.time_iso || '', desc: e.description || '', location: e.location || '' })),
         fetchedAt: new Date().toISOString()
       };
-      await updateDoc(getDocRef('orders', order.id), { trackingInfo: info });
+      const isDelivered = info.phase === 'delivered';
+      const orderUpdate = { trackingInfo: info };
+      if (isDelivered) {
+        orderUpdate.status = 'จัดส่งสำเร็จ';
+        orderUpdate.fulfillment = 'delivered';
+        orderUpdate.updatedAt = new Date().toISOString();
+      }
+      await updateDoc(getDocRef('orders', order.id), orderUpdate);
+
+      if (isDelivered) {
+        const orderNo = String(order.orderNo || order.id || '').trim();
+        const curHistories = historiesRef.current || histories || [];
+        const matchingHistories = curHistories.filter(h => {
+          const ref = String(getFuzzyKey(h, ["หมายเลขคำสั่งซื้อ", "เลขที่คำสั่งซื้อ", "col_5", "Order", "Ref", "เลขอ้างอิง"]) || '').trim();
+          return ref && (ref === orderNo || (order.orderNo && ref === String(order.orderNo).trim()) || (order.id && ref === String(order.id).trim()));
+        });
+        if (matchingHistories.length > 0) {
+          const batch = writeBatch(db);
+          matchingHistories.forEach(h => {
+            if (h.id) {
+              batch.update(getDocRef('histories', h.id), {
+                status: 'จัดส่งสำเร็จ',
+                "สถานะ": 'จัดส่งสำเร็จ',
+                "col_22": 'จัดส่งสำเร็จ',
+                fulfillment: 'delivered'
+              });
+            }
+          });
+          await batch.commit().catch(e => console.warn('Failed to update matching histories on delivered:', e));
+        }
+      }
+
       if (!silent) showToast(`ดึงสถานะพัสดุสำเร็จ: ${TRACK17_PHASE_TH[info.phase] || info.phase} (${num})`, 'success');
       return info;
     } catch (e) {
@@ -677,6 +708,8 @@ export default function App() {
   // 🌟 Auto-refresh 17TRACK แบบ Shopee: ดึงสถานะพัสดุที่กำลังขนส่งเองทุก 15 นาที (เบื้องหลัง เงียบๆ)
   const ordersRef = useRef(orders);
   ordersRef.current = orders;
+  const historiesRef = useRef(histories);
+  historiesRef.current = histories;
   useEffect(() => {
     let cancelled = false;
     const DEAD_PHASES = ['delivered', 'undelivered', 'expired'];
@@ -1763,17 +1796,43 @@ export default function App() {
   }, [masterCourses, products]);
 
   const filteredMasterCourses = useMemo(() => {
+    const getCourseTimestamp = (mc) => {
+        if (mc.updatedAt) {
+            const t = typeof mc.updatedAt === 'object' && mc.updatedAt.seconds ? mc.updatedAt.seconds * 1000 : new Date(mc.updatedAt).getTime();
+            if (!isNaN(t) && t > 0) return t;
+        }
+        if (mc.createdAt) {
+            const t = typeof mc.createdAt === 'object' && mc.createdAt.seconds ? mc.createdAt.seconds * 1000 : new Date(mc.createdAt).getTime();
+            if (!isNaN(t) && t > 0) return t;
+        }
+        if (Array.isArray(mc.promoOptions)) {
+            for (const opt of mc.promoOptions) {
+                const optMatch = String(opt?.id || '').match(/opt_(\d+)/);
+                if (optMatch) {
+                    const optTime = Number(optMatch[1]);
+                    if (!isNaN(optTime) && optTime > 0) return optTime;
+                }
+            }
+        }
+        if (mc.isNewSystem) {
+            return new Date('2026-11-21T00:00:00+07:00').getTime();
+        }
+        const rawDate = getFuzzyKey(mc, ["วันที่เริ่มโปร", "วันที่", "col_9", "col_3", "startDate"]);
+        if (rawDate) {
+            const parsed = parseThaiDate(rawDate);
+            if (parsed && !isNaN(parsed.getTime())) return parsed.getTime();
+        }
+        return 0;
+    };
+
     return allMasterCourses.filter(mc => {
-        const cName = mc["ชื่อคอส"] || mc["col_4"] || "";
-        const match = cName.match(/(\d+)\s*(ครั้ง|c)/i);
-        if (match && parseInt(match[1], 10) === 1) return false;
-        
-        const qtyStr = String(getFuzzyKey(mc, ["จำนวนครั้ง", "col_7", "จำนวนครั้งที่ได้"]) || '').trim();
-        if (qtyStr === '1') return false;
-        
         const searchStr = `${String(getFuzzyKey(mc, ["รหัสคอส", "col_1"]) || '')} ${String(getFuzzyKey(mc, ["ชื่อคอส", "col_4"]) || '')} ${String(getFuzzyKey(mc, ["ประเภท", "col_2"]) || '')}`.toLowerCase();
         return masterCourseSearch === '' || searchStr.includes(masterCourseSearch.toLowerCase());
     }).sort((a, b) => {
+        const tA = getCourseTimestamp(a);
+        const tB = getCourseTimestamp(b);
+        if (tA !== tB) return tB - tA; // ล่าสุดขึ้นก่อน
+
         const numA = parseNumber(String(getFuzzyKey(a, ["รหัสคอส", "col_1"])).replace(/[^0-9]/g, ''));
         const numB = parseNumber(String(getFuzzyKey(b, ["รหัสคอส", "col_1"])).replace(/[^0-9]/g, ''));
         if (numA !== numB) return numB - numA;
@@ -1782,9 +1841,18 @@ export default function App() {
   }, [allMasterCourses, masterCourseSearch]);
 
   const masterCourseCategories = useMemo(() => {
-      const cats = new Set();
-      filteredMasterCourses.forEach(mc => cats.add(String(getFuzzyKey(mc, ["ประเภท", "col_2"]) || 'ทั่วไป')));
-      return ['ทั้งหมด', ...Array.from(cats)].sort();
+      const counts = {};
+      let total = 0;
+      filteredMasterCourses.forEach(mc => {
+          const type = String(getFuzzyKey(mc, ["ประเภท", "col_2"]) || 'ทั่วไป').trim();
+          counts[type] = (counts[type] || 0) + 1;
+          total++;
+      });
+      const sortedCats = Object.keys(counts).filter(c => c !== 'ทั้งหมด').sort((a, b) => a.localeCompare(b, 'th'));
+      return [
+          { name: 'ทั้งหมด', count: total },
+          ...sortedCats.map(name => ({ name, count: counts[name] || 0 }))
+      ];
   }, [filteredMasterCourses]);
 
   const filteredProducts = useMemo(() => {
@@ -1809,9 +1877,9 @@ export default function App() {
         } else if (filterOrderStatus === 'รอดำเนินการ') {
             matchStatus = ['รอตรวจสอบ', 'รอดำเนินการ', 'รอประเมินราคา', 'รออนุมัติ', 'pending'].includes(rawSt) || (st === 'รออนุมัติ' && rawSt !== 'รอชำระเงิน');
         } else if (filterOrderStatus === 'กำลังจัดส่ง') {
-            matchStatus = rawSt === 'กำลังจัดส่ง' || rawSt === 'จัดส่งแล้ว';
+            matchStatus = (rawSt === 'กำลังจัดส่ง' || rawSt === 'จัดส่งแล้ว') && rawSt !== 'จัดส่งสำเร็จ' && o.fulfillment !== 'delivered' && o.trackingInfo?.phase !== 'delivered';
         } else if (filterOrderStatus === 'สำเร็จแล้ว') {
-            matchStatus = ['ชำระเงินแล้ว', 'สำเร็จ', 'เรียบร้อย', 'approved', 'อนุมัติแล้ว'].includes(rawSt) || (st === 'อนุมัติแล้ว' && rawSt !== 'กำลังจัดส่ง' && rawSt !== 'จัดส่งแล้ว');
+            matchStatus = ['ชำระเงินแล้ว', 'สำเร็จ', 'เรียบร้อย', 'approved', 'อนุมัติแล้ว', 'จัดส่งสำเร็จ'].includes(rawSt) || rawSt.includes('สำเร็จ') || o.fulfillment === 'delivered' || o.trackingInfo?.phase === 'delivered' || (st === 'อนุมัติแล้ว' && rawSt !== 'กำลังจัดส่ง' && rawSt !== 'จัดส่งแล้ว');
         } else if (filterOrderStatus === 'ยกเลิก') {
             matchStatus = st === 'ยกเลิก';
         } else {
@@ -3268,7 +3336,16 @@ const flexMessage = {
     }
   };
   const executeDeleteProduct = async (id) => { try { await deleteDoc(getDocRef('products', id)); showToast('ลบสำเร็จ'); } catch (err) { showToast('ข้อผิดพลาด: ' + err.message); } };
-  const executeDeleteMasterCourse = async (id) => { try { await deleteDoc(getDocRef('master_courses', id)); showToast('ลบสำเร็จ'); } catch (err) { showToast('ข้อผิดพลาด: ' + err.message); } };
+  const executeDeleteMasterCourse = async (id, isPOSCourse = false) => { 
+    try { 
+      const isPos = Boolean(isPOSCourse || products.some(p => p.id === id));
+      const col = isPos ? 'products' : 'master_courses';
+      await deleteDoc(getDocRef(col, id)); 
+      showToast('ลบสำเร็จ'); 
+    } catch (err) { 
+      showToast('ข้อผิดพลาด: ' + err.message); 
+    } 
+  };
   const handleDeleteCourse = async (courseId, courseRefKey) => {
     if (globalRole !== 'owner') {
       showToast('เฉพาะเจ้าของร้านเท่านั้นที่สามารถลบใบคอร์สได้');
@@ -4590,15 +4667,24 @@ const flexMessage = {
 
   const handleAddCourse = async (courseData, editingId = null) => {
     try {
+      const isPos = Boolean(courseData.isPOSCourse || editingMasterCourse?.isPOSCourse || products.some(p => p.id === editingId));
+      const targetCol = isPos ? 'products' : 'master_courses';
+
       const payload = {
         "รหัสคอส": courseData.code,
         "col_1": courseData.code,
+        "รหัส": courseData.code,
         "ชื่อคอส": courseData.name,
         "col_4": courseData.name,
+        "ชื่อสินค้า": courseData.name,
+        "col_2": courseData.name,
         "ราคาขาย": courseData.price,
         "col_5": courseData.price,
         "ราคา": courseData.price,
         "col_6": courseData.price,
+        "ราคาขายเต็ม": courseData.price,
+        "หมวดสินค้า": courseData.category || 'โปรโมชั่น',
+        "ประเภท": courseData.category || 'โปรโมชั่น',
         "เครดิตที่ได้รับ": courseData.credit || '0',
         "col_8": courseData.credit || '0',
         "จำนวนครั้ง": courseData.sessions || '1',
@@ -4607,7 +4693,6 @@ const flexMessage = {
         "รายการที่ได้รับ": `${courseData.products ? 'สินค้าที่ได้รับ:\n' + courseData.products + '\n\n' : ''}${courseData.subCourses ? 'คอร์สย่อย/เสริม:\n' + courseData.subCourses : ''}`,
         "col_11": `${courseData.products ? 'สินค้าที่ได้รับ:\n' + courseData.products + '\n\n' : ''}${courseData.subCourses ? 'คอร์สย่อย/เสริม:\n' + courseData.subCourses : ''}`,
         "ฟรีบัตรสมาชิก": courseData.freeVip ? 'ใช่' : 'ไม่ใช่',
-        "ประเภท": courseData.category || 'โปรโมชั่น',
         "วันที่สิ้นสุด": courseData.endDate || '',
         "วันหมดเขต": courseData.endDate || '',
         "expireDate": courseData.endDate || '',
@@ -4616,11 +4701,14 @@ const flexMessage = {
         "image": courseData.image || '',
         "col_13": courseData.image || '',
         "promoOptions": Array.isArray(courseData.promoOptions) ? courseData.promoOptions : [],
+        "isNewSystem": true,
+        "isAvailableInShop": true,
+        "source": "new_system",
         "updatedAt": new Date().toISOString()
       };
 
       if (editingId) {
-        await updateDoc(getDocRef('master_courses', editingId), payload);
+        await setDoc(getDocRef(targetCol, editingId), payload, { merge: true });
         showToast('แก้ไขคอร์สโปรโมชั่นสำเร็จ');
       } else {
         payload.createdAt = new Date().toISOString();
@@ -4646,12 +4734,15 @@ const flexMessage = {
       await uploadBytes(storageRef, compressedBlob);
       const downloadURL = await getDownloadURL(storageRef);
 
-      await updateDoc(getDocRef('master_courses', mc.id), {
+      const isPos = Boolean(mc.isPOSCourse || products.some(p => p.id === mc.id));
+      const targetCol = isPos ? 'products' : 'master_courses';
+
+      await setDoc(getDocRef(targetCol, mc.id), {
         "รูปภาพ": downloadURL,
         "image": downloadURL,
         "col_13": downloadURL,
         "updatedAt": new Date().toISOString()
-      });
+      }, { merge: true });
       showToast('อัปโหลดรูปภาพคอร์สสำเร็จ!');
     } catch (err) {
       console.error(err);
@@ -4661,12 +4752,15 @@ const flexMessage = {
 
   const handleRemoveCourseImage = async (mc) => {
     try {
-      await updateDoc(getDocRef('master_courses', mc.id), {
+      const isPos = Boolean(mc.isPOSCourse || products.some(p => p.id === mc.id));
+      const targetCol = isPos ? 'products' : 'master_courses';
+
+      await setDoc(getDocRef(targetCol, mc.id), {
         "รูปภาพ": "",
         "image": "",
         "col_13": "",
         "updatedAt": new Date().toISOString()
-      });
+      }, { merge: true });
       showToast('ลบรูปภาพคอร์สสำเร็จ');
     } catch (err) {
       showToast('เกิดข้อผิดพลาด: ' + err.message);
@@ -6468,15 +6562,32 @@ const flexMessage = {
                  </div>
                  <div className="bg-slate-50 border-t border-gray-100 p-3 sm:px-5 sm:py-4">
                      <div className="flex gap-2 overflow-x-auto scrollbar-hide w-full">
-                         {masterCourseCategories.map(cat => (
-                            <button key={cat} onClick={() => setMasterCourseTab(cat)} className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all border ${masterCourseTab === cat ? 'bg-cyan-500 text-white border-cyan-500 shadow-md transform scale-105' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'}`}>{cat}</button>
+                         {masterCourseCategories.map(({ name, count }) => (
+                            <button 
+                                key={name} 
+                                onClick={() => setMasterCourseTab(name)} 
+                                className={`px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all border flex items-center gap-2 ${
+                                  masterCourseTab === name 
+                                    ? 'bg-cyan-500 text-white border-cyan-500 shadow-md transform scale-105' 
+                                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
+                                }`}
+                            >
+                                <span>{name}</span>
+                                <span className={`text-[11px] font-black px-1.5 py-0.5 rounded-full ${
+                                  masterCourseTab === name 
+                                    ? 'bg-white/20 text-white' 
+                                    : 'bg-gray-100 text-gray-500'
+                                }`}>
+                                  {count}
+                                </span>
+                            </button>
                          ))}
                      </div>
                  </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 pb-10">
-                {filteredMasterCourses.filter(mc => masterCourseTab === 'ทั้งหมด' || String(getFuzzyKey(mc, ["ประเภท", "col_2"]) || 'ทั่วไป') === masterCourseTab).slice(0, 100).map((mc, idx) => {
+                {filteredMasterCourses.filter(mc => masterCourseTab === 'ทั้งหมด' || String(getFuzzyKey(mc, ["ประเภท", "col_2"]) || 'ทั่วไป') === masterCourseTab).slice(0, 500).map((mc, idx) => {
                   const rawCredit = getFuzzyKey(mc, ["เครดิตที่ได้รับ", "เครดิตที่ได้", "เครดิตทั้งหมด", "ยอดเครดิต", "วงเงินคอร์ส", "เครดิต", "วงเงิน", "วงเงินที่ได้รับ", "มูลค่าเครดิต"]);
                   const creditAmt = rawCredit !== undefined && rawCredit !== '' ? parseNumber(rawCredit) : 0;
                   
@@ -6601,7 +6712,7 @@ const flexMessage = {
                             isOpen: true, 
                             title: 'ลบคอร์สตั้งต้น', 
                             message: 'แน่ใจหรือไม่ที่จะลบรายการคอร์สนี้?', 
-                            action: () => executeDeleteMasterCourse(mc.id), 
+                            action: () => executeDeleteMasterCourse(mc.id, mc.isPOSCourse), 
                             confirmText: 'ลบ', 
                             confirmColor: 'bg-red-600 hover:bg-red-700' 
                           })} 

@@ -198,6 +198,18 @@ export default function SettingsPage({
     }
   }, [settingsSection]);
 
+  const handlePaymentToggle = async (key, currentValue) => {
+    const nextVal = !currentValue;
+    setOmiseConfig(p => ({ ...p, [key]: nextVal }));
+    try {
+      const fieldName = key === 'enabled' ? 'omiseEnabled' : key;
+      await setDoc(doc(db, 'config', 'payment'), { [fieldName]: nextVal }, { merge: true });
+    } catch (err) {
+      console.error("Error saving payment toggle to Firestore:", err);
+      alert("เกิดข้อผิดพลาดในการบันทึกสถานะ: " + err.message);
+    }
+  };
+
   const saveOmiseConfig = async () => {
     setIsSavingOmise(true);
     try {
@@ -1314,7 +1326,7 @@ export default function SettingsPage({
                 <div className="text-xs text-gray-400 mt-0.5">อนุญาตให้ลูกค้าชำระเงินด้วยบัตรเครดิตผ่าน Omise ได้ในแอปลูกค้า</div>
               </div>
               <button
-                onClick={() => setOmiseConfig(p => ({ ...p, enabled: !p.enabled }))}
+                onClick={() => handlePaymentToggle('enabled', omiseConfig.enabled)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm transition-all shrink-0 ${omiseConfig.enabled ? 'bg-green-500 text-white shadow-md shadow-green-200' : 'bg-gray-200 text-gray-500'}`}
               >
                 {omiseConfig.enabled ? <ToggleRight size={18}/> : <ToggleLeft size={18}/>}
@@ -1336,7 +1348,7 @@ export default function SettingsPage({
                   return (
                     <div key={key} className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${isOn ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
                       <div className="font-bold text-sm text-gray-900">{label}</div>
-                      <button onClick={() => setOmiseConfig(p => ({ ...p, [key]: !isOn }))} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all ${isOn ? 'bg-green-500 text-white shadow-sm' : 'bg-gray-200 text-gray-500'}`}>
+                      <button onClick={() => handlePaymentToggle(key, isOn)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all ${isOn ? 'bg-green-500 text-white shadow-sm' : 'bg-gray-200 text-gray-500'}`}>
                         {isOn ? <ToggleRight size={16}/> : <ToggleLeft size={16}/>} {isOn ? 'เปิด' : 'ปิด'}
                       </button>
                     </div>
@@ -1362,7 +1374,7 @@ export default function SettingsPage({
                   return (
                     <div key={key} className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${isOn ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}>
                       <div className="font-bold text-sm text-gray-900">{label}</div>
-                      <button onClick={() => setOmiseConfig(p => ({ ...p, [key]: !isOn }))} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all ${isOn ? 'bg-green-500 text-white shadow-sm' : 'bg-gray-200 text-gray-500'}`}>
+                      <button onClick={() => handlePaymentToggle(key, isOn)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all ${isOn ? 'bg-green-500 text-white shadow-sm' : 'bg-gray-200 text-gray-500'}`}>
                         {isOn ? <ToggleRight size={16}/> : <ToggleLeft size={16}/>} {isOn ? 'เปิด' : 'ปิด'}
                       </button>
                     </div>

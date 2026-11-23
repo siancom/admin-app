@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Ticket, Plus, Edit2, Trash2, X, Save, Percent, BadgeDollarSign, User, CheckCircle, RefreshCw, Gift, Printer } from 'lucide-react';
+import { Ticket, Plus, Edit2, Trash2, X, Save, Percent, BadgeDollarSign, User, CheckCircle, RefreshCw, Gift, Printer, Search } from 'lucide-react';
 import { addDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { getCol, getDocRef } from '../config/firebase';
 import { QRCodeSVG } from 'qrcode.react';
@@ -16,8 +16,12 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
   
   const [formData, setFormData] = useState({
     code: '',
-    type: 'fixed', // 'fixed' or 'percent' or 'free_item' or 'pos_item'
-    value: '',
+    type: 'course_percent', // 'course_percent' | 'course_fixed' | 'percent' | 'fixed' | 'pos_item' | 'free_item' | 'gamification_spins'
+    value: 50,
+    posItemName: '',
+    posItemId: '',
+    posItemType: 'course',
+    coursePercent: 50,
     desc: '',
     isPersonal: false,
     customerPhone: '',
@@ -71,6 +75,10 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
         code: coupon.code || '',
         type: coupon.type || 'fixed',
         value: coupon.value !== undefined && coupon.value !== null ? String(coupon.value) : '',
+        posItemName: coupon.posItemName || (coupon.type === 'pos_item' ? String(coupon.value ?? '') : ''),
+        posItemId: coupon.posItemId || '',
+        posItemType: coupon.posItemType || 'course',
+        coursePercent: coupon.type === 'course_percent' ? (Number(coupon.value) || 50) : 50,
         desc: coupon.desc || '',
         isPersonal: coupon.isPersonal || false,
         customerPhone: coupon.customerPhone || '',
@@ -81,13 +89,17 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
         conditionPaymentMethod: coupon.conditionPaymentMethod || 'all'
       });
       setCustomerSearch(coupon.customerPhone || '');
-      setItemSearch(coupon.type === 'pos_item' ? String(coupon.value ?? '') : '');
+      setItemSearch(coupon.posItemName || (coupon.type === 'pos_item' ? String(coupon.value ?? '') : ''));
       setEditingCoupon(coupon);
     } else {
       setFormData({
         code: '',
-        type: 'fixed',
-        value: '',
+        type: 'course_percent',
+        value: 50,
+        posItemName: '',
+        posItemId: '',
+        posItemType: 'course',
+        coursePercent: 50,
         desc: '',
         isPersonal: activeTab === 'personal',
         customerPhone: '',
@@ -117,15 +129,29 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
     e.preventDefault();
 
     const rawVal = formData.value;
-    const hasValidValue = formData.type === 'pos_item'
-      ? Boolean(String(rawVal ?? '').trim())
-      : formData.type === 'free_item'
-        ? (rawVal !== '' && rawVal !== null && rawVal !== undefined && !isNaN(Number(rawVal)) && Number(rawVal) >= 0)
-        : (rawVal !== '' && rawVal !== null && rawVal !== undefined && Number(rawVal) > 0);
+    let hasValidValue = false;
+    let resolvedValue = 0;
+    const posItemName = formData.posItemName || itemSearch || '';
+    const posItemId = formData.posItemId || '';
+    const posItemType = formData.posItemType || 'course';
 
-    const resolvedValue = formData.type === 'pos_item'
-      ? String(rawVal ?? '').trim()
-      : (Number(rawVal) || 0);
+    if (formData.type === 'course_percent') {
+      const pct = Number(formData.coursePercent || rawVal);
+      hasValidValue = Boolean(posItemName.trim()) && pct > 0 && pct <= 100;
+      resolvedValue = pct || 50;
+    } else if (formData.type === 'course_fixed') {
+      hasValidValue = Boolean(posItemName.trim()) && Number(rawVal) > 0;
+      resolvedValue = Number(rawVal) || 0;
+    } else if (formData.type === 'pos_item') {
+      hasValidValue = Boolean(String(rawVal ?? posItemName).trim());
+      resolvedValue = String(rawVal ?? posItemName).trim();
+    } else if (formData.type === 'free_item') {
+      hasValidValue = rawVal !== '' && rawVal !== null && rawVal !== undefined && !isNaN(Number(rawVal)) && Number(rawVal) >= 0;
+      resolvedValue = Number(rawVal) || 0;
+    } else {
+      hasValidValue = rawVal !== '' && rawVal !== null && rawVal !== undefined && Number(rawVal) > 0;
+      resolvedValue = Number(rawVal) || 0;
+    }
 
     const isCreatingBatch = !editingCoupon && activeTab === 'batch';
 
@@ -144,6 +170,9 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
            code: formData.code.toUpperCase(),
            type: formData.type,
            value: resolvedValue,
+           posItemName: posItemName,
+           posItemId: posItemId,
+           posItemType: posItemType,
            desc: formData.desc,
            isPersonal: formData.isPersonal,
            customerPhone: formData.isPersonal ? formData.customerPhone.replace(/[^0-9]/g, '') : '',
@@ -163,6 +192,9 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
                 code: uniqueCode,
                 type: formData.type,
                 value: resolvedValue,
+                posItemName: posItemName,
+                posItemId: posItemId,
+                posItemType: posItemType,
                 desc: formData.desc,
                 isPersonal: false,
                 isBatch: true, // Special flag for batch
@@ -182,6 +214,9 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
            code: formData.code.toUpperCase(),
            type: formData.type,
            value: resolvedValue,
+           posItemName: posItemName,
+           posItemId: posItemId,
+           posItemType: posItemType,
            desc: formData.desc,
            isPersonal: formData.isPersonal,
            customerPhone: formData.isPersonal ? formData.customerPhone.replace(/[^0-9]/g, '') : '',
@@ -420,24 +455,42 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
                         <div className="text-slate-600">{coupon.desc || '-'}</div>
                       </td>
                       <td className="px-6 py-4 font-medium">
-                        {coupon.type === 'percent' ? (
-                          <span className="text-sky-600 flex items-center gap-1">
-                            <Percent size={14} /> ลด {coupon.value}%
+                        {coupon.type === 'course_percent' ? (
+                          <div className="flex flex-col">
+                            <span className="text-pink-600 flex items-center gap-1 font-bold">
+                              <Percent size={14} /> ลด {coupon.value}%
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-medium truncate max-w-[150px]" title={coupon.posItemName || coupon.value}>
+                              คอร์ส: {coupon.posItemName || coupon.value || '-'}
+                            </span>
+                          </div>
+                        ) : coupon.type === 'course_fixed' ? (
+                          <div className="flex flex-col">
+                            <span className="text-emerald-600 flex items-center gap-1 font-bold">
+                              <BadgeDollarSign size={14} /> ลด ฿{coupon.value}
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-medium truncate max-w-[150px]" title={coupon.posItemName || coupon.value}>
+                              คอร์ส: {coupon.posItemName || coupon.value || '-'}
+                            </span>
+                          </div>
+                        ) : coupon.type === 'percent' ? (
+                          <span className="text-sky-600 flex items-center gap-1 font-bold">
+                            <Percent size={14} /> ลด {coupon.value}% (ทั้งบิล)
                           </span>
                         ) : coupon.type === 'gamification_spins' ? (
-                          <span className="text-purple-600 flex items-center gap-1">
+                          <span className="text-purple-600 flex items-center gap-1 font-bold">
                             <Gift size={14} /> {coupon.value} สิทธิ์
                           </span>
                         ) : coupon.type === 'pos_item' ? (
-                          <span className="text-indigo-600 flex items-center gap-1 text-xs truncate max-w-[120px]">
-                            <Gift size={14} className="shrink-0" /> {coupon.value}
+                          <span className="text-indigo-600 flex items-center gap-1 text-xs truncate max-w-[150px]">
+                            <Gift size={14} className="shrink-0" /> แลกฟรี: {coupon.posItemName || coupon.value}
                           </span>
                         ) : coupon.type === 'free_item' ? (
-                          <span className="text-orange-600 flex items-center gap-1">
+                          <span className="text-orange-600 flex items-center gap-1 font-bold">
                             <Gift size={14} /> แลกฟรี
                           </span>
                         ) : (
-                          <span className="text-emerald-600 flex items-center gap-1">
+                          <span className="text-emerald-600 flex items-center gap-1 font-bold">
                             <BadgeDollarSign size={14} /> ลด {coupon.value}฿
                           </span>
                         )}
@@ -606,55 +659,87 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
                         onChange={e => setFormData({...formData, validUntil: e.target.value})}
                       />
                     </div>
-                    <div>
+                    <div className={(formData.type === 'course_percent' || formData.type === 'course_fixed') ? 'sm:col-span-2' : ''}>
                       <label className="block text-sm font-bold text-slate-700 mb-1">ประเภทส่วนลด</label>
                       <select 
-                        className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none bg-white"
+                        className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none bg-white font-medium text-slate-800"
                         value={formData.type}
                         onChange={e => {
                            const nextType = e.target.value;
                            const firstItemName = combinedItems.length > 0 ? combinedItems[0]._name : '';
-                           const nextValue = nextType === 'pos_item' ? firstItemName : nextType === 'free_item' ? '0' : '';
-                           setFormData({...formData, type: nextType, value: nextValue});
-                           if (nextType === 'pos_item') setItemSearch(firstItemName);
+                           let nextValue = '';
+                           if (nextType === 'pos_item') nextValue = firstItemName;
+                           else if (nextType === 'course_percent') nextValue = '50';
+                           else if (nextType === 'free_item') nextValue = '0';
+                           else if (nextType === 'course_fixed') nextValue = '500';
+
+                           setFormData(prev => ({
+                             ...prev, 
+                             type: nextType, 
+                             value: nextValue,
+                             coursePercent: nextType === 'course_percent' ? 50 : prev.coursePercent,
+                             posItemName: (nextType === 'course_percent' || nextType === 'course_fixed' || nextType === 'pos_item') ? (prev.posItemName || firstItemName) : ''
+                           }));
+                           if (nextType === 'pos_item' || nextType === 'course_percent' || nextType === 'course_fixed') {
+                             setItemSearch(formData.posItemName || firstItemName);
+                           }
                         }}
                       >
-                        <option value="fixed">เป็นเงินสด (บาท)</option>
-                        <option value="percent">เป็นเปอร์เซ็นต์ (%)</option>
-                        <option value="free_item">แลกฟรี (ใส่ 0)</option>
-                        <option value="pos_item">รายการจาก POS / คอร์ส</option>
-                        <option value="gamification_spins">สิทธิ์หมุนวงล้อ (Spins)</option>
+                        <option value="course_percent">🎁 ส่วนลดคอร์สที่เลือกเป็นเปอร์เซ็นต์ (%)</option>
+                        <option value="course_fixed">🏷️ ส่วนลดคอร์สที่เลือกเป็นเงินสด (บาท)</option>
+                        <option value="percent">📊 ลดทั้งบิลเป็นเปอร์เซ็นต์ (%)</option>
+                        <option value="fixed">💵 ลดทั้งบิลเป็นเงินสด (บาท)</option>
+                        <option value="pos_item">✨ แลกฟรีคอร์ส / สินค้าจาก POS (ใส่ 0)</option>
+                        <option value="free_item">🆓 แลกฟรีทั่วไป (ใส่ 0)</option>
+                        <option value="gamification_spins">🎡 สิทธิ์หมุนวงล้อ (Spins)</option>
                       </select>
                     </div>
-                    <div className="relative">
-                      <label className="block text-sm font-bold text-slate-700 mb-1">มูลค่า / จำนวนสิทธิ์ / รายการ *</label>
-                      {formData.type === 'pos_item' ? (
-                        <>
-                          <input 
-                            type="text" 
-                            required
-                            className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none font-medium"
-                            value={itemSearch}
-                            onChange={e => {
-                               setItemSearch(e.target.value);
-                               setFormData({...formData, value: e.target.value});
-                               setShowItemDropdown(true);
-                            }}
-                            onFocus={() => setShowItemDropdown(true)}
-                            onBlur={() => setTimeout(() => setShowItemDropdown(false), 200)}
-                            placeholder="พิมพ์ชื่อสินค้าหรือคอร์ส..."
-                            autoComplete="off"
-                          />
+
+                    {(formData.type === 'course_percent' || formData.type === 'course_fixed') ? (
+                      <>
+                        <div className="sm:col-span-2 relative">
+                          <label className="block text-sm font-bold text-slate-700 mb-1 flex items-center justify-between">
+                            <span>คอร์สหรือสินค้าที่ได้รับส่วนลด *</span>
+                            {formData.posItemName && (
+                              <span className="text-[11px] text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded-md">
+                                เลือกแล้ว: {formData.posItemName}
+                              </span>
+                            )}
+                          </label>
+                          <div className="relative">
+                            <input 
+                              type="text" 
+                              required
+                              className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none font-medium text-slate-800"
+                              value={itemSearch}
+                              onChange={e => {
+                                 setItemSearch(e.target.value);
+                                 setFormData(prev => ({ ...prev, posItemName: e.target.value }));
+                                 setShowItemDropdown(true);
+                              }}
+                              onFocus={() => setShowItemDropdown(true)}
+                              onBlur={() => setTimeout(() => setShowItemDropdown(false), 200)}
+                              placeholder="พิมพ์ค้นหาชื่อคอร์สหรือสินค้า..."
+                              autoComplete="off"
+                            />
+                            <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+                          </div>
                           {showItemDropdown && itemSearch && (
-                            <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                            <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
                               {filteredItems.length > 0 ? filteredItems.map(i => (
                                 <button
                                   key={i.id || i._name}
                                   type="button"
-                                  className="w-full text-left px-4 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                                  className="w-full text-left px-4 py-2 hover:bg-rose-50/60 border-b border-slate-100 last:border-0 transition-colors"
                                   onClick={() => {
                                      setItemSearch(i._name);
-                                     setFormData({...formData, value: i._name});
+                                     setFormData(prev => ({
+                                       ...prev, 
+                                       posItemName: i._name,
+                                       posItemId: i.id || '',
+                                       posItemType: i._type || 'course',
+                                       desc: prev.desc || (formData.type === 'course_percent' ? `ส่วนลด ${prev.coursePercent || 50}% คอร์ส ${i._name}` : `ส่วนลด ฿${prev.value || 0} คอร์ส ${i._name}`)
+                                     }));
                                      setShowItemDropdown(false);
                                   }}
                                 >
@@ -668,17 +753,111 @@ const CouponManager = ({ showToast, customers = [], products = [], masterCourses
                               )}
                             </div>
                           )}
-                        </>
-                      ) : (
-                        <input 
-                          type="number" 
-                          required min={formData.type === 'free_item' ? '0' : '1'}
-                          className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none"
-                          value={formData.value}
-                          onChange={e => setFormData({...formData, value: e.target.value})}
-                        />
-                      )}
-                    </div>
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-sm font-bold text-slate-700 mb-1">
+                            {formData.type === 'course_percent' ? 'เปอร์เซ็นต์ส่วนลดสำหรับคอร์สนี้ (%) *' : 'จำนวนเงินส่วนลดสำหรับคอร์สนี้ (บาท) *'}
+                          </label>
+                          <div className="flex gap-2">
+                            <input 
+                              type="number"
+                              min="1"
+                              max={formData.type === 'course_percent' ? "100" : undefined}
+                              required
+                              placeholder={formData.type === 'course_percent' ? "เช่น 50" : "เช่น 500"}
+                              className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none font-bold text-slate-800"
+                              value={formData.type === 'course_percent' ? (formData.coursePercent ?? '') : (formData.value ?? '')}
+                              onChange={e => {
+                                const val = e.target.value;
+                                if (formData.type === 'course_percent') {
+                                  setFormData(prev => ({ ...prev, coursePercent: val, value: val }));
+                                } else {
+                                  setFormData(prev => ({ ...prev, value: val }));
+                                }
+                              }}
+                            />
+                            <div className="bg-slate-100 border border-slate-200 px-4 py-2 rounded-xl flex items-center justify-center font-black text-slate-600 text-sm shrink-0">
+                              {formData.type === 'course_percent' ? '%' : '฿'}
+                            </div>
+                          </div>
+
+                          {formData.type === 'course_percent' && (
+                            <div className="flex items-center gap-1.5 mt-2">
+                              <span className="text-[11px] font-bold text-slate-500">เปอร์เซ็นต์ด่วน:</span>
+                              {[10, 20, 30, 50, 70, 100].map(p => (
+                                <button
+                                  key={p}
+                                  type="button"
+                                  onClick={() => setFormData(prev => ({ ...prev, coursePercent: p, value: p }))}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                                    Number(formData.coursePercent) === p 
+                                      ? 'bg-rose-600 text-white shadow-sm' 
+                                      : 'bg-slate-100 text-slate-600 hover:bg-rose-50 hover:text-rose-600'
+                                  }`}
+                                >
+                                  {p}%
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="relative">
+                        <label className="block text-sm font-bold text-slate-700 mb-1">มูลค่า / จำนวนสิทธิ์ / รายการ *</label>
+                        {formData.type === 'pos_item' ? (
+                          <>
+                            <input 
+                              type="text" 
+                              required
+                              className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none font-medium"
+                              value={itemSearch}
+                              onChange={e => {
+                                 setItemSearch(e.target.value);
+                                 setFormData({...formData, value: e.target.value, posItemName: e.target.value});
+                                 setShowItemDropdown(true);
+                              }}
+                              onFocus={() => setShowItemDropdown(true)}
+                              onBlur={() => setTimeout(() => setShowItemDropdown(false), 200)}
+                              placeholder="พิมพ์ชื่อสินค้าหรือคอร์ส..."
+                              autoComplete="off"
+                            />
+                            {showItemDropdown && itemSearch && (
+                              <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                                {filteredItems.length > 0 ? filteredItems.map(i => (
+                                  <button
+                                    key={i.id || i._name}
+                                    type="button"
+                                    className="w-full text-left px-4 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                                    onClick={() => {
+                                       setItemSearch(i._name);
+                                       setFormData({...formData, value: i._name, posItemName: i._name, posItemId: i.id || '', posItemType: i._type || 'course'});
+                                       setShowItemDropdown(false);
+                                    }}
+                                  >
+                                    <div className="font-bold text-slate-800">{i._name} {i._price > 0 && <span className="text-emerald-600 font-bold ml-1">(฿{i._price.toLocaleString()})</span>}</div>
+                                    <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                       {i._type === 'course' ? '📦 คอร์ส' : '🛍️ สินค้า'}
+                                    </div>
+                                  </button>
+                                )) : (
+                                  <div className="px-4 py-3 text-sm text-slate-500 text-center">ไม่พบรายการ</div>
+                                )}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <input 
+                            type="number" 
+                            required min={formData.type === 'free_item' ? '0' : '1'}
+                            className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none"
+                            value={formData.value}
+                            onChange={e => setFormData({...formData, value: e.target.value})}
+                          />
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <hr className="border-slate-100 my-4" />
