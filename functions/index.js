@@ -338,8 +338,89 @@ exports.omiseWebhook = functions.region('asia-southeast1').https.onRequest(async
           ordersSnapshot.docs.forEach(doc => {
             const data = doc.data();
             const currentStatus = data.status;
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('th-TH');
+            const cleanOrderPhone = String(data.customerPhone || data.cleanPhone || '').replace(/\D/g, '');
+            const cName = String(data.customerName || 'ลูกค้าทั่วไป');
+
+            // 🌟 ตรวจสอบและสร้างคอร์สเข้าสู่ระบบ POS อัตโนมัติเมื่อชำระเงินออนไลน์สำเร็จ
+            if (!data.courseCreated) {
+              const cartItems = Array.isArray(data.cartItems) ? data.cartItems : (Array.isArray(data.cart) ? data.cart : []);
+              const courseItems = cartItems.filter(i => i && (i.type === 'course' || i.type === 'single_course' || i.category === 'ลงเครื่อง' || i.isAddon || i.isCourse || i.sessions));
+              const itemsToCreate = courseItems.length > 0 ? courseItems : (data.courseName || data.itemType === 'course' ? [{
+                name: data.courseName || data.itemName || 'คอร์สบริการ',
+                price: data.totalPrice || data.price || 0,
+                qty: Number(data.qty) || 1,
+                sessions: data.sessions || "1",
+                credit: data.credit || "0",
+                desc: data.items || data.desc || ''
+              }] : []);
+
+              if (itemsToCreate.length > 0) {
+                for (const item of itemsToCreate) {
+                  const itemQty = Number(item.qty) || 1;
+                  const itemSessions = String(item.sessions || item.selectedPromoOption?.sessions || "1");
+                  const itemPrice = String(item.price || data.totalPrice || 0);
+                  const itemName = String(item.name || data.courseName || 'คอร์สบริการ');
+
+                  let expireDateStr = "";
+                  if (item.type === 'single_course' || item.category === 'ลงเครื่อง' || item.isAddon || String(itemSessions) === '1') {
+                    const expDate = new Date();
+                    expDate.setDate(expDate.getDate() + 7);
+                    const exY = expDate.getFullYear() + 543;
+                    expireDateStr = `${String(expDate.getDate()).padStart(2, '0')}/${String(expDate.getMonth() + 1).padStart(2, '0')}/${exY}`;
+                  }
+
+                  for (let q = 0; q < itemQty; q++) {
+                    const courseNo = `IC${Date.now().toString().slice(-6)}${q}`;
+                    const courseRef = db.collection('courses').doc();
+                    const courseData = {
+                      "เบอร์โทร": String(data.customerPhone || data.cleanPhone || ''),
+                      "col_1": String(data.customerPhone || data.cleanPhone || ''),
+                      "cleanPhone": cleanOrderPhone,
+                      "เลขที่ใบคอส": courseNo,
+                      "col_2": courseNo,
+                      "วันที่ซื้อ": dateStr,
+                      "col_3": dateStr,
+                      "ผู้ซื้อคอส": cName,
+                      "col_9": cName,
+                      "ชื่อคอส": itemName,
+                      "col_8": itemName,
+                      "สาขาที่ซื้อ": String(data.branch || "เฉวง"),
+                      "ราคา": itemPrice,
+                      "col_13": itemPrice,
+                      "เครดิตที่ได้รับ": "0",
+                      "col_14": "0",
+                      "จำนวนครั้งที่ได้": itemSessions,
+                      "col_10": itemSessions,
+                      "col_4": itemSessions,
+                      "ยอดค้างชำระ": "0",
+                      "ยอดชำระแล้วทั้งหมด": itemPrice,
+                      "ครั้งที่ใช้": "0",
+                      "col_5": "0",
+                      "ครั้งที่เหลือดิบ": itemSessions,
+                      "col_33": itemSessions,
+                      "สถานะ": "ยังคงเหลือ",
+                      "col_6": "ยังคงเหลือ",
+                      "ประเภทการชำระ": "ชำระออนไลน์ (Omise)",
+                      "รายการที่ได้รับ": String(item.desc || item.items || ''),
+                      "col_11": String(item.desc || item.items || ''),
+                      "claimedItems": [],
+                      "createdAt": now.toISOString(),
+                      "orderNo": String(data.orderNo || ''),
+                      "refOrderNo": String(data.orderNo || '')
+                    };
+                    if (expireDateStr) courseData["วันหมดอายุ"] = expireDateStr;
+                    batch.set(courseRef, courseData);
+                  }
+                }
+              }
+            }
+
             if (currentStatus === 'รอชำระเงิน' || currentStatus === 'รอตรวจสอบ' || currentStatus === 'รอดำเนินการ') {
-               batch.update(doc.ref, { status: 'สำเร็จ', updatedAt: new Date().toISOString() });
+              batch.update(doc.ref, { status: 'สำเร็จ', courseCreated: true, updatedAt: new Date().toISOString() });
+            } else if (!data.courseCreated) {
+              batch.update(doc.ref, { courseCreated: true, updatedAt: new Date().toISOString() });
             }
           });
         }

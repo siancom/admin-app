@@ -3627,7 +3627,32 @@ const flexMessage = {
       });
   };
 
-  const executeApproveOrder = async (order) => {
+  // 🌟 ตรวจสอบว่าคำสั่งซื้อสร้างใบคอร์สในระบบ POS แล้วหรือยัง
+  const isOrderCourseCreated = (order) => {
+    if (!order) return false;
+    if (order.courseCreated) return true;
+    const orderNo = String(order.orderNo || order.id || '').trim();
+    if (!orderNo) return false;
+    return (courses || []).some(c => {
+      const cRef = String(c.orderNo || c.refOrderNo || getFuzzyKey(c, ["orderNo", "refOrderNo", "หมายเลขคำสั่งซื้อ", "col_6", "อ้างอิง"]) || '').trim();
+      return cRef && (cRef === orderNo || cRef.includes(orderNo) || orderNo.includes(cRef));
+    });
+  };
+
+  // 🌟 ตรวจสอบว่าคำสั่งซื้อมีรายการคอร์ส / บริการ หรือไม่
+  const orderHasCourses = (order) => {
+    if (!order) return false;
+    const cartItems = Array.isArray(order.cartItems) ? order.cartItems : (Array.isArray(order.cart) ? order.cart : []);
+    if (order.courseName || order.itemType === 'course') return true;
+    if (cartItems.some(i => i && (i.type === 'course' || i.type === 'single_course' || i.category === 'ลงเครื่อง' || i.isAddon || i.isCourse || i.sessions || i.selectedPromoOption || i.promoOption))) return true;
+    if (!order.itemType || order.itemType === 'general') {
+        const title = String(order.courseName || order.itemName || (cartItems[0]?.name) || '');
+        if (title && !order.shippingAddress && !cartItems.every(i => i.type === 'product')) return true;
+    }
+    return false;
+  };
+
+  const executeApproveOrder = async (order, targetStatus = 'ชำระเงินแล้ว') => {
     try {
         // 🌟 กันอนุมัติ "เติมเครดิต (TU)" ผ่านปุ่มอนุมัติทั่วไป — ออเดอร์เติมเครดิตไม่มี courseName/credit
         // การอนุมัติผิด flow จะสร้างคอร์สชื่อ undefined — ต้องใช้ปุ่มเติมวงเงินเครดิตโดยเฉพาะเท่านั้น
@@ -3645,7 +3670,8 @@ const flexMessage = {
         const targetBranch = normalizeBranchName(order.branch || globalBranch || 'เฉวง') || 'เฉวง';
 
         const cartItems = Array.isArray(order.cartItems) ? order.cartItems : (Array.isArray(order.cart) ? order.cart : []);
-        const hasCourseItem = order.courseName || order.itemType === 'course' || cartItems.some(i => i.type === 'course' || i.type === 'single_course' || i.sessions || i.selectedPromoOption || i.promoOption);
+        const isItemCourse = (i) => i && (i.type === 'course' || i.type === 'single_course' || i.category === 'ลงเครื่อง' || i.isAddon || i.isCourse || i.sessions || i.selectedPromoOption || i.promoOption);
+        const hasCourseItem = order.courseName || order.itemType === 'course' || cartItems.some(isItemCourse);
         const isProductOrder = !hasCourseItem && (order.itemType === 'product' || (cartItems.length > 0 && cartItems.every(i => i.type === 'product' || i.type === 'simple')));
 
         if (isProductOrder) {
@@ -3700,17 +3726,17 @@ const flexMessage = {
                 "รายการ": itemSummary,
                 "ยอดเงิน": String(resolvedPrice),
                 "col_19": String(resolvedPrice),
-                "สาขา": String(order.branch || "เฉวง")
+                "สาขา": targetBranch
             });
             batch.update(getDocRef('orders', order.id), {
-                status: 'ชำระเงินแล้ว',
+                status: targetStatus,
                 stockDeducted: true,
                 updatedAt: new Date().toISOString()
             });
             await batch.commit();
             showToast('อนุมัติคำสั่งซื้อสินค้าและตัดสต็อกสำเร็จ!');
         } else {
-            const courseItems = cartItems.filter(i => i.type === 'course' || i.type === 'single_course' || i.sessions || i.selectedPromoOption || i.promoOption);
+            const courseItems = cartItems.filter(isItemCourse);
             const itemsToCreate = courseItems.length > 0 ? courseItems : [{
                 name: order.courseName || order.itemName || 'คอร์สบริการ',
                 price: resolvedPrice,
@@ -3730,10 +3756,18 @@ const flexMessage = {
                 const itemItems = String(item.items || item.selectedPromoOption?.items || item.desc || '');
                 const itemName = String(item.name || order.courseName || 'คอร์สบริการ');
 
+                let expireDateStr = "";
+                if (item.type === 'single_course' || item.category === 'ลงเครื่อง' || item.isAddon || String(itemSessions) === '1') {
+                    const expDate = new Date();
+                    expDate.setDate(expDate.getDate() + 7);
+                    const exY = expDate.getFullYear() + 543;
+                    expireDateStr = `${String(expDate.getDate()).padStart(2, '0')}/${String(expDate.getMonth() + 1).padStart(2, '0')}/${exY}`;
+                }
+
                 for (let q = 0; q < itemQty; q++) {
                     const courseNo = `IC${Date.now().toString().slice(-6)}${q}`;
                     const courseRef = doc(getCol('courses'));
-                    batch.set(courseRef, {
+                    const courseData = {
                         "เบอร์โทร": String(order.customerPhone || order.cleanPhone || ''),
                         "col_1": String(order.customerPhone || order.cleanPhone || ''),
                         "cleanPhone": cleanOrderPhone,
@@ -3745,7 +3779,7 @@ const flexMessage = {
                         "col_9": cName,
                         "ชื่อคอส": itemName,
                         "col_8": itemName,
-                        "สาขาที่ซื้อ": String(order.branch || "เฉวง"),
+                        "สาขาที่ซื้อ": targetBranch,
                         "ราคา": String(itemPrice),
                         "col_13": String(itemPrice),
                         "เครดิตที่ได้รับ": itemCredit,
@@ -3769,7 +3803,9 @@ const flexMessage = {
                         "promoOption": item.selectedPromoOption || item.promoOption || null,
                         "orderNo": String(order.orderNo || ''),
                         "refOrderNo": String(order.orderNo || '')
-                    });
+                    };
+                    if (expireDateStr) courseData["วันหมดอายุ"] = expireDateStr;
+                    batch.set(courseRef, courseData);
 
                     const historyRef = doc(getCol('histories'));
                     batch.set(historyRef, {
@@ -3788,7 +3824,7 @@ const flexMessage = {
                         "col_18": itemName,
                         "ยอดเงิน": String(itemPrice),
                         "col_19": String(itemPrice),
-                        "สาขา": String(order.branch || "เฉวง"),
+                        "สาขา": targetBranch,
                         "อ้างอิง": courseNo,
                         "col_6": courseNo
                     });
@@ -3829,7 +3865,8 @@ const flexMessage = {
             }
 
             batch.update(getDocRef('orders', order.id), { 
-                status: 'ชำระเงินแล้ว', 
+                status: targetStatus, 
+                courseCreated: true,
                 stockDeducted: true, 
                 updatedAt: new Date().toISOString() 
             });
@@ -3849,7 +3886,7 @@ const flexMessage = {
             });
 
             await batch.commit();
-            showToast('อนุมัติคำสั่งซื้อ สร้างคอร์ส และเพิ่มยอดสะสมสำเร็จ!');
+            showToast(`อนุมัติคำสั่งซื้อ (${targetStatus}) และเพิ่มคอร์สเข้าสู่ระบบ POS เรียบร้อยแล้ว! ✨`);
         }
         const targetCustomer = matchedCustomer;
         
@@ -4184,8 +4221,29 @@ const flexMessage = {
 
   const handleOrderStatusChange = async (order, newStatus) => {
     if (newStatus === order.status) return;
-    if (newStatus === 'ชำระเงินแล้ว') setActionConfirmModal({ isOpen: true, title: 'ยืนยันอนุมัติคอร์ส', message: `ยืนยันการอนุมัติคอร์ส: ${String(order.courseName || '')} ให้กับ ${String(order.customerName || order.customerPhone || '')} ใช่หรือไม่?`, action: () => executeApproveOrder(order), confirmText: 'อนุมัติ (เพิ่มคอร์ส)', confirmColor: 'bg-emerald-500 hover:bg-emerald-600' });
-    else { 
+    const isApprovedStatus = ['ชำระเงินแล้ว', 'สำเร็จ', 'เรียบร้อย'].includes(newStatus);
+    const hasCourse = orderHasCourses(order);
+    const alreadyCreated = isOrderCourseCreated(order);
+
+    if (isApprovedStatus && hasCourse && !alreadyCreated) {
+      setActionConfirmModal({ 
+        isOpen: true, 
+        title: 'ยืนยันอนุมัติและสร้างคอร์สใน POS', 
+        message: `เปลี่ยนสถานะเป็น "${newStatus}" และสร้างใบคอร์สในระบบ POS ให้กับคุณ ${String(order.customerName || order.customerPhone || '')} ทันทีใช่หรือไม่?`, 
+        action: () => executeApproveOrder(order, newStatus), 
+        confirmText: `อนุมัติ (${newStatus}) + เพิ่มคอร์ส`, 
+        confirmColor: 'bg-emerald-500 hover:bg-emerald-600' 
+      });
+    } else if (newStatus === 'ชำระเงินแล้ว' && !alreadyCreated) {
+      setActionConfirmModal({ 
+        isOpen: true, 
+        title: 'ยืนยันอนุมัติคำสั่งซื้อ', 
+        message: `ยืนยันการอนุมัติคำสั่งซื้อให้กับ ${String(order.customerName || order.customerPhone || '')} ใช่หรือไม่?`, 
+        action: () => executeApproveOrder(order, newStatus), 
+        confirmText: 'อนุมัติคำสั่งซื้อ', 
+        confirmColor: 'bg-emerald-500 hover:bg-emerald-600' 
+      });
+    } else { 
         try {
         await updateDoc(getDocRef('orders', order.id), { status: newStatus, updatedAt: new Date().toISOString() });
         showToast(`เปลี่ยนสถานะเป็น "${newStatus}"`); 
@@ -6404,6 +6462,31 @@ const flexMessage = {
                          <div className="flex flex-wrap gap-1 text-[9px] text-gray-500 mb-2">
                              <span className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 font-bold">฿{parseNumber(o.price || o.itemPrice || o.originalPrice || 0).toLocaleString()}</span>
                              <span className="bg-indigo-50 text-indigo-600 border border-indigo-100 px-1.5 py-0.5 rounded font-bold">เครดิต: ฿{parseNumber(o.credit || o.price || o.itemPrice || 0).toLocaleString()}</span>
+                             {orderHasCourses(o) && (
+                                isOrderCourseCreated(o) ? (
+                                   <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded font-bold flex items-center shadow-sm" title="สร้างใบคอร์สในระบบ POS แล้ว">
+                                      <CheckCircle size={10} className="mr-0.5 text-emerald-600" /> มีใน POS แล้ว
+                                   </span>
+                                ) : (
+                                   <button
+                                     onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActionConfirmModal({
+                                           isOpen: true,
+                                           title: 'เพิ่มคอร์สเข้าสู่ POS ทันที',
+                                           message: `ต้องการสร้างใบคอร์สในระบบ POS สำหรับออเดอร์ ${o.orderNo || ''} (${o.customerName || o.customerPhone}) ทันทีใช่หรือไม่?`,
+                                           action: () => executeApproveOrder(o, o.status || 'สำเร็จ'),
+                                           confirmText: 'สร้างคอร์สใน POS ทันที',
+                                           confirmColor: 'bg-emerald-500 hover:bg-emerald-600'
+                                        });
+                                     }}
+                                     className="bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-0.5 rounded font-black flex items-center shadow-sm transition-all hover:scale-105 animate-pulse"
+                                     title="กดเพื่อสร้างใบคอร์สเข้าสู่ระบบ POS ทันที"
+                                   >
+                                      <Plus size={10} className="mr-0.5" /> เพิ่มคอร์สเข้า POS
+                                   </button>
+                                )
+                             )}
                              {o.itemType === 'custom_image' && (
                                 <button onClick={(e) => { e.stopPropagation(); window.open(o.customOrderImage || o.slipImage || o.faceImage, '_blank'); }} className="bg-pink-50 text-pink-600 border border-pink-200 px-1.5 py-0.5 rounded font-bold flex items-center hover:bg-pink-100 transition-colors shadow-sm">
                                    <ImageIcon size={10} className="mr-0.5" /> ดูรูป
@@ -9681,6 +9764,21 @@ const flexMessage = {
                      )}
                      <button onClick={(e) => { e.stopPropagation(); setIshipModal({ isOpen: true, order: orderTicket }); }} className="w-full py-2.5 bg-blue-500 hover:bg-blue-600 rounded-xl font-bold text-white transition-colors flex items-center justify-center shadow-md gap-2">
                         <Package size={16} /> {orderTicket.trackingNo ? 'จองขนส่งใหม่ / เรียกรถ (iShip)' : 'เรียกขนส่ง (iShip)'}
+                     </button>
+                  </div>
+              )}
+
+              {orderHasCourses(orderTicket) && !isOrderCourseCreated(orderTicket) && (
+                  <div className="px-2 mb-3 w-full">
+                     <button
+                       onClick={async (e) => {
+                           e.stopPropagation();
+                           await executeApproveOrder(orderTicket, orderTicket.status || 'สำเร็จ');
+                           setOrderTicket(null);
+                       }}
+                       className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 rounded-xl font-black text-white transition-colors flex items-center justify-center shadow-md gap-2 animate-pulse"
+                     >
+                        <Plus size={16} /> สร้างคอร์สเข้าสู่ระบบ POS ทันที
                      </button>
                   </div>
               )}
