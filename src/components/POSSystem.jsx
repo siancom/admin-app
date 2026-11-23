@@ -5,7 +5,7 @@ import { AlertTriangle,
   Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink
 } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
-import { addDoc, updateDoc, doc, getDocs, query, where, writeBatch, orderBy, limit, collection } from 'firebase/firestore';
+import { addDoc, updateDoc, doc, getDocs, query, where, writeBatch, orderBy, limit, collection, arrayUnion } from 'firebase/firestore';
 import { getFuzzyKey } from '../utils/fuzzy';
 import imageCompression from 'browser-image-compression';
 import { parseNumber, parseQty, getTotalStock, getBranchStock, getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
@@ -2909,6 +2909,17 @@ export default function POSSystem({
         } catch(e) { console.error("Failed to mark voucher used", e); }
       }
 
+      // 🌟 สิทธิพิเศษ CRM: มอบคูปอง CRM20 & BOOK10 ให้ลูกค้าในระบบอัตโนมัติ เพื่อดึงกลับมาซื้อซ้ำ/จองออนไลน์ 🌟
+      if (selectedCustomer?.id) {
+        try {
+          await updateDoc(doc(db, 'customers', selectedCustomer.id), {
+            collectedCoupons: arrayUnion('CRM20', 'BOOK10')
+          });
+        } catch (e) {
+          console.error("Failed to auto-grant CRM coupons:", e);
+        }
+      }
+
       showToast('ชำระเงินสำเร็จ!', 'success');
       
       setShowPaymentModal(false);
@@ -4959,6 +4970,93 @@ export default function POSSystem({
                         </div>
                       </div>
 
+                      {/* 🌟 1-TAP QUICK PROMO CRM / WALK-IN BUTTONS 🌟 */}
+                      <div className="bg-indigo-50/70 border border-indigo-150 rounded-xl p-2.5 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-indigo-950 flex items-center gap-1.5">
+                            <Tag size={13} className="text-indigo-600" />
+                            ปุ่มด่วนโปรโมชั่น CRM / Walk-in
+                          </span>
+                          {(appliedVoucherCode || globalDiscount > 0) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAppliedVoucherCode(null);
+                                setAppliedVoucherData(null);
+                                setGlobalDiscount(0);
+                                showToast('ยกเลิกส่วนลดโปรโมชั่นแล้ว', 'info');
+                              }}
+                              className="text-[10px] font-bold text-red-600 hover:text-red-700 underline"
+                            >
+                              ✕ ยกเลิกส่วนลด
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (cart.length === 0) {
+                                showToast('กรุณาเลือกรายการสินค้า/คอร์สลงตะกร้าก่อน', 'warning');
+                                return;
+                              }
+                              const disc = Math.floor(subtotal * 0.10);
+                              setGlobalDiscount(disc);
+                              setAppliedVoucherCode('WALKIN10');
+                              setAppliedVoucherData({
+                                code: 'WALKIN10',
+                                name: 'ส่วนลด 10% ลูกค้าใหม่/Walk-in',
+                                type: 'percent',
+                                value: 10
+                              });
+                              showToast('ใช้โปร Walk-in ลด 10%', `หักส่วนลด ฿${disc.toLocaleString()}`, 'success');
+                            }}
+                            className={`p-2 rounded-lg text-left transition-all border ${
+                              appliedVoucherCode === 'WALKIN10'
+                                ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                                : 'bg-white hover:bg-amber-50 text-slate-800 border-slate-200'
+                            }`}
+                          >
+                            <div className="text-[11px] font-black flex items-center justify-between">
+                              <span>🚶‍♂️ Walk-in 10%</span>
+                              <span className="text-[10px] bg-black/10 px-1 rounded font-bold">-10%</span>
+                            </div>
+                            <div className="text-[9px] opacity-80 mt-0.5 truncate">ลูกค้าใหม่/หน้าร้านครั้งแรก</div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (cart.length === 0) {
+                                showToast('กรุณาเลือกรายการสินค้า/คอร์สลงตะกร้าก่อน', 'warning');
+                                return;
+                              }
+                              const disc = Math.floor(subtotal * 0.20);
+                              setGlobalDiscount(disc);
+                              setAppliedVoucherCode('CRM20');
+                              setAppliedVoucherData({
+                                code: 'CRM20',
+                                name: 'ส่วนลด 20% สมาชิก CRM ออนไลน์',
+                                type: 'percent',
+                                value: 20
+                              });
+                              showToast('ใช้โปร CRM ลด 20%', `หักส่วนลด ฿${disc.toLocaleString()}`, 'success');
+                            }}
+                            className={`p-2 rounded-lg text-left transition-all border ${
+                              appliedVoucherCode === 'CRM20'
+                                ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm'
+                                : 'bg-white hover:bg-indigo-50 text-slate-800 border-slate-200'
+                            }`}
+                          >
+                            <div className="text-[11px] font-black flex items-center justify-between">
+                              <span>📱 สมาชิก CRM 20%</span>
+                              <span className="text-[10px] bg-black/10 px-1 rounded font-bold">-20%</span>
+                            </div>
+                            <div className="text-[9px] opacity-80 mt-0.5 truncate">สิทธิพิเศษซื้อคอร์สออนไลน์</div>
+                          </button>
+                        </div>
+                      </div>
+
                       <div className="flex justify-between items-center">
                         <span className="text-sm">ส่วนลดเพิ่มเติม (Manual)</span>
                         <div className="flex items-center gap-2">
@@ -6548,7 +6646,9 @@ export default function POSSystem({
         </div>
 
         <div className="text-center text-xs pb-8 border-t border-dashed border-black pt-4">
-          <p>ขอบคุณที่ใช้บริการ</p>
+          <p className="font-bold text-slate-800">🎁 สิทธิพิเศษ CRM: รับคูปองลด 20% ครั้งถัดไป</p>
+          <p className="text-[10px] text-slate-500">สำหรับสั่งซื้อคอร์สด้วยตนเองใน LINE LIFF</p>
+          <p className="mt-2">ขอบคุณที่ใช้บริการ</p>
           <p>Thank you for shopping with us!</p>
         </div>
         </>
