@@ -974,12 +974,29 @@ export default function App() {
         const data = await fetchWithProxy(`${WOO_CFG.url.replace(/\/$/, '')}/wp-json/wc/v3/products?per_page=100&page=${page}`, { method: 'GET' });
         if (Array.isArray(data) && data.length > 0) {
           data.forEach(wp => {
-            if (wp.sku) newIdMap.set(String(wp.sku).trim().toUpperCase(), wp.id);
-            if (wp.name) newIdMap.set(String(wp.name).toLowerCase().trim(), wp.id);
+            const norm = (s) => String(s || '').toLowerCase().replace(/[\s\(\)\-_+.,/]/g, '');
+            if (wp.sku) {
+              const sku = String(wp.sku).trim().toUpperCase();
+              newIdMap.set(sku, wp.id);
+              newIdMap.set(norm(sku), wp.id);
+            }
+            if (wp.name) {
+              const name = String(wp.name).toLowerCase().trim();
+              newIdMap.set(name, wp.id);
+              newIdMap.set(norm(name), wp.id);
+            }
             if (wp.images && wp.images.length > 0) {
               const imgSrc = wp.images[0].src;
-              if (wp.sku) newImgMap.set(String(wp.sku).trim().toUpperCase(), imgSrc);
-              if (wp.name) newImgMap.set(String(wp.name).toLowerCase().trim(), imgSrc);
+              if (wp.sku) {
+                const sku = String(wp.sku).trim().toUpperCase();
+                newImgMap.set(sku, imgSrc);
+                newImgMap.set(norm(sku), imgSrc);
+              }
+              if (wp.name) {
+                const name = String(wp.name).toLowerCase().trim();
+                newImgMap.set(name, imgSrc);
+                newImgMap.set(norm(name), imgSrc);
+              }
             }
           });
           if (data.length < 100) hasMore = false;

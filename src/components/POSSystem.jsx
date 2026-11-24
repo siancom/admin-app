@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle,
   Scissors, Search, Info, ShoppingCart, Package, Layers, User, Trash2, UserPlus,
-  Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink
+  Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink,
+  Flame, TrendingUp
 } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, getDocs, query, where, writeBatch, orderBy, limit, collection, arrayUnion } from 'firebase/firestore';
@@ -40,6 +41,66 @@ const CosmeticsIcon = ({ size = 24, className = "" }) => (
   </svg>
 );
 
+export const normProductStr = (s) => String(s || '').toLowerCase().replace(/[\s\-_()（）[\]]/g, '');
+
+export const isServiceOrCourseProduct = (p) => {
+  if (!p) return false;
+  const name = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2", "ชื่อ", "name"]) || '').trim();
+  const lowerName = name.toLowerCase();
+  const category = String(getFuzzyKey(p, ["หมวดหมู่", "หมวด", "category", "type", "ประเภท"]) || '').trim().toLowerCase();
+
+  // Explicit type or category
+  if (p.type === 'service' || p.type === 'course' || p.isCourse || p.isService) return true;
+  if (category === 'service' || category === 'course' || category.includes('บริการ') || category.includes('คอร์ส') || category.includes('ทรีทเม้นท์')) return true;
+
+  // Single session or treatment add-ons (เช่น "ขัดหน้าขาว 1 ครั้ง", "ขัดหน้าขาว (ซื้อเพิ่มโปร) 1 ครั้ง", "กดสิว 1 ครั้ง")
+  if (/\b\d+\s*ครั้ง/i.test(name) || /1\s*ครั้ง/i.test(name) || name.includes('1 ครั้ง') || name.includes('ซื้อเพิ่มโปร')) {
+    return true;
+  }
+
+  // Common service names that mistakenly appear in product inventory
+  if (name.startsWith('ขัดหน้า') || name.startsWith('นวดหน้า') || name.startsWith('ดูดสิว') || name.startsWith('กดสิวเสี้ยน')) {
+    return true;
+  }
+
+  return false;
+};
+
+export const hasPosProductImage = (p, wooImagesMap) => {
+  if (!p) return false;
+  const productName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || p.name || '').trim();
+  const productCode = String(getFuzzyKey(p, ["รหัส", "col_1"]) || p.code || '').trim();
+
+  if (p.firebaseImageUrl && String(p.firebaseImageUrl).startsWith('http')) return true;
+  if (p.imageUrl && String(p.imageUrl).startsWith('http') && !p.imageUrl.includes('crm.irisnatures.com')) return true;
+  if (Array.isArray(p.images) && p.images.length > 0) return true;
+  if (p.image && typeof p.image === 'object' && (p.image.src || p.image.url)) return true;
+  if (p.image && typeof p.image === 'string' && p.image.startsWith('http') && !p.image.includes('crm.irisnatures.com')) return true;
+
+  const rawPicture = getFuzzyKey(p, ["รูปภาพ", "image", "imageUrl", "img", "photo", "picture"]);
+  if (rawPicture && typeof rawPicture === 'string' && (rawPicture.startsWith('http://') || rawPicture.startsWith('https://'))) return true;
+
+  const rawProductImg = p["รูปสินค้า"];
+  if (rawProductImg && typeof rawProductImg === 'string' && rawProductImg.trim()) return true;
+
+  if (wooImagesMap && wooImagesMap instanceof Map) {
+    const nName = normProductStr(productName);
+    const nCode = normProductStr(productCode);
+    if (productCode && (wooImagesMap.has(productCode.toUpperCase()) || wooImagesMap.has(productCode))) return true;
+    if (productName && (wooImagesMap.has(productName.toLowerCase()) || wooImagesMap.has(productName))) return true;
+    if (nCode && wooImagesMap.has(nCode)) return true;
+    if (nName && wooImagesMap.has(nName)) return true;
+    if (nName && nName.length >= 4) {
+      for (const [k] of wooImagesMap.entries()) {
+        const nk = normProductStr(k);
+        if (nk && (nk === nName || nk.includes(nName) || nName.includes(nk))) return true;
+      }
+    }
+  }
+
+  return false;
+};
+
 export const getPosProductImageUrl = (p, wooImagesMap) => {
   if (!p) return null;
   const productName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || p.name || '').trim();
@@ -57,8 +118,21 @@ export const getPosProductImageUrl = (p, wooImagesMap) => {
     if (first.startsWith('http')) return first;
   }
 
-  // 2. Direct web photo in 'รูปภาพ' / 'image' / 'imageUrl' (WordPress / WooCommerce media uploads)
-  const rawPicture = getFuzzyKey(p, ["รูปภาพ", "image", "imageUrl", "img"]);
+  // 2. Direct web photo in 'รูปภาพ' / 'image' / 'imageUrl' / 'images'
+  if (Array.isArray(p.images) && p.images.length > 0) {
+    const firstImg = p.images[0];
+    const src = typeof firstImg === 'string' ? firstImg : (firstImg?.src || firstImg?.url);
+    if (src && typeof src === 'string' && (src.startsWith('http://') || src.startsWith('https://'))) {
+      return src;
+    }
+  }
+  if (p.image && typeof p.image === 'object') {
+    const src = p.image.src || p.image.url;
+    if (src && typeof src === 'string' && (src.startsWith('http://') || src.startsWith('https://'))) {
+      return src;
+    }
+  }
+  const rawPicture = getFuzzyKey(p, ["รูปภาพ", "image", "imageUrl", "img", "photo", "picture"]);
   if (rawPicture && typeof rawPicture === 'string') {
     const first = rawPicture.split(',')[0].trim();
     if (first.startsWith('http://') || first.startsWith('https://')) {
@@ -66,17 +140,32 @@ export const getPosProductImageUrl = (p, wooImagesMap) => {
     }
   }
 
-  // 3. WooCommerce API map (if available)
+  // 3. WooCommerce API map (direct, upper/lower, normalized, and fuzzy substring)
   if (wooImagesMap && wooImagesMap instanceof Map) {
-    const wooImg = (productCode ? wooImagesMap.get(productCode.toUpperCase()) : null) || 
-                   (productName ? wooImagesMap.get(productName.toLowerCase()) : null);
+    const nName = normProductStr(productName);
+    const nCode = normProductStr(productCode);
+    let wooImg = (productCode ? (wooImagesMap.get(productCode.toUpperCase()) || wooImagesMap.get(productCode)) : null) || 
+                 (productName ? (wooImagesMap.get(productName.toLowerCase()) || wooImagesMap.get(productName)) : null) ||
+                 (nCode ? wooImagesMap.get(nCode) : null) ||
+                 (nName ? wooImagesMap.get(nName) : null);
+
+    if (!wooImg && nName && nName.length >= 4) {
+      for (const [k, v] of wooImagesMap.entries()) {
+        const nk = normProductStr(k);
+        if (nk && (nk === nName || (nName.length >= 5 && nk.includes(nName)) || (nk.length >= 5 && nName.includes(nk)))) {
+          wooImg = v;
+          break;
+        }
+      }
+    }
+
     if (wooImg && typeof wooImg === 'string' && wooImg.startsWith('http')) {
       const first = wooImg.split(',')[0].trim();
       if (first.startsWith('http')) return first;
     }
   }
 
-  // 3. 'รูปสินค้า' (AppSheet CRM legacy path or full url)
+  // 4. 'รูปสินค้า' (AppSheet CRM legacy path or full url)
   const rawProductImg = p["รูปสินค้า"];
   if (rawProductImg && typeof rawProductImg === 'string' && rawProductImg.trim()) {
     const first = rawProductImg.split(',')[0].trim();
@@ -91,7 +180,7 @@ export const getPosProductImageUrl = (p, wooImagesMap) => {
     return `https://crm.irisnatures.com/สินค้า_Images/${encodeURI(clean)}`;
   }
 
-  // 4. Any other key containing image file extension or '.รูปสินค้า.'
+  // 5. Any other key containing image file extension or '.รูปสินค้า.'
   for (const key of Object.keys(p)) {
     const val = String(p[key] || '').trim();
     if (val.match(/\.(jpeg|jpg|gif|png|webp)$/i) || val.includes('.รูปสินค้า.')) {
@@ -106,7 +195,7 @@ export const getPosProductImageUrl = (p, wooImagesMap) => {
     }
   }
 
-  // 5. Fallback to product name
+  // 6. Fallback to product name
   if (productName) {
     return `https://crm.irisnatures.com/สินค้า_Images/${encodeURIComponent(productName)}.jpg`;
   }
@@ -117,7 +206,7 @@ export const getPosProductImageUrl = (p, wooImagesMap) => {
 export const getProductFallbackUrl = (p) => {
   if (!p) return null;
   // If primary was crm, try web 'รูปภาพ'
-  const rawPicture = getFuzzyKey(p, ["รูปภาพ", "image", "imageUrl", "img"]);
+  const rawPicture = getFuzzyKey(p, ["รูปภาพ", "image", "imageUrl", "img", "photo", "picture"]);
   if (rawPicture && typeof rawPicture === 'string') {
     const first = rawPicture.split(',')[0].trim();
     if (first.startsWith('http://') || first.startsWith('https://')) return first;
@@ -206,6 +295,7 @@ export default function POSSystem({
   const quickEodActiveRef = useRef(!!autoOpenEod);
   const quickEodSubmittedRef = useRef(false);
   const [activeTab, setActiveTab] = useState('products'); // 'products' | 'courses' | 'my_courses'
+  const [productSortMode, setProductSortMode] = useState('bestseller'); // 'bestseller' | 'stock' | 'alpha'
   const [singleCourseTab, setSingleCourseTab] = useState('machine');
   const [multiCourseTab, setMultiCourseTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -836,6 +926,97 @@ export default function POSSystem({
     }
   }, [showEodModal]);
 
+  // 🌟 คำนวณสถิติยอดขายสินค้าจาก orders และ histories เพื่อจัดอันดับ "สินค้าขายดี"
+  const productSalesMap = useMemo(() => {
+    const counts = new Map();
+
+    const addCount = (key, qty) => {
+      if (!key) return;
+      const k = String(key).trim();
+      if (!k) return;
+      const q = Number(qty || 1);
+      const val = isNaN(q) ? 1 : q;
+      counts.set(k, (counts.get(k) || 0) + val);
+      const norm = normProductStr(k);
+      if (norm && norm !== k) {
+        counts.set(norm, (counts.get(norm) || 0) + val);
+      }
+    };
+
+    // 1. จาก orders
+    (orders || []).forEach(o => {
+      const status = String(o.status || '').trim();
+      if (status === 'ยกเลิก' || status === 'cancelled' || status === 'refunded') return;
+
+      const items = Array.isArray(o.cartItems) ? o.cartItems : 
+                    Array.isArray(o.items) ? o.items : 
+                    Array.isArray(o.line_items) ? o.line_items : [];
+
+      if (items.length > 0) {
+        items.forEach(it => {
+          const qty = Number(it.qty || it.quantity || 1);
+          if (it.id) addCount(it.id, qty);
+          if (it.productId) addCount(it.productId, qty);
+          if (it.code) addCount(it.code, qty);
+          if (it.sku) addCount(it.sku, qty);
+          if (it.name) addCount(it.name, qty);
+        });
+      } else {
+        const pId = o.productId || o.id;
+        const pName = o.productName || o.name;
+        const qty = Number(o.qty || o.quantity || 1);
+        if (pId) addCount(pId, qty);
+        if (pName) addCount(pName, qty);
+      }
+    });
+
+    // 2. จาก histories (ยอดขายหน้าร้าน POS)
+    (histories || []).forEach(h => {
+      const hStatus = String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '').trim();
+      if (h.isCancelled || hStatus === 'ยกเลิก') return;
+
+      if (Array.isArray(h.cartItems) && h.cartItems.length > 0) {
+        h.cartItems.forEach(it => {
+          const qty = Number(it.qty || it.quantity || 1);
+          if (it.id) addCount(it.id, qty);
+          if (it.productId) addCount(it.productId, qty);
+          if (it.code) addCount(it.code, qty);
+          if (it.name) addCount(it.name, qty);
+        });
+      } else {
+        const name = String(getFuzzyKey(h, ["รายการ", "ชื่อสินค้า", "สินค้า", "item", "col_8", "col_4"]) || '').trim();
+        const code = String(getFuzzyKey(h, ["รหัสสินค้า", "รหัส", "code", "col_2"]) || '').trim();
+        const qty = Number(getFuzzyKey(h, ["จำนวน", "qty", "col_5"]) || 1);
+        if (code) addCount(code, qty);
+        if (name) addCount(name, qty);
+      }
+    });
+
+    return counts;
+  }, [orders, histories]);
+
+  const getProductSalesScore = (p) => {
+    if (!p) return 0;
+    const id = p.id;
+    const name = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2", "ชื่อ", "name"]) || '').trim();
+    const code = String(getFuzzyKey(p, ["รหัส", "col_1", "code"]) || '').trim();
+    const norm = normProductStr(name);
+
+    let score = 0;
+    if (id && productSalesMap.has(id)) score = Math.max(score, productSalesMap.get(id));
+    if (code && productSalesMap.has(code)) score = Math.max(score, productSalesMap.get(code));
+    if (name && productSalesMap.has(name)) score = Math.max(score, productSalesMap.get(name));
+    if (norm && productSalesMap.has(norm)) score = Math.max(score, productSalesMap.get(norm));
+    return score;
+  };
+
+  const getProductStockNum = (p) => {
+    const currentBranch = globalBranch || "สำนักงานใหญ่";
+    const stockVal = getBranchStock(p, currentBranch);
+    const num = Number(stockVal);
+    return isNaN(num) ? 0 : num;
+  };
+
   // Filtered Inventory
   const filteredProducts = useMemo(() => {
     const filtered = products.filter(p => {
@@ -845,6 +1026,8 @@ export default function POSSystem({
       if (status === 'ร่าง' || status === 'draft' || status === 'ปิดใช้งาน' || status === 'ปิด' || status === 'ไม่แสดง' || status === 'ซ่อน') return false;
       // ซ่อนสินค้า Store Use เฉพาะโหมดขายปกติ (ไม่ใช่โหมดเบิกสินค้าและไม่ใช่โหมดนับสต๊อก)
       if (p.isStoreUseOnly && !isStockMode && !isRequisitionMode) return false;
+      // กรองบริการ/คอร์ส/ทรีทเม้นท์ ที่หลุดเข้ามาในตารางสินค้า (เช่น ขัดหน้าขาว 1 ครั้ง)
+      if (!isStockMode && !isRequisitionMode && isServiceOrCourseProduct(p)) return false;
       const searchStr = `${String(getFuzzyKey(p, ["รหัส", "col_1"]) || '')} ${name}`.toLowerCase();
       return searchTerm === '' || searchStr.includes(searchTerm.toLowerCase());
     });
@@ -852,9 +1035,43 @@ export default function POSSystem({
     return filtered.sort((a, b) => {
       const nameA = String(getFuzzyKey(a, ["ชื่อสินค้า", "col_2"]) || '');
       const nameB = String(getFuzzyKey(b, ["ชื่อสินค้า", "col_2"]) || '');
+
+      if (productSortMode === 'alpha') {
+        return nameA.localeCompare(nameB, 'th');
+      }
+
+      if (productSortMode === 'stock') {
+        const stockA = getProductStockNum(a);
+        const stockB = getProductStockNum(b);
+        if (stockA !== stockB) return stockB - stockA; // มีสต็อกมาก่อน
+        const scoreA = getProductSalesScore(a);
+        const scoreB = getProductSalesScore(b);
+        if (scoreA !== scoreB) return scoreB - scoreA;
+        const imgA = hasPosProductImage(a, wooImagesMap) ? 1 : 0;
+        const imgB = hasPosProductImage(b, wooImagesMap) ? 1 : 0;
+        if (imgA !== imgB) return imgB - imgA;
+        return nameA.localeCompare(nameB, 'th');
+      }
+
+      // Default: 'bestseller' (สินค้าขายดีแสดงก่อน)
+      const scoreA = getProductSalesScore(a);
+      const scoreB = getProductSalesScore(b);
+      if (scoreA !== scoreB) return scoreB - scoreA; // 1. ขายดีที่สุดขึ้นก่อน
+
+      const imgA = hasPosProductImage(a, wooImagesMap) ? 1 : 0;
+      const imgB = hasPosProductImage(b, wooImagesMap) ? 1 : 0;
+      if (imgA !== imgB) return imgB - imgA; // 2. สินค้าที่มีรูปภาพขึ้นก่อน
+
+      const stockA = getProductStockNum(a);
+      const stockB = getProductStockNum(b);
+      const inStockA = stockA > 0 ? 1 : 0;
+      const inStockB = stockB > 0 ? 1 : 0;
+      if (inStockA !== inStockB) return inStockB - inStockA; // 3. สินค้ามีสต็อกพร้อมขายขึ้นก่อน
+      if (stockA !== stockB) return stockB - stockA;
+
       return nameA.localeCompare(nameB, 'th');
     });
-  }, [products, searchTerm, isStockMode, isRequisitionMode]);
+  }, [products, searchTerm, isStockMode, isRequisitionMode, productSortMode, productSalesMap, globalBranch, wooImagesMap]);
 
   const getCourseSortTimestamp = (item) => {
     if (item.updatedAt) {
@@ -4048,11 +4265,59 @@ export default function POSSystem({
               </div>
             </div>
           )}
+          {activeTab === 'products' && (
+            <div className="flex items-center justify-between gap-2 mb-3 px-1 flex-wrap">
+              <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-200/70 p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setProductSortMode('bestseller')}
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all ${
+                    productSortMode === 'bestseller'
+                      ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                  }`}
+                >
+                  <Flame size={14} className={productSortMode === 'bestseller' ? 'text-white' : 'text-amber-500'} />
+                  <span>สินค้าขายดี</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setProductSortMode('stock')}
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all ${
+                    productSortMode === 'stock'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                  }`}
+                >
+                  <Package size={14} className={productSortMode === 'stock' ? 'text-white' : 'text-emerald-600'} />
+                  <span>มีสต็อกพร้อมขาย</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setProductSortMode('alpha')}
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all ${
+                    productSortMode === 'alpha'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                  }`}
+                >
+                  <span>🔤 ชื่อ ก-ฮ</span>
+                </button>
+              </div>
+
+              <div className="text-[11px] sm:text-xs text-slate-500 font-medium">
+                พบ {filteredProducts.length} รายการ
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-4 md:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-4">
             {activeTab === 'products' ? (
               filteredProducts.map(p => {
                 const productName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '');
                 const productCode = String(getFuzzyKey(p, ["รหัส", "col_1"]) || '');
+                const salesScore = getProductSalesScore(p);
                 
                 const fullPrice = parseNumber(getFuzzyKey(p, ["ราคาขายเต็ม", "col_6"]));
                 const displayPrice = computeFinalPrice(p, isVipCustomer);
@@ -4075,6 +4340,12 @@ export default function POSSystem({
                   className={`bg-white p-2 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm border cursor-pointer transition-all flex flex-col h-full ${isSpecialMode ? "border-slate-100 hover:shadow-md hover:border-teal-200 active:scale-95" : isStockMode ? (stockAdjustments.some(a => a.id === p.id) ? "border-emerald-500 opacity-70" : "border-rose-400 animate-pulse shadow-[0_0_15px_rgba(251,113,133,0.3)]") : "border-slate-100 hover:shadow-md hover:border-indigo-200 active:scale-95"}`}
                 >
                   <div className="w-full aspect-[4/3] bg-slate-100 rounded-lg sm:rounded-xl mb-2 sm:mb-3 overflow-hidden relative group flex items-center justify-center">
+                    {salesScore > 0 && !isSpecialMode && (
+                      <div className="absolute top-1.5 left-1.5 z-10 bg-gradient-to-r from-amber-500 to-rose-500 text-white text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-md shadow-md flex items-center gap-0.5">
+                        <Flame size={11} className="fill-white" />
+                        <span>ขายดี {salesScore > 1 ? `(${salesScore})` : ''}</span>
+                      </div>
+                    )}
                     {imageUrl ? (
                       <img 
                         src={imageUrl} 
