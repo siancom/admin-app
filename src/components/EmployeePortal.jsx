@@ -184,9 +184,10 @@ export default function EmployeePortal({
         serviceLogs,
         advancePayments,
         attendance,
+        leaves,
         localOverrides
      });
-  }, [histories, serviceLogs, advancePayments, attendance, employee, payrollMonth, localOverrides]);
+  }, [histories, serviceLogs, advancePayments, attendance, leaves, employee, payrollMonth, localOverrides]);
 
   const handleStartEditPayroll = () => {
     if (!isAdmin && !isOwnerPayrollUnlocked) {
@@ -1015,10 +1016,28 @@ export default function EmployeePortal({
                         </div>
                      ) : (
                         <div className="space-y-2 text-xs md:text-sm">
-                           <div className="flex justify-between items-center text-slate-600">
-                              <span>ฐานเงินเดือน</span>
-                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>฿{(Number(payrollEmployee.baseSalary) || 0).toLocaleString()}</span>
+                           <div className="flex justify-between items-center text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                              <span className="font-bold">วันทำงานเดือนนี้</span>
+                              <span className="font-extrabold text-indigo-700">{payrollEmployee.daysWorked || 0} / {payrollEmployee.expectedWorkingDays || 26} วัน <span className="text-[10px] text-slate-400 font-normal">(หยุดได้ 4 วัน)</span></span>
                            </div>
+                           <div className="flex justify-between items-center text-slate-600">
+                              <div>
+                                 <span>ฐานเงินเดือน</span>
+                                 {payrollEmployee.absenceDeduction > 0 && (
+                                    <span className="text-[10px] text-slate-400 block font-normal">(ฐานเต็ม ฿{(payrollEmployee.rawBaseSalary || 0).toLocaleString()})</span>
+                                 )}
+                              </div>
+                              <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>฿{(Number(payrollEmployee.rawBaseSalary || payrollEmployee.baseSalary) || 0).toLocaleString()}</span>
+                           </div>
+                           {payrollEmployee.absenceDeduction > 0 && (
+                              <div className="flex justify-between items-center text-rose-600">
+                                 <div>
+                                    <span>หักไม่ได้มาทำงาน ({payrollEmployee.missingDays} วัน)</span>
+                                    <span className="text-[10px] text-rose-400 block font-normal">สิทธิ์วันหยุด 4 วัน/เดือน</span>
+                                 </div>
+                                 <span className="font-bold">- ฿{payrollEmployee.absenceDeduction.toLocaleString()}</span>
+                              </div>
+                           )}
                            <div className="flex justify-between items-center text-slate-600">
                               <span>ค่าคอมมิชชัน (จากยอดขาย)</span>
                               <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-emerald-600 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>+ ฿{(payrollEmployee.totalCommission || 0).toLocaleString()}</span>

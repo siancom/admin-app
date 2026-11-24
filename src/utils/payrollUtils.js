@@ -62,6 +62,7 @@ export function calculateEmployeeMonthlyPayroll(
     serviceLogs = [],
     advancePayments = [],
     attendance = [],
+    leaves = [],
     localOverrides = null,
     localBaseSalary = undefined,
   } = {}
@@ -120,6 +121,7 @@ export function calculateEmployeeMonthlyPayroll(
     rawAdvances += parseNumber(a.amount);
   });
 
+  // 1. วันที่มาทำงานจริงจากประวัติตอกบัตร
   const empAttendance = (attendance || []).filter(
     (a) => a.employeeId === emp.id && isInPayrollMonth(a, payrollMonth)
   );
@@ -127,16 +129,76 @@ export function calculateEmployeeMonthlyPayroll(
     empAttendance.map((a) => a.date || getLocalYYYYMMDD(a.clockIn || a.createdAt)).filter(Boolean)
   ).size;
 
-  const foodRate = emp.foodAllowanceRate !== undefined ? Number(emp.foodAllowanceRate) : 50;
-  const autoFoodAllowance = daysWorked * foodRate;
-  const autoBaseSalary = Math.ceil(
+  // 2. วันลาที่ได้รับอนุมัติ (เช่น ลาพักร้อน, ลาป่วยตามสิทธิ์)
+  let approvedLeaveDays = 0;
+  (leaves || []).forEach((l) => {
+    if (l.employeeId !== emp.id) return;
+    const st = String(l.status || '').trim();
+    if (st !== 'อนุมัติ' && st !== 'อนุมัติแล้ว') return;
+    const lType = String(l.leaveType || '');
+    if (!lType.includes('พักร้อน') && !lType.includes('ป่วย') && !lType.includes('ประจำปี')) return;
+    
+    if (Array.isArray(l.dates) && l.dates.length > 0) {
+      l.dates.forEach(d => {
+        if (d && String(d).startsWith(payrollMonth)) approvedLeaveDays++;
+      });
+    } else if (l.startDate) {
+      const startStr = getLocalYYYYMMDD(l.startDate);
+      const endStr = l.endDate ? getLocalYYYYMMDD(l.endDate) : startStr;
+      if (startStr.startsWith(payrollMonth) || endStr.startsWith(payrollMonth)) {
+        const sD = new Date(startStr);
+        const eD = new Date(endStr);
+        const diff = Math.max(0, Math.round((eD - sD) / (1000 * 60 * 60 * 24))) + 1;
+        approvedLeaveDays += diff;
+      }
+    }
+  });
+
+  // 3. วันในเดือน และ สิทธิ์วันหยุด 4 วัน
+  const [yearNum, monthNum] = (payrollMonth || getLocalYYYYMMDD().substring(0, 7)).split('-').map(Number);
+  const totalDaysInMonth = (yearNum && monthNum) ? new Date(yearNum, monthNum, 0).getDate() : 30;
+  const allowedDaysOff = 4; // พนักงานได้รับสิทธิ์วันหยุด 4 วันต่อเดือน
+  const expectedWorkingDays = Math.max(0, totalDaysInMonth - allowedDaysOff); // เช่น 30 - 4 = 26 วัน
+
+  // 4. คำนวณฐานเงินเดือนจริง และหักลบวันที่ไม่ได้ทำงานเลย
+  const rawBaseSalary = Math.ceil(
     parseNumber(localBaseSalary !== undefined ? localBaseSalary : emp.baseSalary || 0)
   );
+  const dailyRate = totalDaysInMonth > 0 ? (rawBaseSalary / totalDaysInMonth) : 0;
+
+  // วันที่ได้รับค่าจ้าง = วันทำงานจริง + สิทธิ์วันหยุด 4 วัน + วันลาที่ได้รับอนุมัติ
+  let paidDays = 0;
+  let missingDays = 0;
+  let autoAbsenceDeduction = 0;
+  let autoBaseSalary = 0;
+
+  if (rawBaseSalary === 0) {
+    paidDays = daysWorked;
+    missingDays = 0;
+    autoAbsenceDeduction = 0;
+    autoBaseSalary = 0;
+  } else if (daysWorked === 0 && approvedLeaveDays === 0) {
+    // ไม่ได้มาทำงานเลยทั้งเดือน และไม่มีวันลาที่อนุมัติ
+    paidDays = 0;
+    missingDays = totalDaysInMonth;
+    autoAbsenceDeduction = rawBaseSalary;
+    autoBaseSalary = 0;
+  } else {
+    paidDays = Math.min(totalDaysInMonth, daysWorked + allowedDaysOff + approvedLeaveDays);
+    missingDays = Math.max(0, totalDaysInMonth - paidDays);
+    autoAbsenceDeduction = Math.round(missingDays * dailyRate);
+    autoBaseSalary = Math.max(0, rawBaseSalary - autoAbsenceDeduction);
+  }
+
+  const foodRate = emp.foodAllowanceRate !== undefined ? Number(emp.foodAllowanceRate) : 50;
+  const autoFoodAllowance = daysWorked * foodRate;
   const autoCommission = Math.ceil(rawCommission);
   const autoServiceFees = Math.ceil(rawServiceFees);
   const autoAdvances = Math.ceil(rawAdvances);
   const autoDiligenceAllowance =
-    emp.diligenceAllowance !== undefined ? Math.ceil(parseNumber(emp.diligenceAllowance)) : 0;
+    (emp.diligenceAllowance !== undefined && missingDays === 0 && daysWorked > 0)
+      ? Math.ceil(parseNumber(emp.diligenceAllowance))
+      : 0;
 
   const monthOverride =
     (localOverrides && localOverrides[payrollMonth]) ||
@@ -144,13 +206,16 @@ export function calculateEmployeeMonthlyPayroll(
     {};
 
   const hasVal = (v) => v !== undefined && v !== null && v !== '';
-  const hasOverride = ['baseSalary', 'totalCommission', 'totalServiceFees', 'totalFoodAllowance', 'diligenceAllowance', 'totalAdvances'].some(
+  const hasOverride = ['baseSalary', 'totalCommission', 'totalServiceFees', 'totalFoodAllowance', 'diligenceAllowance', 'totalAdvances', 'absenceDeduction'].some(
     (k) => hasVal(monthOverride[k])
   );
 
   const baseSalary = hasVal(monthOverride.baseSalary)
     ? parseNumber(monthOverride.baseSalary)
     : autoBaseSalary;
+  const absenceDeduction = hasVal(monthOverride.absenceDeduction)
+    ? parseNumber(monthOverride.absenceDeduction)
+    : autoAbsenceDeduction;
   const totalCommission = hasVal(monthOverride.totalCommission)
     ? parseNumber(monthOverride.totalCommission)
     : autoCommission;
@@ -177,13 +242,24 @@ export function calculateEmployeeMonthlyPayroll(
 
   return {
     ...emp,
+    rawBaseSalary,
     baseSalary,
+    absenceDeduction,
+    missingDays,
+    totalDaysInMonth,
+    allowedDaysOff,
+    expectedWorkingDays,
+    paidDays,
+    approvedLeaveDays,
+    dailyRate,
     totalCommission,
     totalServiceFees,
     totalFoodAllowance,
     diligenceAllowance,
     totalAdvances,
+    autoRawBaseSalary: rawBaseSalary,
     autoBaseSalary,
+    autoAbsenceDeduction,
     autoCommission,
     autoServiceFees,
     autoFoodAllowance,

@@ -16,6 +16,8 @@ export default function PayslipModal({ employee, payrollMonth, onClose }) {
   const [yearStr, monthStr] = (payrollMonth || '').split('-');
   const displayMonth = monthStr ? `${monthNames[parseInt(monthStr, 10) - 1]} ${yearStr}` : (payrollMonth || '-');
 
+  const rawBaseSalary = parseNumber(employee.rawBaseSalary !== undefined ? employee.rawBaseSalary : employee.baseSalary);
+  const absenceDeduction = parseNumber(employee.absenceDeduction || 0);
   const baseSalary = parseNumber(employee.baseSalary);
   const totalCommission = parseNumber(employee.totalCommission);
   const totalServiceFees = parseNumber(employee.totalServiceFees);
@@ -73,6 +75,10 @@ export default function PayslipModal({ employee, payrollMonth, onClose }) {
               <span className="font-bold text-slate-600">วันที่ออกเอกสาร:</span>
               <span className="font-bold">{new Date().toLocaleDateString('th-TH')}</span>
             </div>
+            <div className="flex justify-between border-b border-dashed border-slate-300 pb-1 col-span-2">
+              <span className="font-bold text-slate-600">วันทำงานจริง / สิทธิ์วันหยุด:</span>
+              <span className="font-bold text-slate-800">{employee.daysWorked || 0} วัน (สิทธิ์วันหยุด {employee.allowedDaysOff || 4} วัน/เดือน)</span>
+            </div>
           </div>
 
           <div className="flex gap-8 mb-8">
@@ -81,8 +87,15 @@ export default function PayslipModal({ employee, payrollMonth, onClose }) {
               <div className="bg-slate-100 px-4 py-2 font-bold border border-slate-300 mb-2">รายรับ (Earnings)</div>
               <div className="space-y-3 px-2">
                 <div className="flex justify-between">
-                  <span>เงินเดือนพื้นฐาน (Base Salary)</span>
-                  <span className="font-medium">{baseSalary.toLocaleString()}</span>
+                  <div>
+                    <span>เงินเดือนพื้นฐาน (Base Salary)</span>
+                    {absenceDeduction > 0 && (
+                      <span className="text-[11px] text-slate-500 block">
+                        (ฐานเต็ม ฿{rawBaseSalary.toLocaleString()})
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-medium">{rawBaseSalary.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>ค่าคอมมิชชั่น (Commission)</span>
@@ -107,12 +120,22 @@ export default function PayslipModal({ employee, payrollMonth, onClose }) {
             <div className="flex-1">
               <div className="bg-slate-100 px-4 py-2 font-bold border border-slate-300 mb-2">รายการหัก (Deductions)</div>
               <div className="space-y-3 px-2">
-                {(totalAdvances > 0) ? (
+                {absenceDeduction > 0 && (
+                  <div className="flex justify-between text-rose-600">
+                    <div>
+                      <span>หักไม่ได้มาทำงาน ({employee.missingDays || 0} วัน)</span>
+                      <span className="text-[10px] text-slate-400 block">สิทธิ์หยุด 4 วัน/เดือน</span>
+                    </div>
+                    <span className="font-medium">-{absenceDeduction.toLocaleString()}</span>
+                  </div>
+                )}
+                {(totalAdvances > 0) && (
                   <div className="flex justify-between text-rose-600">
                     <span>หักเบิกล่วงหน้า (Advance Deductions)</span>
-                    <span className="font-medium">{totalAdvances.toLocaleString()}</span>
+                    <span className="font-medium">-{totalAdvances.toLocaleString()}</span>
                   </div>
-                ) : (
+                )}
+                {absenceDeduction === 0 && totalAdvances === 0 && (
                   <div className="flex justify-between text-slate-400">
                     <span>ไม่มีรายการหัก</span>
                     <span className="font-medium">0</span>

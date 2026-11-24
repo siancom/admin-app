@@ -455,9 +455,10 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
         serviceLogs,
         advancePayments,
         attendance,
+        leaves,
       })
     );
-  }, [filteredEmployees, payrollMonth, histories, serviceLogs, advancePayments, attendance]);
+  }, [filteredEmployees, payrollMonth, histories, serviceLogs, advancePayments, attendance, leaves]);
   const attendanceHistoryData = getAttendanceHistory();
 
   return (
@@ -1332,40 +1333,47 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
              </div>
 
              {/* Real-time Monthly Summary Banner */}
-             <div className="bg-slate-50/50 border-b border-slate-200 p-6 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+             <div className="bg-slate-50/50 border-b border-slate-200 p-6 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
-                    <span className="text-slate-500 text-xs font-bold mb-1">รวมเงินเดือนพื้นฐาน</span>
-                    <span className="text-xl font-black text-slate-800">฿{payrollData.reduce((sum, emp) => sum + (emp.baseSalary || 0), 0).toLocaleString()}</span>
+                    <span className="text-slate-500 text-xs font-bold mb-1">รวมฐานเงินเดือน</span>
+                    <span className="text-lg font-black text-slate-800">฿{payrollData.reduce((sum, emp) => sum + (emp.rawBaseSalary || emp.baseSalary || 0), 0).toLocaleString()}</span>
+                </div>
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
+                    <span className="text-slate-500 text-xs font-bold mb-1">รวมหักไม่ได้ทำงาน</span>
+                    <span className="text-lg font-black text-rose-600">-฿{payrollData.reduce((sum, emp) => sum + (emp.absenceDeduction || 0), 0).toLocaleString()}</span>
+                </div>
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
+                    <span className="text-slate-500 text-xs font-bold mb-1">รวมเงินเดือนสุทธิ</span>
+                    <span className="text-lg font-black text-indigo-700">฿{payrollData.reduce((sum, emp) => sum + (emp.baseSalary || 0), 0).toLocaleString()}</span>
                 </div>
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
                     <span className="text-slate-500 text-xs font-bold mb-1">รวมค่าอาหาร</span>
-                    <span className="text-xl font-black text-orange-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalFoodAllowance || 0), 0).toLocaleString()}</span>
+                    <span className="text-lg font-black text-orange-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalFoodAllowance || 0), 0).toLocaleString()}</span>
                 </div>
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
                     <span className="text-slate-500 text-xs font-bold mb-1">รวมค่ามือ</span>
-                    <span className="text-xl font-black text-pink-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalServiceFees || 0), 0).toLocaleString()}</span>
+                    <span className="text-lg font-black text-pink-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalServiceFees || 0), 0).toLocaleString()}</span>
                 </div>
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
                     <span className="text-slate-500 text-xs font-bold mb-1">รวมค่าคอมมิชชั่น</span>
-                    <span className="text-xl font-black text-indigo-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalCommission || 0), 0).toLocaleString()}</span>
-                </div>
-                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
-                    <span className="text-slate-500 text-xs font-bold mb-1">รวมเบิกเงินล่วงหน้า</span>
-                    <span className="text-xl font-black text-rose-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalAdvances || 0), 0).toLocaleString()}</span>
+                    <span className="text-lg font-black text-indigo-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalCommission || 0), 0).toLocaleString()}</span>
                 </div>
                 <div className="bg-emerald-50 p-4 rounded-2xl shadow-sm border border-emerald-100 flex flex-col items-center justify-center text-center col-span-2 md:col-span-1 ring-1 ring-emerald-500/20 hover:shadow-md transition-shadow">
-                    <span className="text-emerald-700 text-xs font-bold mb-1">ยอดรวมที่ต้องจ่ายสุทธิ</span>
-                    <span className="text-2xl font-black text-emerald-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalIncome || 0), 0).toLocaleString()}</span>
+                    <span className="text-emerald-700 text-xs font-bold mb-1">ยอดรวมจ่ายสุทธิ</span>
+                    <span className="text-xl font-black text-emerald-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalIncome || 0), 0).toLocaleString()}</span>
                 </div>
              </div>
 
              <div className="overflow-x-auto">
-               <table className="w-full text-left text-sm">
-                 <thead className="bg-slate-50 text-slate-500 font-bold">
+               <table className="w-full text-left text-sm whitespace-nowrap">
+                 <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
                    <tr>
                      <th className="px-6 py-4">พนักงาน</th>
                      <th className="px-6 py-4">สาขา</th>
-                     <th className="px-6 py-4 text-right">เงินเดือนพื้นฐาน</th>
+                     <th className="px-6 py-4 text-center">วันทำงาน</th>
+                     <th className="px-6 py-4 text-right">ฐานเงินเดือน</th>
+                     <th className="px-6 py-4 text-right">หักไม่ได้ทำงาน</th>
+                     <th className="px-6 py-4 text-right">เงินเดือนสุทธิ</th>
                      <th className="px-6 py-4 text-right">ค่าอาหาร</th>
                      <th className="px-6 py-4 text-right">เบี้ยขยัน</th>
                      <th className="px-6 py-4 text-right">ค่ามือ</th>
@@ -1381,7 +1389,22 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                      <tr key={emp.id} className="hover:bg-slate-50">
                        <td className="px-6 py-4 font-bold text-slate-800">{emp.name}</td>
                        <td className="px-6 py-4 text-slate-500">{emp.branch}</td>
-                       <td className="px-6 py-4 text-right font-medium">฿{(emp.baseSalary || 0).toLocaleString()}</td>
+                       <td className="px-6 py-4 text-center">
+                          <div className="font-bold text-slate-700">{emp.daysWorked} / {emp.expectedWorkingDays || 26} วัน</div>
+                          <div className="text-[10px] text-slate-400 font-medium">(สิทธิ์หยุด 4 วัน)</div>
+                       </td>
+                       <td className="px-6 py-4 text-right font-medium text-slate-500">฿{(emp.rawBaseSalary || emp.baseSalary || 0).toLocaleString()}</td>
+                       <td className="px-6 py-4 text-right">
+                          {emp.absenceDeduction > 0 ? (
+                            <div>
+                               <span className="font-bold text-rose-600">-฿{emp.absenceDeduction.toLocaleString()}</span>
+                               <span className="text-[10px] text-rose-400 block font-medium">({emp.missingDays} วัน)</span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 font-medium">-</span>
+                          )}
+                       </td>
+                       <td className="px-6 py-4 text-right font-bold text-slate-800">฿{(emp.baseSalary || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right font-medium text-orange-600">฿{(emp.totalFoodAllowance || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right font-medium text-teal-600">฿{(emp.diligenceAllowance || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right font-medium text-pink-600">฿{(emp.totalServiceFees || 0).toLocaleString()}</td>
@@ -1401,7 +1424,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                      </tr>
                    ))}
                    {payrollData.length === 0 && (
-                     <tr><td colSpan={11} className="px-6 py-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลพนักงาน</td></tr>
+                     <tr><td colSpan={14} className="px-6 py-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลพนักงาน</td></tr>
                    )}
                  </tbody>
                </table>
