@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { Users, Clock, DollarSign, Plus, Trash2, Edit, UserCheck, UserMinus, Calendar, Printer, FileText, CheckCircle, History, Wallet, XCircle, ShoppingCart, Briefcase, Download, ExternalLink, User, LogIn, LogOut } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
-import { addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
+import { addDoc, updateDoc, doc, deleteDoc, getDocs } from 'firebase/firestore';
 import { parseNumber, getLocalYYYYMMDD, normalizeBranchName, parseThaiDate } from '../utils/parse';
 import { getFuzzyKey } from '../utils/fuzzy';
-import { calculateEmployeeMonthlyPayroll } from '../utils/payrollUtils';
+import { calculateEmployeeMonthlyPayroll, calculateServiceLogFee } from '../utils/payrollUtils';
 import { toPng } from 'html-to-image';
 import PayslipModal from './PayslipModal';
 import EmployeePortal from './EmployeePortal';
@@ -30,6 +30,16 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
   const [scheduleMonth, setScheduleMonth] = useState(getLocalYYYYMMDD().substring(0, 7));
   const [editingAttendance, setEditingAttendance] = useState(null);
   const [historyEmployeeFilter, setHistoryEmployeeFilter] = useState('all');
+  const [isAddBackdatedOpen, setIsAddBackdatedOpen] = useState(false);
+  const [isClearingAllAttendance, setIsClearingAllAttendance] = useState(false);
+  const [backdatedForm, setBackdatedForm] = useState({
+    employeeId: '',
+    branch: 'เฉวง',
+    date: getLocalYYYYMMDD(),
+    clockInTime: '10:00',
+    clockOutTime: '19:00',
+    note: ''
+  });
 
   // Leave Management State
   const [isAddingLeave, setIsAddingLeave] = useState(false);
@@ -187,6 +197,81 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
             alert('เกิดข้อผิดพลาด: ' + err.message);
         }
     }
+  };
+
+  const handleSaveBackdatedAttendance = async (e) => {
+    e.preventDefault();
+    if (!backdatedForm.employeeId) return alert('กรุณาเลือกพนักงาน');
+    if (!backdatedForm.date) return alert('กรุณาระบุวันที่');
+    if (!backdatedForm.clockInTime) return alert('กรุณาระบุเวลาเข้างาน');
+
+    const emp = employees.find(e => e.id === backdatedForm.employeeId);
+    if (!emp) return alert('ไม่พบข้อมูลพนักงาน');
+
+    try {
+      const [inH, inM] = backdatedForm.clockInTime.split(':');
+      const cinDate = new Date(`${backdatedForm.date}T${inH.padStart(2, '0')}:${inM.padStart(2, '0')}:00`);
+      
+      let coutDate = null;
+      if (backdatedForm.clockOutTime) {
+        const [outH, outM] = backdatedForm.clockOutTime.split(':');
+        coutDate = new Date(`${backdatedForm.date}T${outH.padStart(2, '0')}:${outM.padStart(2, '0')}:00`);
+      }
+
+      await addDoc(getCol('employee_attendance'), {
+        employeeId: emp.id,
+        employeeName: emp.name,
+        branch: backdatedForm.branch || emp.branch || 'เฉวง',
+        date: backdatedForm.date,
+        clockIn: cinDate.toISOString(),
+        clockOut: coutDate ? coutDate.toISOString() : null,
+        isManualBackdated: true,
+        note: backdatedForm.note || 'ลงเวลาย้อนหลังโดยแอดมิน',
+        createdAt: new Date().toISOString()
+      });
+
+      alert(`บันทึกเวลาทำงานย้อนหลังของ ${emp.name} วันที่ ${backdatedForm.date} สำเร็จ`);
+      setIsAddBackdatedOpen(false);
+      setBackdatedForm({
+        employeeId: '',
+        branch: emp.branch || 'เฉวง',
+        date: getLocalYYYYMMDD(),
+        clockInTime: '10:00',
+        clockOutTime: '19:00',
+        note: ''
+      });
+    } catch (err) {
+      alert('เกิดข้อผิดพลาดในการบันทึกเวลาย้อนหลัง: ' + err.message);
+    }
+  };
+
+  const handleClearAllAttendance = async () => {
+    const confirmed = window.confirm(
+      '⚠️ ยืนยันการล้างประวัติการตอกบัตรทั้งหมด?\n\n' +
+      'เนื่องจากระบบเพิ่งเริ่มใหม่ ข้อมูลการลงเวลาทั้งหมดจะถูกลบเพื่อเริ่มนับรอบเวลาจริง\n' +
+      'ข้อมูลประวัติตอกบัตรทั้งหมดจะถูกลบถาวร ไม่สามารถกู้คืนได้\n\n' +
+      'ต้องการดำเนินการต่อหรือไม่?'
+    );
+    if (!confirmed) return;
+
+    setIsClearingAllAttendance(true);
+    try {
+      const snap = await getDocs(getCol('employee_attendance'));
+      if (snap.empty) {
+        alert('ไม่มีประวัติการลงเวลาในระบบ');
+        setIsClearingAllAttendance(false);
+        return;
+      }
+      let count = 0;
+      for (const d of snap.docs) {
+        await deleteDoc(d.ref);
+        count++;
+      }
+      alert(`ล้างข้อมูลตอกบัตรเรียบร้อยทั้งหมด ${count} รายการ (ระบบเริ่มใหม่เรียบร้อย)`);
+    } catch (err) {
+      alert('เกิดข้อผิดพลาดในการล้างข้อมูล: ' + err.message);
+    }
+    setIsClearingAllAttendance(false);
   };
 
   // ==== Handle Leave Management ====
@@ -497,7 +582,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
         {activeTab === 'history' && (
           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
              <div className="p-6 border-b border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 flex-wrap">
                   <h2 className="text-xl font-black text-slate-800 flex items-center gap-2"><History className="text-indigo-500" /> ตารางตอกบัตร</h2>
                   <select 
                     value={historyEmployeeFilter}
@@ -508,13 +593,133 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                     {filteredEmployees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
                   </select>
                 </div>
-                <input 
-                  type="month" 
-                  value={attendanceMonth} 
-                  onChange={e => setAttendanceMonth(e.target.value)}
-                  className="bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl font-bold outline-none"
-                />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input 
+                    type="month" 
+                    value={attendanceMonth} 
+                    onChange={e => setAttendanceMonth(e.target.value)}
+                    className="bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl font-bold outline-none text-sm"
+                  />
+                  <button
+                    onClick={() => setIsAddBackdatedOpen(prev => !prev)}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-sm transition-all flex items-center gap-1.5"
+                  >
+                    <Plus size={16} /> บันทึกเวลาย้อนหลัง
+                  </button>
+                  <button
+                    onClick={handleClearAllAttendance}
+                    disabled={isClearingAllAttendance}
+                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1"
+                    title="ล้างข้อมูลประวัติตอกบัตรเพื่อเริ่มระบบใหม่"
+                  >
+                    <Trash2 size={14} /> ล้างข้อมูลตอกบัตร
+                  </button>
+                </div>
              </div>
+
+             {/* BACKDATED ATTENDANCE FORM MODAL/PANEL */}
+             {isAddBackdatedOpen && (
+               <div className="p-6 bg-gradient-to-r from-indigo-50/80 to-blue-50/80 border-b border-indigo-100">
+                  <div className="flex justify-between items-center mb-4">
+                     <h3 className="font-black text-indigo-900 flex items-center gap-2 text-base">
+                        <Clock size={18} className="text-indigo-600" /> บันทึกเวลาทำงานย้อนหลัง (Admin Manual Clock-in)
+                     </h3>
+                     <button
+                        type="button"
+                        onClick={() => setIsAddBackdatedOpen(false)}
+                        className="text-slate-400 hover:text-slate-600 p-1 rounded-lg text-sm font-bold"
+                     >
+                        ✕ ปิด
+                     </button>
+                  </div>
+                  <form onSubmit={handleSaveBackdatedAttendance} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3 items-end">
+                     <div className="sm:col-span-2">
+                        <label className="block text-xs font-bold text-slate-600 mb-1">เลือกพนักงาน *</label>
+                        <select
+                           required
+                           value={backdatedForm.employeeId}
+                           onChange={e => {
+                              const emp = employees.find(em => em.id === e.target.value);
+                              setBackdatedForm({
+                                 ...backdatedForm,
+                                 employeeId: e.target.value,
+                                 branch: emp?.branch || backdatedForm.branch || 'เฉวง'
+                              });
+                           }}
+                           className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-indigo-500"
+                        >
+                           <option value="">-- เลือกพนักงาน --</option>
+                           {employees.map(emp => (
+                              <option key={emp.id} value={emp.id}>{emp.name} ({emp.branch || 'เฉวง'})</option>
+                           ))}
+                        </select>
+                     </div>
+                     <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">สาขา</label>
+                        <select
+                           value={backdatedForm.branch}
+                           onChange={e => setBackdatedForm({...backdatedForm, branch: e.target.value})}
+                           className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-indigo-500"
+                        >
+                           {branches && branches.length > 0 ? (
+                              branches.map(b => (
+                                 <option key={b.name || b.id || b} value={b.name || b}>{b.name || b}</option>
+                              ))
+                           ) : (
+                              <>
+                                 <option value="เฉวง">เฉวง</option>
+                                 <option value="ละไม">ละไม</option>
+                              </>
+                           )}
+                        </select>
+                     </div>
+                     <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">วันที่ทำงาน *</label>
+                        <input
+                           type="date"
+                           required
+                           value={backdatedForm.date}
+                           onChange={e => setBackdatedForm({...backdatedForm, date: e.target.value})}
+                           className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-indigo-500"
+                        />
+                     </div>
+                     <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">เวลาเข้า *</label>
+                        <input
+                           type="time"
+                           required
+                           value={backdatedForm.clockInTime}
+                           onChange={e => setBackdatedForm({...backdatedForm, clockInTime: e.target.value})}
+                           className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-indigo-500"
+                        />
+                     </div>
+                     <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">เวลาออก (เว้นว่างได้)</label>
+                        <input
+                           type="time"
+                           value={backdatedForm.clockOutTime}
+                           onChange={e => setBackdatedForm({...backdatedForm, clockOutTime: e.target.value})}
+                           className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-indigo-500"
+                        />
+                     </div>
+                     <div className="sm:col-span-2 md:col-span-6 flex justify-end gap-2 mt-2">
+                        <button
+                           type="button"
+                           onClick={() => setIsAddBackdatedOpen(false)}
+                           className="px-4 py-2 bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 rounded-xl text-sm font-bold transition-all"
+                        >
+                           ยกเลิก
+                        </button>
+                        <button
+                           type="submit"
+                           className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-md transition-all flex items-center gap-1.5"
+                        >
+                           <CheckCircle size={16} /> บันทึกเวลาย้อนหลัง
+                        </button>
+                     </div>
+                  </form>
+               </div>
+             )}
             
              {editingAttendance && (
                <div className="p-6 bg-indigo-50 border-b border-indigo-100 flex flex-col gap-4">
@@ -543,6 +748,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                      <th className="px-6 py-4">เวลาเข้างาน</th>
                      <th className="px-6 py-4">เวลาออกงาน</th>
                      <th className="px-6 py-4">รวมชั่วโมง</th>
+                     <th className="px-6 py-4">ค่ามือ (DF)</th>
                      <th className="px-6 py-4">สถานะการทำงาน</th>
                      <th className="px-6 py-4 text-right">จัดการ</th>
                    </tr>
@@ -580,6 +786,24 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                           }
                        }
 
+                       if (att.isManualBackdated || att.isBackdated) {
+                          statusBadges.push(<span key="backdated" className="bg-purple-100 text-purple-700 px-2 py-1 rounded-md text-xs font-bold">ย้อนหลัง</span>);
+                       }
+
+                       // Calculate day's service fee for this employee
+                       const attDateStr = att.date ? getLocalYYYYMMDD(att.date) : (att.clockIn ? getLocalYYYYMMDD(att.clockIn) : '');
+                       const empServiceLogsToday = (serviceLogs || []).filter(s => {
+                          const isEmp = s.employeeId === att.employeeId || s.employeeName === att.employeeName;
+                          if (!isEmp) return false;
+                          const sDateStr = s.date ? getLocalYYYYMMDD(s.date) : (s.createdAt ? getLocalYYYYMMDD(s.createdAt) : '');
+                          return sDateStr === attDateStr;
+                       });
+                       let dayFee = 0;
+                       empServiceLogsToday.forEach(s => {
+                          dayFee += calculateServiceLogFee(s);
+                       });
+                       dayFee = Math.ceil(dayFee);
+
                        return (
                          <tr key={att.id} className="hover:bg-slate-50 transition-colors">
                            <td className="px-6 py-4 font-bold text-slate-700">{att.date}</td>
@@ -591,6 +815,17 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                               {att.clockOut ? new Date(att.clockOut).toLocaleTimeString('th-TH') : '-'}
                            </td>
                            <td className="px-6 py-4 font-bold text-indigo-600">{hoursStr}</td>
+                           <td className="px-6 py-4">
+                              <span className={`px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1 ${dayFee > 0 ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'text-slate-400'}`}>
+                                 {dayFee > 0 ? (
+                                    <>
+                                       <DollarSign size={12} className="text-amber-600" />
+                                       <span>฿{dayFee.toLocaleString()}</span>
+                                       <span className="text-[10px] text-amber-700 opacity-80">({empServiceLogsToday.length})</span>
+                                    </>
+                                 ) : '-'}
+                              </span>
+                           </td>
                            <td className="px-6 py-4">
                               <div className="flex gap-1 flex-wrap">{statusBadges}</div>
                            </td>
@@ -606,7 +841,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                        );
                    })}
                    {attendanceHistoryData.filter(att => historyEmployeeFilter === 'all' || att.employeeId === historyEmployeeFilter).length === 0 && (
-                     <tr><td colSpan={historyEmployeeFilter === 'all' ? 7 : 6} className="px-6 py-12 text-center text-slate-400 font-bold">ไม่มีข้อมูลการลงเวลาในเดือนนี้</td></tr>
+                     <tr><td colSpan={historyEmployeeFilter === 'all' ? 8 : 7} className="px-6 py-12 text-center text-slate-400 font-bold">ไม่มีข้อมูลการลงเวลาในเดือนนี้</td></tr>
                    )}
                  </tbody>
                </table>

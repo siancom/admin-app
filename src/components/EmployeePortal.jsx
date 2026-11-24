@@ -1154,13 +1154,33 @@ export default function EmployeePortal({
                      <div className="space-y-2">
                         {myAttendance.length === 0 ? (
                            <div className="py-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลประวัติลงเวลา</div>
-                        ) : myAttendance.map(att => (
+                        ) : myAttendance.map(att => {
+                           const attDateStr = att.date ? getLocalYYYYMMDD(att.date) : (att.clockIn ? getLocalYYYYMMDD(att.clockIn) : '');
+                           const dayLogs = (serviceLogs || []).filter(s => {
+                              const isEmp = s.employeeId === employee.id || s.employeeName === employee.name;
+                              if (!isEmp) return false;
+                              const sDateStr = s.date ? getLocalYYYYMMDD(s.date) : (s.createdAt ? getLocalYYYYMMDD(s.createdAt) : '');
+                              return sDateStr === attDateStr;
+                           });
+                           let dayFee = 0;
+                           dayLogs.forEach(s => {
+                              dayFee += calculateServiceLogFee(s);
+                           });
+                           dayFee = Math.ceil(dayFee);
+
+                           return (
                            <div key={att.id} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                               <div>
-                                 <p className="font-bold text-slate-800">{new Date(att.date).toLocaleDateString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                                 <p className="text-xs font-bold text-slate-500 mt-1">สาขา: {att.branch}</p>
+                                 <p className="font-bold text-slate-800">{new Date(att.date || att.clockIn).toLocaleDateString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                                 <p className="text-xs font-bold text-slate-500 mt-1">สาขา: {att.branch || employee.branch || '-'}</p>
                               </div>
-                              <div className="flex gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                 <div className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 ${dayFee > 0 ? 'bg-amber-100 text-amber-900 border border-amber-200 shadow-sm' : 'bg-slate-100 text-slate-500'}`}>
+                                    <DollarSign size={13} className={dayFee > 0 ? 'text-amber-600' : 'text-slate-400'} />
+                                    <span>ค่ามือ:</span>
+                                    <span className={dayFee > 0 ? 'font-black text-amber-700 text-sm' : 'font-bold'}>฿{dayFee.toLocaleString()}</span>
+                                    {dayLogs.length > 0 && <span className="text-[10px] text-amber-800 font-medium">({dayLogs.length} รายการ)</span>}
+                                 </div>
                                  <div className="bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-bold">
                                     เข้า: {new Date(att.clockIn).toLocaleTimeString('th-TH')}
                                  </div>
@@ -1169,7 +1189,8 @@ export default function EmployeePortal({
                                  </div>
                               </div>
                            </div>
-                        ))}
+                           );
+                        })}
                      </div>
                   </div>
                </div>
