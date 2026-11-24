@@ -5677,71 +5677,82 @@ export default function POSSystem({
 
       return (
       <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm print:hidden">
-        <div className={`bg-white rounded-3xl p-6 w-full ${hasUsageOrClaim && checkoutStep === 1 ? 'max-w-3xl' : 'max-w-sm'} shadow-2xl flex flex-col max-h-[95vh] overflow-y-auto`}>
+        <div className={`bg-white rounded-3xl p-6 w-full ${checkoutStep === 1 && hasUsageOrClaim ? 'max-w-3xl' : 'max-w-md'} shadow-2xl flex flex-col max-h-[95vh] overflow-y-auto`}>
+          
+          {/* Header */}
           <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-4">
-            <h2 className="text-xl font-bold text-slate-800">
-              {hasCourseUsage && checkoutStep === 1 
-                ? 'ข้อมูลการรับบริการ' 
-                : (hasCourseClaim && checkoutStep === 1 
-                    ? 'ข้อมูลการเบิกสินค้า / ของแถม' 
-                    : (isRequisitionMode ? 'ยืนยันการเบิกสินค้า (PO)' : 'ช่องทางการชำระเงิน'))}
-            </h2>
-            <button onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-full"><X size={20} /></button>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-slate-800">
+                {checkoutStep === 1 ? (
+                  hasCourseUsage 
+                    ? 'ข้อมูลการรับบริการ' 
+                    : (hasCourseClaim 
+                        ? 'ข้อมูลการเบิกสินค้า / ของแถม' 
+                        : (isRequisitionMode ? 'ยืนยันการเบิกสินค้า (PO)' : 'ข้อมูลคำสั่งซื้อ & พนักงาน'))
+                ) : (
+                  'ช่องทางการชำระเงิน'
+                )}
+              </h2>
+              {!isRequisitionMode && (
+                <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${checkoutStep === 1 ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
+                  ขั้นตอน {checkoutStep}/2
+                </span>
+              )}
+            </div>
+            <button onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-full transition-colors"><X size={20} /></button>
           </div>
 
-          {hasCourseUsage && (
-            <div className="mb-4">
-              <div className="text-sm font-semibold text-slate-700 mb-2">เข้าใช้เตียง (สำหรับ Walk-in)</div>
-              <select
-                value={selectedBed}
-                onChange={(e) => setSelectedBed(e.target.value)}
-                className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 outline-none"
-              >
-                <option value="">ไม่ระบุเตียง (แค่ตัดคอร์สอย่างเดียว)</option>
-                {Array.from({ length: 4 }).map((_, i) => {
-                   const bedNum = String(i + 1);
-                   const isOccupied = bookings && bookings.some(b => String(b.bedNumber) === bedNum && b.status === 'กำลังใช้บริการ' && b.branch === (globalBranch || 'เฉวง'));
-                   return (
-                     <option key={bedNum} value={bedNum} disabled={isOccupied}>
-                       เตียง {bedNum} {isOccupied ? '(ไม่ว่าง)' : '(ว่าง)'}
-                     </option>
-                   );
-                })}
-              </select>
-            </div>
-          )}
-
-          {hasUsageOrClaim && checkoutStep === 1 && renderStaffSelection(true)}
-
-          {(!hasUsageOrClaim || checkoutStep === 2) && (
-
-            <>
-              {globalRole === 'owner' && (
-                <div className="mb-4">
-              <div className="text-sm font-semibold text-slate-700 mb-2">วันที่ทำรายการ (ย้อนหลังได้เฉพาะเจ้าของ)</div>
-              <input 
-                type="date"
-                value={transactionDate}
-                onChange={(e) => setTransactionDate(e.target.value)}
-                className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 outline-none"
-              />
-            </div>
-          )}
-          
-          {!isRequisitionMode && (
-            <>
-              <div className="mb-4">
-                <div className="text-sm font-semibold text-slate-700 mb-2">ช่องทางการสั่งซื้อ</div>
-                <div className="flex gap-2">
-                  <button onClick={() => { setOrderChannel('instore'); setSplitPayment(prev => ({ ...prev, transfer: total - prev.cash - prev.cod - prev.credit })); }} className={`flex-1 py-2 rounded-lg font-bold text-sm ${orderChannel === 'instore' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>หน้าร้าน</button>
-                  <button onClick={() => { setOrderChannel('shopee'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-2 rounded-lg font-bold text-sm ${orderChannel === 'shopee' ? 'bg-orange-500 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ช้อปปี้</button>
-                  <button onClick={() => { setOrderChannel('chat'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-2 rounded-lg font-bold text-sm ${orderChannel === 'chat' ? 'bg-emerald-500 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ทางแชท</button>
-                  <button onClick={() => { setOrderChannel('web'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-2 rounded-lg font-bold text-sm ${orderChannel === 'web' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ทางเว็บ</button>
+          {/* STEP 1: Order Details, Staff, Service/Claim & Signatures */}
+          {checkoutStep === 1 && (
+            <div className="space-y-4">
+              {hasCourseUsage && (
+                <div>
+                  <div className="text-sm font-semibold text-slate-700 mb-2">เข้าใช้เตียง (สำหรับ Walk-in)</div>
+                  <select
+                    value={selectedBed}
+                    onChange={(e) => setSelectedBed(e.target.value)}
+                    className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 outline-none"
+                  >
+                    <option value="">ไม่ระบุเตียง (แค่ตัดคอร์สอย่างเดียว)</option>
+                    {Array.from({ length: 4 }).map((_, i) => {
+                       const bedNum = String(i + 1);
+                       const isOccupied = bookings && bookings.some(b => String(b.bedNumber) === bedNum && b.status === 'กำลังใช้บริการ' && b.branch === (globalBranch || 'เฉวง'));
+                       return (
+                         <option key={bedNum} value={bedNum} disabled={isOccupied}>
+                           เตียง {bedNum} {isOccupied ? '(ไม่ว่าง)' : '(ว่าง)'}
+                         </option>
+                       );
+                    })}
+                  </select>
                 </div>
-              </div>
-              
-              {orderChannel !== 'instore' && (
-                <div className="mb-4 space-y-4">
+              )}
+
+              {globalRole === 'owner' && (
+                <div>
+                  <div className="text-sm font-semibold text-slate-700 mb-2">วันที่ทำรายการ (ย้อนหลังได้เฉพาะเจ้าของ)</div>
+                  <input 
+                    type="date"
+                    value={transactionDate}
+                    onChange={(e) => setTransactionDate(e.target.value)}
+                    className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 outline-none"
+                  />
+                </div>
+              )}
+
+              {!isRequisitionMode && (
+                <div>
+                  <div className="text-sm font-semibold text-slate-700 mb-2">ช่องทางการสั่งซื้อ</div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => { setOrderChannel('instore'); setSplitPayment(prev => ({ ...prev, transfer: total - prev.cash - prev.cod - prev.credit })); }} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${orderChannel === 'instore' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>หน้าร้าน</button>
+                    <button type="button" onClick={() => { setOrderChannel('shopee'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${orderChannel === 'shopee' ? 'bg-orange-500 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ช้อปปี้</button>
+                    <button type="button" onClick={() => { setOrderChannel('chat'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${orderChannel === 'chat' ? 'bg-emerald-500 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ทางแชท</button>
+                    <button type="button" onClick={() => { setOrderChannel('web'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${orderChannel === 'web' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ทางเว็บ</button>
+                  </div>
+                </div>
+              )}
+
+              {!isRequisitionMode && orderChannel !== 'instore' && (
+                <div className="space-y-4">
                   <div>
                     <div className="text-sm font-semibold text-slate-700 mb-2 flex justify-between">
                       <span>หมายเลขคำสั่งซื้อ / รหัสอ้างอิง</span>
@@ -5755,6 +5766,7 @@ export default function POSSystem({
                         className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       />
                       <button 
+                        type="button"
                         onClick={() => setScannerTarget('wcOrder')}
                         className="bg-indigo-100 text-indigo-600 px-3 py-2 rounded-lg font-bold hover:bg-indigo-200 transition-colors flex items-center justify-center shrink-0"
                       >
@@ -5764,7 +5776,7 @@ export default function POSSystem({
                   </div>
                   
                   {/* Shipping & Tracking Section */}
-                  <div className="mb-4">
+                  <div>
                       <div className="flex gap-2 mb-2">
                         <div className="flex-1">
                           <label className="block text-[11px] font-bold text-slate-500 mb-1">📮 เลขพัสดุ / ข้อมูลจัดส่ง</label>
@@ -5810,23 +5822,463 @@ export default function POSSystem({
                 </div>
               )}
               
-              {/* 3. Staff Selection */}
-              {renderStaffSelection(false)}
+              {/* Staff Selection */}
+              {renderStaffSelection(hasUsageOrClaim)}
 
-              <div className="text-center mb-6">
-                <div className="text-sm text-slate-500 mb-1">ยอดสุทธิที่ต้องชำระ</div>
-                <div className="text-3xl font-bold text-indigo-600">฿{total.toLocaleString()}</div>
+              {/* Claimed Items Summary (For claim_item) */}
+              {hasCourseClaim && (
+                <div className="p-3.5 bg-pink-50 border border-pink-200 rounded-2xl">
+                  <div className="text-xs font-bold text-pink-700 mb-1.5 flex items-center gap-1.5">
+                    <Package size={15} /> รายการสินค้า / ของแถมที่ขอเบิกจากคอร์ส:
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {cart.filter(i => i.type === 'claim_item').map(ci => (
+                      <span key={ci.id} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-white text-pink-800 border border-pink-200 shadow-sm">
+                        <span>🎁 {ci.itemName || ci.name}</span>
+                        <span className="text-pink-600 font-black">({ci.qty} ชิ้น)</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Service Details & Signatures (For usage, claim, or service items) */}
+              {(hasUsageOrClaim || cart.some(i => i.type === 'service')) && (
+                <div className="space-y-4 pt-2">
+                  {/* Photo Upload */}
+                  <div>
+                     <span className="block text-xs font-bold text-slate-500 mb-2">อัปโหลดรูปภาพ (ก่อนทำ / หลังทำ หรือหลักฐานส่งมอบ)</span>
+                     <div className="grid grid-cols-2 gap-4">
+                        {[
+                          { key: 'before', label: 'ก่อนทำ (Before)' },
+                          { key: 'after', label: 'หลังทำ (After)' }
+                        ].map(photo => (
+                          <div key={photo.key}>
+                             <input type="file" accept="image/*" multiple className="hidden" id={`upload-${photo.key}`} onChange={(e) => {
+                                const files = Array.from(e.target.files);
+                                if (files.length > 0) {
+                                    Promise.all(files.map(async file => {
+                                        try {
+                                            const options = { maxSizeMB: 0.2, maxWidthOrHeight: 1024, useWebWorker: true };
+                                            const compressed = await imageCompression(file, options);
+                                            return new Promise((resolve) => {
+                                                const reader = new FileReader();
+                                                reader.onload = (ev) => resolve(ev.target.result);
+                                                reader.readAsDataURL(compressed);
+                                            });
+                                        } catch (err) {
+                                            console.error("Compression failed", err);
+                                            return new Promise((resolve) => {
+                                                const reader = new FileReader();
+                                                reader.onload = (ev) => resolve(ev.target.result);
+                                                reader.readAsDataURL(file);
+                                            });
+                                        }
+                                    })).then(results => {
+                                        setPaymentPhotos(prev => ({ ...prev, [photo.key]: results }));
+                                    });
+                                }
+                             }} />
+                             <label htmlFor={`upload-${photo.key}`} className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-indigo-200 rounded-xl bg-indigo-50/50 hover:bg-indigo-50 cursor-pointer transition-all relative overflow-hidden group">
+                                {paymentPhotos[photo.key] && paymentPhotos[photo.key].length > 0 ? (
+                                  <>
+                                    <div className="absolute inset-0 w-full h-full p-1.5 flex gap-1.5 overflow-x-auto snap-x">
+                                      {paymentPhotos[photo.key].map((img, idx) => (
+                                         <img key={idx} src={img} className="h-full w-auto min-w-[40%] object-cover rounded shadow-sm snap-center opacity-90 group-hover:opacity-40 transition-opacity" alt="Preview" />
+                                      ))}
+                                    </div>
+                                    <div className="z-10 hidden group-hover:flex flex-col items-center p-2 bg-white/90 rounded-lg shadow-sm backdrop-blur-sm pointer-events-none">
+                                      <Camera size={16} className="text-indigo-600 mb-0.5" />
+                                      <span className="text-[10px] font-bold text-indigo-700">เลือกรูปใหม่</span>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="w-10 h-10 bg-indigo-100 text-indigo-500 rounded-full flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                                      <Camera size={20} />
+                                    </div>
+                                    <span className="text-xs font-bold text-indigo-600 text-center px-1">{photo.label}</span>
+                                  </>
+                                )}
+                             </label>
+                          </div>
+                        ))}
+                     </div>
+                  </div>
+
+                  {/* Service Selection (Only for usage) */}
+                  {cart.some(i => i.type === 'usage') && (() => {
+                    const usageCourses = cart.filter(i => i.type === 'usage');
+                    const totalDeductingQty = usageCourses.reduce((sum, item) => sum + (Number(item.qty) || 1), 0);
+
+                    const courseSpecificItems = [];
+                    usageCourses.forEach(ci => {
+                      const rawItems = String(
+                        ci.originalItem?.receivedItems ||
+                        ci.originalItem?.desc ||
+                        ci.originalItem?.["col_11"] ||
+                        getFuzzyKey(ci.originalItem, ["รายการที่ได้รับ", "col_11"]) ||
+                        ''
+                      );
+                      if (rawItems) {
+                        const cleaned = rawItems.replace(/\b\d+\.\s*/g, '').replace(/คอร์สย่อย\/เสริม:\s*/g, '').replace(/สินค้าที่ได้รับ:\s*/g, '');
+                        const parts = cleaned.split(/[\n,–-]+/).map(s => s.trim()).filter(s => s && s.length > 1 && !s.includes('VIP'));
+                        parts.forEach(p => {
+                          if (!courseSpecificItems.includes(p)) courseSpecificItems.push(p);
+                        });
+                      }
+                      const cName = String(getFuzzyKey(ci.originalItem, ["ชื่อคอส", "col_8"]) || ci.name || '').replace(/เบิกใช้:\s*/g, '').replace(/\(.*\)/g, '').trim();
+                      if (cName && !courseSpecificItems.includes(cName) && !cName.includes('Set') && !cName.includes('โปร')) {
+                        courseSpecificItems.unshift(cName);
+                      }
+                    });
+
+                    const isServiceSelected = (name) => {
+                      return usedServices.some(s => {
+                        const sName = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]) || s.name || s).trim();
+                        return sName === name || sName.includes(name) || name.includes(sName);
+                      });
+                    };
+
+                    const toggleServiceName = (name, extra = {}) => {
+                      const exists = isServiceSelected(name);
+                      if (exists) {
+                        setUsedServices(prev => prev.filter(s => {
+                          const sName = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]) || s.name || s).trim();
+                          return sName !== name && !sName.includes(name) && !name.includes(sName);
+                        }));
+                      } else {
+                        setUsedServices(prev => [
+                          ...prev,
+                          {
+                            id: extra.id || `srv_${name}_${Date.now()}`,
+                            name: name,
+                            "ชื่อคอส": name,
+                            "col_4": name,
+                            ...extra
+                          }
+                        ]);
+                      }
+                    };
+
+                    return (
+                    <div className="space-y-3">
+                      <div className="bg-teal-50/70 border border-teal-200/80 rounded-2xl p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-teal-900 flex items-center gap-1.5">
+                            <Layers size={14} className="text-teal-600" /> คอร์สที่กำลังตัดยอด:
+                          </span>
+                          <span className="text-[10px] font-bold text-teal-700 bg-white border border-teal-200 px-2.5 py-0.5 rounded-lg shadow-2xs">
+                            ตัดยอดคอร์ส: {totalDeductingQty} ครั้ง (เลือกแล้ว {usedServices.length} บริการ)
+                          </span>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          {usageCourses.map(ci => {
+                            const remainQty = Number(ci.originalItem?.computedRemainQty ?? ci.maxQty ?? 99);
+                            const cName = String(getFuzzyKey(ci.originalItem, ["ชื่อคอส", "col_8"]) || ci.name || '').replace(/เบิกใช้:\s*/g, '');
+                            const cNo = String(getFuzzyKey(ci.originalItem, ["เลขที่ใบคอส", "col_2"]) || '');
+                            return (
+                              <div key={ci.id} className="flex items-center justify-between bg-white px-3 py-2 rounded-xl border border-teal-100 shadow-2xs text-xs">
+                                <div className="min-w-0 pr-2">
+                                  <div className="font-bold text-slate-800 truncate">{cName}</div>
+                                  <div className="text-[10px] text-slate-400">เลขที่: {cNo || ci.id} • คงเหลือ {remainQty} ครั้ง</div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-xs text-slate-500 font-medium">ตัด:</span>
+                                  <div className="flex items-center border border-teal-200 rounded-lg bg-teal-50/50 overflow-hidden">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateCartQty(ci.id, 'usage', -1)}
+                                      disabled={ci.qty <= 1}
+                                      className="w-7 h-7 flex items-center justify-center text-teal-700 hover:bg-teal-100 disabled:opacity-30 disabled:hover:bg-transparent font-black"
+                                    >
+                                      -
+                                    </button>
+                                    <span className="w-8 text-center font-black text-teal-800 text-xs">
+                                      {ci.qty}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateCartQty(ci.id, 'usage', 1)}
+                                      disabled={ci.qty >= remainQty}
+                                      className="w-7 h-7 flex items-center justify-center text-teal-700 hover:bg-teal-100 disabled:opacity-30 disabled:hover:bg-transparent font-black"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                  <span className="text-xs font-bold text-teal-700">ครั้ง</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <label className="block text-xs font-black text-slate-800">
+                            เลือกรายการบริการ / ลงเครื่องที่ทำในครั้งนี้ <span className="text-slate-400 font-normal">(ไม่บังคับ)</span>
+                          </label>
+                          <p className="text-[10px] text-slate-500">
+                            แตะเลือกได้ตามจริง (ครอบคลุมทั้งคอร์สหลักและคอร์สลงเครื่องที่ซื้อเพิ่ม) หรือปล่อยว่างเพื่อบันทึกชื่อคอร์ส
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Search box */}
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                        <input 
+                          type="text"
+                          placeholder="ค้นหาบริการหรือเครื่อง (เช่น สกินสครับเบอร์, โอโซน, นวดหน้า)..."
+                          value={modalServiceSearch}
+                          onChange={(e) => setModalServiceSearch(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 focus:bg-white"
+                        />
+                      </div>
+
+                      {/* Selected Services Tags */}
+                      {usedServices.length > 0 && (
+                        <div className="p-2.5 bg-indigo-50/70 rounded-xl flex flex-wrap gap-1.5 border border-indigo-100">
+                          <span className="text-[10px] font-black text-indigo-700 flex items-center gap-1 mr-1">
+                            <CheckCircle size={13} /> บริการที่เลือกทำ:
+                          </span>
+                          {usedServices.map((s, idx) => {
+                            const sName = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]) || s.name || s);
+                            return (
+                              <span key={s.id || idx} className="inline-flex items-center gap-1 bg-white px-2 py-1 rounded-lg border border-indigo-200 text-xs font-bold text-indigo-800 shadow-2xs">
+                                {sName}
+                                <X size={12} className="cursor-pointer text-slate-400 hover:text-red-500 ml-0.5" onClick={() => setUsedServices(usedServices.filter((_, i) => i !== idx))} />
+                              </span>
+                            );
+                          })}
+                          <button
+                            type="button"
+                            onClick={() => setUsedServices([])}
+                            className="text-[10px] text-red-500 hover:underline font-bold ml-auto px-1"
+                          >
+                            ล้างทั้งหมด
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Category Filter Pills */}
+                      <div className="flex gap-1.5 overflow-x-auto pb-0.5 hide-scrollbar text-[11px] font-bold">
+                        {courseSpecificItems.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setSingleCourseTabModal('course')}
+                            className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'course' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                          >
+                            🎯 ในคอร์สลูกค้า ({courseSpecificItems.length})
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setSingleCourseTabModal('machine')}
+                          className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'machine' ? 'bg-pink-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                        >
+                          ⚡ ลงเครื่องรายครั้ง (12 เครื่อง)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSingleCourseTabModal('basic')}
+                          className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'basic' ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                        >
+                          💆 บริการพื้นฐาน / ทรีตเมนต์
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSingleCourseTabModal('all')}
+                          className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'all' ? 'bg-slate-800 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                        >
+                          📋 ค้นหาทั้งหมด
+                        </button>
+                      </div>
+
+                      {/* Section Content based on selected tab / search */}
+                      {modalServiceSearch.trim() !== '' ? (
+                        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 border border-slate-100 rounded-xl">
+                          {[...MACHINE_TREATMENT_ADDONS, ...STANDARD_FACIAL_SERVICES, ...masterCourses]
+                            .filter(item => {
+                              const name = String(getFuzzyKey(item, ["ชื่อคอส", "col_4"]) || item.name || '').toLowerCase();
+                              return name.includes(modalServiceSearch.toLowerCase());
+                            })
+                            .slice(0, 30)
+                            .map((srv, idx) => {
+                              const name = String(getFuzzyKey(srv, ["ชื่อคอส", "col_4"]) || srv.name);
+                              const isSelected = isServiceSelected(name);
+                              return (
+                                <button
+                                  type="button"
+                                  key={srv.id || idx}
+                                  onClick={() => toggleServiceName(name, srv)}
+                                  className={`p-2 rounded-lg border text-left cursor-pointer transition-all flex items-start gap-2 ${
+                                    isSelected ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-200'
+                                  }`}
+                                >
+                                  <div className={`mt-0.5 shrink-0 w-3.5 h-3.5 rounded border flex items-center justify-center ${isSelected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'}`}>
+                                    {isSelected && <Check size={10} strokeWidth={3} />}
+                                  </div>
+                                  <span className="text-xs truncate">{name}</span>
+                                </button>
+                              );
+                            })}
+                        </div>
+                      ) : singleCourseTabModal === 'course' && courseSpecificItems.length > 0 ? (
+                        <div className="p-3 bg-gradient-to-r from-teal-50 to-emerald-50 rounded-xl border border-teal-200/80">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-bold text-teal-800 flex items-center gap-1.5">
+                              <Sparkles size={14} className="text-teal-600" /> รายการขั้นตอนในคอร์สของลูกค้า:
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                courseSpecificItems.forEach(item => {
+                                  if (!isServiceSelected(item)) {
+                                    toggleServiceName(item);
+                                  }
+                                });
+                              }}
+                              className="text-[10px] font-bold text-white bg-teal-600 hover:bg-teal-700 px-2 py-0.5 rounded-md shadow-xs active:scale-95"
+                            >
+                              + เลือกทั้งหมด
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {courseSpecificItems.map((item, idx) => {
+                              const isSelected = isServiceSelected(item);
+                              return (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  onClick={() => toggleServiceName(item)}
+                                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all border ${
+                                    isSelected ? 'bg-teal-600 text-white border-teal-600 shadow-xs' : 'bg-white text-teal-800 border-teal-200 hover:bg-teal-100'
+                                  }`}
+                                >
+                                  {isSelected ? `✓ ${item}` : `+ ${item}`}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : singleCourseTabModal === 'machine' ? (
+                        <div className="p-3 bg-gradient-to-r from-pink-500/10 via-rose-500/10 to-purple-500/10 rounded-xl border border-pink-200">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                              <Sparkles size={14} className="text-pink-600" /> ลงเครื่องรายครั้ง (12 รายการ):
+                            </span>
+                            <span className="text-[10px] text-pink-600 font-bold bg-white px-2 py-0.5 rounded-full border border-pink-200 shadow-2xs">
+                              แตะเพื่อบันทึกเครื่องที่ทำ
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                            {MACHINE_TREATMENT_ADDONS.map((addon) => {
+                              const isSelected = isServiceSelected(addon.name);
+                              return (
+                                <button
+                                  key={addon.id}
+                                  type="button"
+                                  onClick={() => toggleServiceName(addon.name, addon)}
+                                  className={`p-2 rounded-xl text-left border transition-all flex items-start gap-1.5 ${
+                                    isSelected 
+                                      ? 'bg-pink-600 text-white border-pink-600 shadow-xs' 
+                                      : 'bg-white text-slate-700 border-pink-100 hover:border-pink-300 hover:bg-pink-50/50'
+                                  }`}
+                                >
+                                  <div className={`mt-0.5 shrink-0 w-3 h-3 rounded flex items-center justify-center ${isSelected ? 'bg-white text-pink-600' : 'border border-slate-300'}`}>
+                                    {isSelected && <Check size={8} strokeWidth={4} />}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-xs font-bold leading-tight truncate">{addon.name}</div>
+                                    <div className={`text-[9px] ${isSelected ? 'text-pink-100' : 'text-slate-400'}`}>฿{addon.price}</div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-bold text-slate-800">
+                              บริการพื้นฐาน / ทรีตเมนต์ยอดนิยม:
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {STANDARD_FACIAL_SERVICES.map((srv) => {
+                              const isSelected = isServiceSelected(srv.name);
+                              return (
+                                <button
+                                  key={srv.id}
+                                  type="button"
+                                  onClick={() => toggleServiceName(srv.name, srv)}
+                                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all border ${
+                                    isSelected ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  {isSelected ? `✓ ${srv.name}` : `+ ${srv.name}`}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    );
+                  })()}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                     <SignaturePad canvasRef={custSigRef} label="ลายเซ็นลูกค้า" />
+                     <SignaturePad canvasRef={staffSigRef} label={`ลายเซ็นพนักงาน${paymentStaff ? ` (${paymentStaff})` : ''}`} />
+                  </div>
+                </div>
+              )}
+
+              {/* Order items quick summary on Step 1 for regular checkout */}
+              {!isRequisitionMode && !hasUsageOrClaim && (
+                <div className="p-3.5 bg-indigo-50/60 rounded-2xl border border-indigo-100 flex items-center justify-between">
+                  <div className="text-xs text-indigo-900 font-bold">
+                    ยอดรวมคำสั่งซื้อ ({cart.reduce((s, i) => s + (Number(i.qty) || 1), 0)} รายการ)
+                  </div>
+                  <div className="text-lg font-black text-indigo-600">
+                    ฿{total.toLocaleString()}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* STEP 2: Payment Screen */}
+          {checkoutStep === 2 && !isRequisitionMode && (
+            <div className="space-y-4">
+              <div className="text-center bg-gradient-to-b from-indigo-50/70 to-slate-50 p-4 rounded-2xl border border-indigo-100/60">
+                <div className="text-xs font-semibold text-slate-500 mb-0.5">ยอดสุทธิที่ต้องชำระ</div>
+                <div className="text-3xl font-extrabold text-indigo-600 tracking-tight">฿{total.toLocaleString()}</div>
+                <div className="mt-2 flex items-center justify-center gap-2 flex-wrap text-xs">
+                  <span className="px-2.5 py-0.5 bg-white border border-slate-200 rounded-full text-slate-600 font-bold">
+                    ช่องทาง: {orderChannel === 'instore' ? 'หน้าร้าน' : orderChannel === 'shopee' ? 'Shopee' : orderChannel === 'chat' ? 'ทางแชท' : 'ทางเว็บ'}
+                  </span>
+                  {paymentStaff && (
+                    <span className="px-2.5 py-0.5 bg-white border border-indigo-200 rounded-full text-indigo-700 font-bold truncate max-w-[200px]">
+                      ผู้ทำรายการ: {paymentStaff}
+                    </span>
+                  )}
+                </div>
               </div>
 
-              <div className="space-y-3 mb-6">
+              <div className="space-y-3">
                 <div className="flex justify-between text-sm font-semibold mb-2">
                   <span className="text-slate-700">ระบุยอดเงิน:</span>
-                  {total - totalCovered > 0 && <span className="text-red-500 text-xs">ขาด ฿{(total - totalCovered).toLocaleString()}</span>}
-                  {totalPaid - (total - appCreditPaidAmount) > 0 && <span className="text-orange-500 text-xs">เกิน ฿{(totalPaid - (total - appCreditPaidAmount)).toLocaleString()}</span>}
+                  {total - totalCovered > 0 && <span className="text-red-500 text-xs font-bold">ขาด ฿{(total - totalCovered).toLocaleString()}</span>}
+                  {totalPaid - (total - appCreditPaidAmount) > 0 && <span className="text-orange-500 text-xs font-bold">เกิน ฿{(totalPaid - (total - appCreditPaidAmount)).toLocaleString()}</span>}
                   {appCreditPaidAmount > 0 && <span className="text-emerald-600 text-xs font-bold">✓ จ่ายแล้วผ่านแอป ฿{appCreditPaidAmount.toLocaleString()}</span>}
                 </div>
 
                 <button 
+                  type="button"
                   onClick={() => {
                     // 🌟 ล็อก "สแกน QR ตัดเครดิต" เมื่อลูกค้าจ่ายเครดิตผ่านแอปไปแล้ว
                     if (appCreditPaidAmount > 0) {
@@ -5862,6 +6314,7 @@ export default function POSSystem({
                 ].map((method) => (
                   <div key={method.key} className={`flex items-center gap-2 ${method.key === 'credit' && appCreditPaidAmount > 0 ? 'opacity-40 pointer-events-none' : ''}`}>
                     <button
+                      type="button"
                       onClick={() => {
                         // 🌟 ล็อกช่องเครดิตเมื่อลูกค้าจ่ายผ่านแอปแล้ว
                         if (method.key === 'credit' && appCreditPaidAmount > 0) {
@@ -5930,465 +6383,82 @@ export default function POSSystem({
                   </div>
                 ))}
               </div>
-            </>
-          )}
-          </>
-        )}
-
-        <div className={`space-y-4 mb-6 pt-2 ${((hasUsageOrClaim && checkoutStep === 1) || cart.some(i => i.type === 'service')) ? 'block' : 'hidden'}`}>
-              
-              {/* Claimed Items Summary (For claim_item) */}
-              {hasCourseClaim && (
-                <div className="p-3.5 bg-pink-50 border border-pink-200 rounded-2xl mb-3">
-                  <div className="text-xs font-bold text-pink-700 mb-1.5 flex items-center gap-1.5">
-                    <Package size={15} /> รายการสินค้า / ของแถมที่ขอเบิกจากคอร์ส:
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {cart.filter(i => i.type === 'claim_item').map(ci => (
-                      <span key={ci.id} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-white text-pink-800 border border-pink-200 shadow-sm">
-                        <span>🎁 {ci.itemName || ci.name}</span>
-                        <span className="text-pink-600 font-black">({ci.qty} ชิ้น)</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* 1. Photo Upload */}
-              <div>
-                 <span className="block text-xs font-bold text-slate-500 mb-2">อัปโหลดรูปภาพ (ก่อนทำ / หลังทำ หรือหลักฐานส่งมอบ)</span>
-                 <div className="grid grid-cols-2 gap-4">
-                    {[
-                      { key: 'before', label: 'ก่อนทำ (Before)' },
-                      { key: 'after', label: 'หลังทำ (After)' }
-                    ].map(photo => (
-                      <div key={photo.key}>
-                         <input type="file" accept="image/*" multiple className="hidden" id={`upload-${photo.key}`} onChange={(e) => {
-                            const files = Array.from(e.target.files);
-                            if (files.length > 0) {
-                                Promise.all(files.map(async file => {
-                                    try {
-                                        const options = { maxSizeMB: 0.2, maxWidthOrHeight: 1024, useWebWorker: true };
-                                        const compressed = await imageCompression(file, options);
-                                        return new Promise((resolve) => {
-                                            const reader = new FileReader();
-                                            reader.onload = (ev) => resolve(ev.target.result);
-                                            reader.readAsDataURL(compressed);
-                                        });
-                                    } catch (err) {
-                                        console.error("Compression failed", err);
-                                        return new Promise((resolve) => {
-                                            const reader = new FileReader();
-                                            reader.onload = (ev) => resolve(ev.target.result);
-                                            reader.readAsDataURL(file);
-                                        });
-                                    }
-                                })).then(results => {
-                                    setPaymentPhotos(prev => ({ ...prev, [photo.key]: results }));
-                                });
-                            }
-                         }} />
-                         <label htmlFor={`upload-${photo.key}`} className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-indigo-200 rounded-xl bg-indigo-50/50 hover:bg-indigo-50 cursor-pointer transition-all relative overflow-hidden group">
-                            {paymentPhotos[photo.key] && paymentPhotos[photo.key].length > 0 ? (
-                              <>
-                                <div className="absolute inset-0 w-full h-full p-1.5 flex gap-1.5 overflow-x-auto snap-x">
-                                  {paymentPhotos[photo.key].map((img, idx) => (
-                                     <img key={idx} src={img} className="h-full w-auto min-w-[40%] object-cover rounded shadow-sm snap-center opacity-90 group-hover:opacity-40 transition-opacity" alt="Preview" />
-                                  ))}
-                                </div>
-                                <div className="z-10 hidden group-hover:flex flex-col items-center p-2 bg-white/90 rounded-lg shadow-sm backdrop-blur-sm pointer-events-none">
-                                  <Camera size={16} className="text-indigo-600 mb-0.5" />
-                                  <span className="text-[10px] font-bold text-indigo-700">เลือกรูปใหม่</span>
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className="w-10 h-10 bg-indigo-100 text-indigo-500 rounded-full flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-                                  <Camera size={20} />
-                                </div>
-                                <span className="text-xs font-bold text-indigo-600 text-center px-1">{photo.label}</span>
-                              </>
-                            )}
-                         </label>
-                      </div>
-                    ))}
-                 </div>
-              </div>
-
-              {/* 2. Service Selection (Only for usage) */}
-              {cart.some(i => i.type === 'usage') && (() => {
-                const usageCourses = cart.filter(i => i.type === 'usage');
-                const totalDeductingQty = usageCourses.reduce((sum, item) => sum + (Number(item.qty) || 1), 0);
-
-                // Auto-extract items from the customer's courses being cut
-                const courseSpecificItems = [];
-                usageCourses.forEach(ci => {
-                  const rawItems = String(
-                    ci.originalItem?.receivedItems ||
-                    ci.originalItem?.desc ||
-                    ci.originalItem?.["col_11"] ||
-                    getFuzzyKey(ci.originalItem, ["รายการที่ได้รับ", "col_11"]) ||
-                    ''
-                  );
-                  if (rawItems) {
-                    const cleaned = rawItems.replace(/\b\d+\.\s*/g, '').replace(/คอร์สย่อย\/เสริม:\s*/g, '').replace(/สินค้าที่ได้รับ:\s*/g, '');
-                    const parts = cleaned.split(/[\n,–-]+/).map(s => s.trim()).filter(s => s && s.length > 1 && !s.includes('VIP'));
-                    parts.forEach(p => {
-                      if (!courseSpecificItems.includes(p)) courseSpecificItems.push(p);
-                    });
-                  }
-                  const cName = String(getFuzzyKey(ci.originalItem, ["ชื่อคอส", "col_8"]) || ci.name || '').replace(/เบิกใช้:\s*/g, '').replace(/\(.*\)/g, '').trim();
-                  if (cName && !courseSpecificItems.includes(cName) && !cName.includes('Set') && !cName.includes('โปร')) {
-                    courseSpecificItems.unshift(cName);
-                  }
-                });
-
-                const isServiceSelected = (name) => {
-                  return usedServices.some(s => {
-                    const sName = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]) || s.name || s).trim();
-                    return sName === name || sName.includes(name) || name.includes(sName);
-                  });
-                };
-
-                const toggleServiceName = (name, extra = {}) => {
-                  const exists = isServiceSelected(name);
-                  if (exists) {
-                    setUsedServices(prev => prev.filter(s => {
-                      const sName = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]) || s.name || s).trim();
-                      return sName !== name && !sName.includes(name) && !name.includes(sName);
-                    }));
-                  } else {
-                    setUsedServices(prev => [
-                      ...prev,
-                      {
-                        id: extra.id || `srv_${name}_${Date.now()}`,
-                        name: name,
-                        "ชื่อคอส": name,
-                        "col_4": name,
-                        ...extra
-                      }
-                    ]);
-                  }
-                };
-
-                return (
-                <div className="space-y-3">
-                  {/* Summary of courses being deducted with qty controls */}
-                  <div className="bg-teal-50/70 border border-teal-200/80 rounded-2xl p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-teal-900 flex items-center gap-1.5">
-                        <Layers size={14} className="text-teal-600" /> คอร์สที่กำลังตัดยอด:
-                      </span>
-                      <span className="text-[10px] font-bold text-teal-700 bg-white border border-teal-200 px-2.5 py-0.5 rounded-lg shadow-2xs">
-                        ตัดยอดคอร์ส: {totalDeductingQty} ครั้ง (เลือกแล้ว {usedServices.length} บริการ)
-                      </span>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      {usageCourses.map(ci => {
-                        const remainQty = Number(ci.originalItem?.computedRemainQty ?? ci.maxQty ?? 99);
-                        const cName = String(getFuzzyKey(ci.originalItem, ["ชื่อคอส", "col_8"]) || ci.name || '').replace(/เบิกใช้:\s*/g, '');
-                        const cNo = String(getFuzzyKey(ci.originalItem, ["เลขที่ใบคอส", "col_2"]) || '');
-                        return (
-                          <div key={ci.id} className="flex items-center justify-between bg-white px-3 py-2 rounded-xl border border-teal-100 shadow-2xs text-xs">
-                            <div className="min-w-0 pr-2">
-                              <div className="font-bold text-slate-800 truncate">{cName}</div>
-                              <div className="text-[10px] text-slate-400">เลขที่: {cNo || ci.id} • คงเหลือ {remainQty} ครั้ง</div>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-xs text-slate-500 font-medium">ตัด:</span>
-                              <div className="flex items-center border border-teal-200 rounded-lg bg-teal-50/50 overflow-hidden">
-                                <button
-                                  type="button"
-                                  onClick={() => updateCartQty(ci.id, 'usage', -1)}
-                                  disabled={ci.qty <= 1}
-                                  className="w-7 h-7 flex items-center justify-center text-teal-700 hover:bg-teal-100 disabled:opacity-30 disabled:hover:bg-transparent font-black"
-                                >
-                                  -
-                                </button>
-                                <span className="w-8 text-center font-black text-teal-800 text-xs">
-                                  {ci.qty}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => updateCartQty(ci.id, 'usage', 1)}
-                                  disabled={ci.qty >= remainQty}
-                                  className="w-7 h-7 flex items-center justify-center text-teal-700 hover:bg-teal-100 disabled:opacity-30 disabled:hover:bg-transparent font-black"
-                                >
-                                  +
-                                </button>
-                              </div>
-                              <span className="text-xs font-bold text-teal-700">ครั้ง</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <label className="block text-xs font-black text-slate-800">
-                        เลือกรายการบริการ / ลงเครื่องที่ทำในครั้งนี้ <span className="text-slate-400 font-normal">(ไม่บังคับ)</span>
-                      </label>
-                      <p className="text-[10px] text-slate-500">
-                        แตะเลือกได้ตามจริง (ครอบคลุมทั้งคอร์สหลักและคอร์สลงเครื่องที่ซื้อเพิ่ม) หรือปล่อยว่างเพื่อบันทึกชื่อคอร์ส
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Search box */}
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-                    <input 
-                      type="text"
-                      placeholder="ค้นหาบริการหรือเครื่อง (เช่น สกินสครับเบอร์, โอโซน, นวดหน้า)..."
-                      value={modalServiceSearch}
-                      onChange={(e) => setModalServiceSearch(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 focus:bg-white"
-                    />
-                  </div>
-
-                  {/* Selected Services Tags */}
-                  {usedServices.length > 0 && (
-                    <div className="p-2.5 bg-indigo-50/70 rounded-xl flex flex-wrap gap-1.5 border border-indigo-100">
-                      <span className="text-[10px] font-black text-indigo-700 flex items-center gap-1 mr-1">
-                        <CheckCircle size={13} /> บริการที่เลือกทำ:
-                      </span>
-                      {usedServices.map((s, idx) => {
-                        const sName = String(getFuzzyKey(s, ["ชื่อคอส", "col_4"]) || s.name || s);
-                        return (
-                          <span key={s.id || idx} className="inline-flex items-center gap-1 bg-white px-2 py-1 rounded-lg border border-indigo-200 text-xs font-bold text-indigo-800 shadow-2xs">
-                            {sName}
-                            <X size={12} className="cursor-pointer text-slate-400 hover:text-red-500 ml-0.5" onClick={() => setUsedServices(usedServices.filter((_, i) => i !== idx))} />
-                          </span>
-                        );
-                      })}
-                      <button
-                        type="button"
-                        onClick={() => setUsedServices([])}
-                        className="text-[10px] text-red-500 hover:underline font-bold ml-auto px-1"
-                      >
-                        ล้างทั้งหมด
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Category Filter Pills */}
-                  <div className="flex gap-1.5 overflow-x-auto pb-0.5 hide-scrollbar text-[11px] font-bold">
-                    {courseSpecificItems.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setSingleCourseTabModal('course')}
-                        className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'course' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                      >
-                        🎯 ในคอร์สลูกค้า ({courseSpecificItems.length})
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setSingleCourseTabModal('machine')}
-                      className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'machine' ? 'bg-pink-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                    >
-                      ⚡ ลงเครื่องรายครั้ง (12 เครื่อง)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSingleCourseTabModal('basic')}
-                      className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'basic' ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                    >
-                      💆 บริการพื้นฐาน / ทรีตเมนต์
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSingleCourseTabModal('all')}
-                      className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'all' ? 'bg-slate-800 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                    >
-                      📋 ค้นหาทั้งหมด
-                    </button>
-                  </div>
-
-                  {/* Section Content based on selected tab / search */}
-                  {modalServiceSearch.trim() !== '' ? (
-                    <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 border border-slate-100 rounded-xl">
-                      {[...MACHINE_TREATMENT_ADDONS, ...STANDARD_FACIAL_SERVICES, ...masterCourses]
-                        .filter(item => {
-                          const name = String(getFuzzyKey(item, ["ชื่อคอส", "col_4"]) || item.name || '').toLowerCase();
-                          return name.includes(modalServiceSearch.toLowerCase());
-                        })
-                        .slice(0, 30)
-                        .map((srv, idx) => {
-                          const name = String(getFuzzyKey(srv, ["ชื่อคอส", "col_4"]) || srv.name);
-                          const isSelected = isServiceSelected(name);
-                          return (
-                            <button
-                              type="button"
-                              key={srv.id || idx}
-                              onClick={() => toggleServiceName(name, srv)}
-                              className={`p-2 rounded-lg border text-left cursor-pointer transition-all flex items-start gap-2 ${
-                                isSelected ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-200'
-                              }`}
-                            >
-                              <div className={`mt-0.5 shrink-0 w-3.5 h-3.5 rounded border flex items-center justify-center ${isSelected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'}`}>
-                                {isSelected && <Check size={10} strokeWidth={3} />}
-                              </div>
-                              <span className="text-xs truncate">{name}</span>
-                            </button>
-                          );
-                        })}
-                    </div>
-                  ) : singleCourseTabModal === 'course' && courseSpecificItems.length > 0 ? (
-                    <div className="p-3 bg-gradient-to-r from-teal-50 to-emerald-50 rounded-xl border border-teal-200/80">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-bold text-teal-800 flex items-center gap-1.5">
-                          <Sparkles size={14} className="text-teal-600" /> รายการขั้นตอนในคอร์สของลูกค้า:
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            courseSpecificItems.forEach(item => {
-                              if (!isServiceSelected(item)) {
-                                toggleServiceName(item);
-                              }
-                            });
-                          }}
-                          className="text-[10px] font-bold text-white bg-teal-600 hover:bg-teal-700 px-2 py-0.5 rounded-md shadow-xs active:scale-95"
-                        >
-                          + เลือกทั้งหมด
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {courseSpecificItems.map((item, idx) => {
-                          const isSelected = isServiceSelected(item);
-                          return (
-                            <button
-                              key={idx}
-                              type="button"
-                              onClick={() => toggleServiceName(item)}
-                              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all border ${
-                                isSelected ? 'bg-teal-600 text-white border-teal-600 shadow-xs' : 'bg-white text-teal-800 border-teal-200 hover:bg-teal-100'
-                              }`}
-                            >
-                              {isSelected ? `✓ ${item}` : `+ ${item}`}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : singleCourseTabModal === 'machine' ? (
-                    <div className="p-3 bg-gradient-to-r from-pink-500/10 via-rose-500/10 to-purple-500/10 rounded-xl border border-pink-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                          <Sparkles size={14} className="text-pink-600" /> ลงเครื่องรายครั้ง (12 รายการ):
-                        </span>
-                        <span className="text-[10px] text-pink-600 font-bold bg-white px-2 py-0.5 rounded-full border border-pink-200 shadow-2xs">
-                          แตะเพื่อบันทึกเครื่องที่ทำ
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                        {MACHINE_TREATMENT_ADDONS.map((addon) => {
-                          const isSelected = isServiceSelected(addon.name);
-                          return (
-                            <button
-                              key={addon.id}
-                              type="button"
-                              onClick={() => toggleServiceName(addon.name, addon)}
-                              className={`p-2 rounded-xl text-left border transition-all flex items-start gap-1.5 ${
-                                isSelected 
-                                  ? 'bg-pink-600 text-white border-pink-600 shadow-xs' 
-                                  : 'bg-white text-slate-700 border-pink-100 hover:border-pink-300 hover:bg-pink-50/50'
-                              }`}
-                            >
-                              <div className={`mt-0.5 shrink-0 w-3 h-3 rounded flex items-center justify-center ${isSelected ? 'bg-white text-pink-600' : 'border border-slate-300'}`}>
-                                {isSelected && <Check size={8} strokeWidth={4} />}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="text-xs font-bold leading-tight truncate">{addon.name}</div>
-                                <div className={`text-[9px] ${isSelected ? 'text-pink-100' : 'text-slate-400'}`}>฿{addon.price}</div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-bold text-slate-800">
-                          บริการพื้นฐาน / ทรีตเมนต์ยอดนิยม:
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {STANDARD_FACIAL_SERVICES.map((srv) => {
-                          const isSelected = isServiceSelected(srv.name);
-                          return (
-                            <button
-                              key={srv.id}
-                              type="button"
-                              onClick={() => toggleServiceName(srv.name, srv)}
-                              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all border ${
-                                isSelected ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                              }`}
-                            >
-                              {isSelected ? `✓ ${srv.name}` : `+ ${srv.name}`}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                );
-              })()}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                 <SignaturePad canvasRef={custSigRef} label="ลายเซ็นลูกค้า" />
-                 <SignaturePad canvasRef={staffSigRef} label={`ลายเซ็นพนักงาน${paymentStaff ? ` (${paymentStaff})` : ''}`} />
-              </div>
             </div>
+          )}
 
-          <div className="flex gap-3 pt-4 border-t border-slate-100">
-            {hasUsageOrClaim && checkoutStep === 2 && (
-              <button 
-                onClick={() => setCheckoutStep(1)}
-                className="py-4 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-lg transition-colors flex items-center justify-center shadow-sm active:scale-95"
-              >
-                ย้อนกลับ
-              </button>
-            )}
-            
-            {hasUsageOrClaim && checkoutStep === 1 ? (
-              <button 
-                onClick={() => {
-                   if (!paymentStaff) return showToast('กรุณาเลือกพนักงานผู้ทำรายการ', 'error');
-                   if (custSigRef.current?.dataset?.isSigned !== "true" || staffSigRef.current?.dataset?.isSigned !== "true") {
-                       return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
-                   }
-                   // รายการขั้นตอนที่ทำไม่บังคับ หากไม่เลือกจะบันทึกเป็นชื่อคอร์สให้อัตโนมัติ
-                   setCheckoutStep(2);
-                }}
-                className="flex-1 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200"
-              >
-                ถัดไป <ChevronRight size={24} />
-              </button>
-            ) : (
-              <button 
-                id="btn-confirm-checkout"
-                onClick={() => {
-                    if (splitPayment.transfer > 0 && !omiseChargeData) {
-                        setShowTransferChoiceModal(true);
-                    } else {
-                        handleCheckout();
-                    }
-                }}
-                disabled={isProcessing || (!isRequisitionMode && totalCovered !== total)}
-                className={`flex-1 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${(isProcessing || (!isRequisitionMode && totalCovered !== total)) ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : (isRequisitionMode ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' : (hasCourseUsage ? 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200' : (hasCourseClaim ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-200' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200')))}`}
-              >
-                {isProcessing ? (
-                  <><span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span> กำลังประมวลผล...</>
+          {/* Footer Navigation & Actions */}
+          <div className="flex gap-3 pt-4 border-t border-slate-100 mt-4">
+            {checkoutStep === 1 ? (
+              <>
+                <button 
+                  type="button"
+                  onClick={() => setShowPaymentModal(false)}
+                  className="py-3.5 px-5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-base transition-colors active:scale-95"
+                >
+                  ยกเลิก
+                </button>
+                
+                {isRequisitionMode ? (
+                  <button 
+                    onClick={handleCheckout}
+                    disabled={isProcessing}
+                    className="flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg active:scale-95"
+                  >
+                    {isProcessing ? 'กำลังประมวลผล...' : <><CheckCircle size={20} /> ยืนยันการเบิกสินค้า (PO)</>}
+                  </button>
                 ) : (
-                  <><CheckCircle size={24} /> {isRequisitionMode ? 'ยืนยันการเบิกสินค้า' : (hasCourseUsage ? 'ยืนยันตัดคอร์สและชำระเงิน' : (hasCourseClaim ? 'ยืนยันการเบิกสินค้า' : 'ยืนยันการชำระเงิน'))}</>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                       if (!paymentStaff) return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ขายคอร์ส', 'error');
+                       if (hasUsageOrClaim) {
+                           if (custSigRef.current?.dataset?.isSigned !== "true" || staffSigRef.current?.dataset?.isSigned !== "true") {
+                               return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
+                           }
+                       }
+                       // If payment not initialized yet, default to transfer or total
+                       if (!splitPayment.cash && !splitPayment.transfer && !splitPayment.cod && !splitPayment.credit) {
+                           setSplitPayment({ cash: 0, transfer: total, cod: 0, credit: 0 });
+                       }
+                       setCheckoutStep(2);
+                    }}
+                    className="flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200"
+                  >
+                    <span>ถัดไป: ไปหน้าชำระเงิน</span>
+                    <span className="bg-white/20 px-2 py-0.5 rounded-lg text-sm font-black">฿{total.toLocaleString()}</span>
+                    <ChevronRight size={20} />
+                  </button>
                 )}
-              </button>
+              </>
+            ) : (
+              <>
+                <button 
+                  type="button"
+                  onClick={() => setCheckoutStep(1)}
+                  className="py-3.5 px-5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-base transition-colors flex items-center justify-center gap-1 active:scale-95"
+                >
+                  <ChevronLeft size={20} /> ย้อนกลับ
+                </button>
+
+                <button 
+                  id="btn-confirm-checkout"
+                  onClick={() => {
+                      if (splitPayment.transfer > 0 && !omiseChargeData) {
+                          setShowTransferChoiceModal(true);
+                      } else {
+                          handleCheckout();
+                      }
+                  }}
+                  disabled={isProcessing || (!isRequisitionMode && totalCovered !== total)}
+                  className={`flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${(isProcessing || (!isRequisitionMode && totalCovered !== total)) ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : (isRequisitionMode ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' : (hasCourseUsage ? 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200' : (hasCourseClaim ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-200' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200')))}`}
+                >
+                  {isProcessing ? (
+                    <><span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span> กำลังประมวลผล...</>
+                  ) : (
+                    <><CheckCircle size={20} /> {isRequisitionMode ? 'ยืนยันการเบิกสินค้า' : (hasCourseUsage ? 'ยืนยันตัดคอร์สและชำระเงิน' : (hasCourseClaim ? 'ยืนยันการเบิกสินค้า' : 'ยืนยันการชำระเงิน'))}</>
+                  )}
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -8542,18 +8612,6 @@ export default function POSSystem({
                       <button onClick={() => setCourseQRModalData(null)} className="w-8 h-8 flex items-center justify-center bg-white text-slate-400 hover:text-slate-600 rounded-full shadow-sm">
                           <X size={18} />
                       </button>
-                  </div>
-                  <div className="p-6 flex flex-col items-center text-center">
-                      <div className="bg-white p-4 rounded-2xl shadow-lg border border-slate-100 mb-4">
-                          <QRCodeSVG 
-                              value={String(getFuzzyKey(courseQRModalData, ["เลขที่ใบคอส", "col_2"]) || courseQRModalData.courseRefKey || courseQRModalData.id || '').trim()} 
-                              size={180} 
-                          />
-                      </div>
-                      <p className="font-bold text-slate-800 mb-1 line-clamp-2">{String(getFuzzyKey(courseQRModalData, ["ชื่อคอส", "col_8"]) || '-')}</p>
-                      <p className="text-sm font-mono text-slate-500 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200">
-                          Ref: {getFuzzyKey(courseQRModalData, "เลขที่ใบคอส") || '-'}
-                      </p>
                   </div>
               </div>
           </div>
