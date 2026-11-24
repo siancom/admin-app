@@ -31,6 +31,8 @@ import EmployeeDashboard from './components/EmployeeDashboard';
 import JobApplicationForm from './components/JobApplicationForm';
 import MapPinModal from './components/MapPinModal';
 import AdminBookingForm from './components/AdminBookingForm';
+import SkinAiBanner from './components/SkinAiBanner';
+import { analyzeSkinIssue } from './utils/skinAiUtils';
 import { DEFAULT_BOOKING_CONFIG, calculateBookingDuration } from './utils/bookingConfig';
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -4361,6 +4363,8 @@ const flexMessage = {
         return;
       }
 
+      const skinAnalysis = analyzeSkinIssue(newCustomerForm.issue);
+
       const docData = { 
         "ชื่อ": computedName, 
         "เบอร์โทร": cleanPhone, 
@@ -4374,6 +4378,9 @@ const flexMessage = {
         age: newCustomerForm.age || '',
         "ปัญหาผิวหน้า": String(newCustomerForm.issue || ''), 
         issue: String(newCustomerForm.issue || ''),
+        aiRecommendedCourses: skinAnalysis ? skinAnalysis.courses.map(c => c.name) : [],
+        aiCarePhase: skinAnalysis ? skinAnalysis.primaryPhase : '',
+        aiRecommendation: skinAnalysis ? skinAnalysis.summaryText : '',
         addressNo: newCustomerForm.addressNo || '',
         subDistrict: newCustomerForm.subDistrict || '',
         district: newCustomerForm.district || '',
@@ -4482,11 +4489,16 @@ const flexMessage = {
   
   const handleEditCustomerSave = async (e) => {
       e.preventDefault();
+      const skinAnalysis = analyzeSkinIssue(editCustomerData.issue);
       try {
           await updateDoc(getDocRef('customers', editCustomerData.id), {
               "ชื่อ": editCustomerData.name,
               "เบอร์โทร": editCustomerData.phone,
-              "ปัญหาผิวหน้า": editCustomerData.issue
+              "ปัญหาผิวหน้า": editCustomerData.issue,
+              issue: editCustomerData.issue,
+              aiRecommendedCourses: skinAnalysis ? skinAnalysis.courses.map(c => c.name) : [],
+              aiCarePhase: skinAnalysis ? skinAnalysis.primaryPhase : '',
+              aiRecommendation: skinAnalysis ? skinAnalysis.summaryText : ''
           });
           setIsEditCustomerOpen(false);
           showToast('แก้ไขข้อมูลลูกค้าสำเร็จ!');
@@ -8818,6 +8830,11 @@ const flexMessage = {
              <InputField label="ชื่อลูกค้า" required placeholder="เช่น คุณสมหญิง..." value={editCustomerData.name} onChange={e => setEditCustomerData({...editCustomerData, name: e.target.value})} />
              <InputField label="เบอร์โทรศัพท์" required placeholder="08X-XXX-XXXX" value={editCustomerData.phone} onChange={e => setEditCustomerData({...editCustomerData, phone: e.target.value})} />
              <InputField label="ปัญหาผิวหน้า (ถ้ามี)" placeholder="เช่น สิว, ฝ้า..." value={editCustomerData.issue} onChange={e => setEditCustomerData({...editCustomerData, issue: e.target.value})} />
+             <SkinAiBanner 
+               issue={editCustomerData.issue} 
+               onChangeIssue={(val) => setEditCustomerData({...editCustomerData, issue: val})} 
+               compact={true} 
+             />
              <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 rounded-xl mt-4 shadow-lg active:scale-95 transition-all">อัปเดตข้อมูลลูกค้า</button>
          </form>
       </ModalWrapper>
@@ -8946,6 +8963,12 @@ const flexMessage = {
             placeholder="เช่น สิวอักเสบ, ฝ้ากระ, ผิวแห้งขาดน้ำ, ริ้วรอย..." 
             value={newCustomerForm.issue} 
             onChange={e => setNewCustomerForm({...newCustomerForm, issue: e.target.value})} 
+          />
+
+          {/* 🌟 AI Skin Analysis & Smart Treatment Matcher Banner 🌟 */}
+          <SkinAiBanner 
+            issue={newCustomerForm.issue}
+            onChangeIssue={(val) => setNewCustomerForm({...newCustomerForm, issue: val})}
           />
 
           <div className="border-t border-slate-100 pt-3">

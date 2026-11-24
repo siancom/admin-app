@@ -30,6 +30,7 @@ import ShopeeImportModal from './ShopeeImportModal';
 import SalesHistoryModal from './SalesHistoryModal';
 import BarcodeScannerModal from './BarcodeScannerModal';
 import { MACHINE_TREATMENT_ADDONS, STANDARD_FACIAL_SERVICES } from '../data/machineAddons';
+import { analyzeSkinIssue } from '../utils/skinAiUtils';
 
 // 🌟 รายการมาตรฐานที่ได้ค่ามือพนักงาน (DF บริการ)
 const HAND_FEE_PRESETS = [
@@ -4395,6 +4396,37 @@ export default function POSSystem({
                              <div className="text-[10px] font-bold text-indigo-600 bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-full inline-block">เครดิต ฿{customerCreditBalance.toLocaleString()}</div>
                            )}
                        </div>
+
+                       {/* 🌟 AI Skin Match Recommendation Banner 🌟 */}
+                       {(selectedCustomer.computedIssue || selectedCustomer.issue) && (
+                         <div className="mt-2 p-2 bg-gradient-to-r from-indigo-50/90 via-purple-50/80 to-teal-50/90 border border-indigo-100 rounded-xl flex items-center justify-between gap-1.5 text-xs shadow-2xs">
+                           <div className="min-w-0 flex-1 flex items-center gap-1.5 truncate">
+                             <Sparkles size={13} className="text-indigo-600 shrink-0" />
+                             <span className="text-[11px] text-slate-700 truncate">
+                               <strong className="text-indigo-900 font-bold">ปัญหาผิว:</strong> {selectedCustomer.computedIssue || selectedCustomer.issue}
+                             </span>
+                           </div>
+                           {(() => {
+                             const ai = analyzeSkinIssue(selectedCustomer.computedIssue || selectedCustomer.issue);
+                             if (!ai || !ai.courses.length) return null;
+                             const topCourse = ai.courses[0];
+                             return (
+                               <button 
+                                 type="button"
+                                 onClick={() => {
+                                   setActiveTab('courses');
+                                   setCourseSearch(topCourse.searchKey || '');
+                                 }}
+                                 className="text-[10px] font-black bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-0.5 rounded-lg shrink-0 shadow-xs active:scale-95 transition-all flex items-center gap-1"
+                                 title={`ค้นหาคอร์ส ${topCourse.name}`}
+                               >
+                                 <span>AI: {topCourse.shortName}</span>
+                                 <ChevronRight size={10} />
+                               </button>
+                             );
+                           })()}
+                         </div>
+                       )}
                     </div>
                  </div>
                  <button onClick={() => setSelectedCustomer(null)} className="p-2 text-slate-400 hover:text-red-500 bg-white rounded-full shadow-sm border border-indigo-100 self-start ml-2 shrink-0"><X size={16} /></button>
@@ -5453,6 +5485,38 @@ export default function POSSystem({
                         </div>
                       )}
                     </div>
+
+                    {/* 🌟 AI Skin Match Recommendation Banner 🌟 */}
+                    {(selectedCustomer.computedIssue || selectedCustomer.issue) && (
+                      <div className="mt-2.5 p-2 bg-gradient-to-r from-indigo-50/90 via-purple-50/80 to-teal-50/90 border border-indigo-100 rounded-xl flex items-center justify-between gap-1.5 text-xs shadow-2xs">
+                        <div className="min-w-0 flex-1 flex items-center gap-1.5 truncate">
+                          <Sparkles size={13} className="text-indigo-600 shrink-0" />
+                          <div className="truncate">
+                            <span className="text-[11px] font-black text-indigo-950">ปัญหาผิว: </span>
+                            <span className="text-[11px] font-medium text-slate-700">{selectedCustomer.computedIssue || selectedCustomer.issue}</span>
+                          </div>
+                        </div>
+                        {(() => {
+                          const ai = analyzeSkinIssue(selectedCustomer.computedIssue || selectedCustomer.issue);
+                          if (!ai || !ai.courses.length) return null;
+                          const topCourse = ai.courses[0];
+                          return (
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                setActiveTab('courses');
+                                setCourseSearch(topCourse.searchKey || '');
+                              }}
+                              className="text-[10px] font-black bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-0.5 rounded-lg shrink-0 shadow-xs active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
+                              title={`ค้นหาคอร์ส ${topCourse.name}`}
+                            >
+                              <span>AI: {topCourse.shortName}</span>
+                              <ChevronRight size={10} />
+                            </button>
+                          );
+                        })()}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <button onClick={() => setSelectedCustomer(null)} className="w-10 h-10 rounded-full bg-white text-slate-400 flex items-center justify-center hover:text-red-500 shadow-sm border border-indigo-100">
