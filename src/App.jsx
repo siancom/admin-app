@@ -2830,6 +2830,7 @@ export default function App() {
   };
 
   // 🌟 เปิดหน้าระบบจี้ไฝโดยตรงจากแบนเนอร์หน้าล็อกอิน
+  const [posInitialTab, setPosInitialTab] = useState(null);
   const handleOpenMoleFromLogin = (branch) => {
     const targetBranch = branch || globalBranch || 'เฉวง';
     localStorage.setItem('selectedBranch', targetBranch);
