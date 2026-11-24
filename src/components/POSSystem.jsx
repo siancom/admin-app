@@ -1581,6 +1581,14 @@ export default function POSSystem({
     return { cash, transfer, cod, credit, transferDetails, pendingDetails, allSalesDetails, productSalesAmt, courseSalesAmt, manualSalesAmt, online };
   }, [orders, histories, globalBranch, posFilterDate]);
 
+  // 🌟 คำนวณยอดขายรวมจริงวันนี้ และจำนวนบิลสำหรับแถบแสดงยอดขาย
+  const totalTodayRevenue = useMemo(() => {
+    const fromBreakdown = (todaySalesBreakdown?.cash || 0) + (todaySalesBreakdown?.transfer || 0) + (todaySalesBreakdown?.cod || 0) + (todaySalesBreakdown?.credit || 0);
+    return fromBreakdown > 0 ? fromBreakdown : (todaySales || 0);
+  }, [todaySalesBreakdown, todaySales]);
+
+  const todayBillCount = todaySalesBreakdown?.allSalesDetails?.length || 0;
+
   // 🌟 เจ้าของร้าน หรือ "ส่งยอดด่วน" จากหน้าล็อกอิน ใช้ฟีเจอร์ส่งยอดเหมือนกัน (กรอกยอดโอนเอง / ส่งยอด 0 บาท)
   const isOwnerRole = globalRole === 'owner';
   const canOwnerEod = isOwnerRole || !!autoOpenEod;
@@ -3891,9 +3899,83 @@ export default function POSSystem({
                   >
                     ออกจากระบบ
                   </button>
+                  <span 
+                    onClick={() => setShowSalesHistory(true)}
+                    className="ml-2 inline-flex md:hidden items-center gap-1 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-xs cursor-pointer active:scale-95"
+                    title="แตะเพื่อดูรายงานยอดขาย"
+                  >
+                    <TrendingUp size={10} />
+                    <span>฿{totalTodayRevenue.toLocaleString()}</span>
+                  </span>
                 </p>
               </div>
             </div>
+
+            {/* 🌟 แถบแสดงยอดขายสวยๆ (Live Sales Dashboard Bar) 🌟 */}
+            <div 
+              onClick={() => setShowSalesHistory(true)}
+              className="hidden md:flex items-center gap-2 lg:gap-3 bg-gradient-to-r from-emerald-50/90 via-teal-50/70 to-indigo-50/80 hover:from-emerald-100/90 hover:via-teal-100/80 hover:to-indigo-100/90 border border-emerald-200/90 rounded-2xl p-1.5 px-3 lg:px-4 shadow-sm hover:shadow-md transition-all cursor-pointer group select-none active:scale-[0.99]"
+              title="แตะเพื่อดูรายงานยอดขายและประวัติการขายฉบับเต็ม"
+            >
+              {/* Icon & Live status */}
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-md shadow-emerald-500/25 shrink-0 group-hover:scale-105 transition-transform">
+                <TrendingUp size={18} strokeWidth={2.5} />
+              </div>
+
+              {/* Total Today Sales */}
+              <div className="flex flex-col text-left">
+                <div className="flex items-center gap-1.5 leading-none">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-[10px] font-bold text-slate-500 tracking-wide">
+                    ยอดขายวันนี้ {globalBranch ? `(${globalBranch})` : ''}
+                  </span>
+                </div>
+                <div className="text-base lg:text-lg font-black text-emerald-950 tracking-tight leading-tight mt-0.5">
+                  ฿{totalTodayRevenue.toLocaleString()}
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="h-7 w-px bg-slate-300/60 hidden lg:block mx-0.5"></div>
+
+              {/* Breakdown Pills */}
+              <div className="hidden lg:flex items-center gap-1.5 flex-wrap">
+                {/* เงินสด */}
+                <div className="bg-white/90 border border-emerald-200/80 text-emerald-800 px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 shadow-2xs group-hover:bg-white transition-colors">
+                  <Banknote size={13} className="text-emerald-600 shrink-0" />
+                  <span className="text-slate-500 text-[10px]">สด</span>
+                  <span className="font-extrabold">฿{(todaySalesBreakdown?.cash || 0).toLocaleString()}</span>
+                </div>
+
+                {/* โอน */}
+                <div className="bg-white/90 border border-blue-200/80 text-blue-800 px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 shadow-2xs group-hover:bg-white transition-colors">
+                  <Smartphone size={13} className="text-blue-600 shrink-0" />
+                  <span className="text-slate-500 text-[10px]">โอน</span>
+                  <span className="font-extrabold">฿{(todaySalesBreakdown?.transfer || 0).toLocaleString()}</span>
+                </div>
+
+                {/* ปลายทาง/COD/ค้าง (ถ้ามี) */}
+                {((todaySalesBreakdown?.cod || 0) + (todaySalesBreakdown?.credit || 0)) > 0 && (
+                  <div className="bg-white/90 border border-amber-200/80 text-amber-800 px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-2xs group-hover:bg-white transition-colors hidden xl:flex">
+                    <span className="text-amber-600 text-[10px]">COD/ค้าง</span>
+                    <span className="font-extrabold">฿{((todaySalesBreakdown?.cod || 0) + (todaySalesBreakdown?.credit || 0)).toLocaleString()}</span>
+                  </div>
+                )}
+
+                {/* บิล */}
+                <div className="bg-white/90 border border-indigo-200/80 text-indigo-800 px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 shadow-2xs group-hover:bg-white transition-colors">
+                  <FileText size={12} className="text-indigo-600 shrink-0" />
+                  <span className="font-extrabold">{todayBillCount}</span>
+                  <span className="text-slate-500 text-[10px]">บิล</span>
+                </div>
+              </div>
+
+              {/* Click arrow */}
+              <div className="text-slate-400 group-hover:text-emerald-700 group-hover:translate-x-0.5 transition-all hidden xl:flex items-center pl-1">
+                <ChevronRight size={16} />
+              </div>
+            </div>
+
             <div className="flex items-center gap-2">
               {activeTab === 'products' && (
                 <button
