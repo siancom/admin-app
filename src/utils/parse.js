@@ -196,3 +196,14 @@ export function compressImage(file, maxWidth = 1200, maxHeight = 1200, quality =
     reader.onerror = () => resolve(file);
   });
 }
+
+export function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    if (!blob) return resolve('');
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+

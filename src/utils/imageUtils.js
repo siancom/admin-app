@@ -44,8 +44,8 @@ export function getProfilePicData(b, customersList) {
     if (!obj) return null;
     let lineUrl = null, hostUrl = null;
 
-    // 1. Get Line profile picture
-    const lineVal = getFuzzyKey(obj, ["linePictureUrl", "linePicture", "lineProfilePic", "pictureUrl", "profileUrl", "รูปจากไลน์", "line_pic", "รูปลูกค้าในไลน์", "รูปโปรไฟล์ไลน์", "line"]);
+    // 1. Get Line or direct profile picture
+    const lineVal = getFuzzyKey(obj, ["imageUrl", "photoUrl", "customerPhotoUrl", "linePictureUrl", "linePicture", "lineProfilePic", "pictureUrl", "profileUrl", "customerPhoto", "photo", "รูปจากไลน์", "line_pic", "รูปลูกค้าในไลน์", "รูปโปรไฟล์ไลน์", "line"]);
     if (lineVal && typeof lineVal === 'string' && lineVal.startsWith('http')) lineUrl = lineVal;
 
     // 2. Get uploaded host photo

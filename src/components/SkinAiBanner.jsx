@@ -1,12 +1,14 @@
 import React, { useMemo } from 'react';
-import { Sparkles, Check, CheckCircle2, ChevronRight, Zap, Target, Heart, Award, ShieldAlert } from 'lucide-react';
+import { Sparkles, Check, CheckCircle2, ChevronRight, Zap, Target, Heart, Award, ShieldAlert, Loader2, Camera, Activity, Droplets } from 'lucide-react';
 import { SKIN_ISSUE_PRESETS, analyzeSkinIssue } from '../utils/skinAiUtils';
 
 export default function SkinAiBanner({ 
   issue = '', 
   onChangeIssue, 
   onSelectCourse,
-  compact = false 
+  compact = false,
+  aiScanResult = null,
+  isAnalyzing = false
 }) {
   const analysis = useMemo(() => analyzeSkinIssue(issue), [issue]);
 
@@ -99,80 +101,174 @@ export default function SkinAiBanner({
           </span>
         </div>
 
-        {analysis ? (
-          <div className="space-y-2.5">
-            {/* Clinical Priorities */}
-            <div className="space-y-1.5">
-              {analysis.priorities.map((pr, idx) => (
-                <div key={idx} className="bg-white/85 backdrop-blur-xs p-2.5 rounded-xl border border-indigo-100/80 shadow-2xs">
-                  <div className="flex items-center justify-between gap-1 mb-1">
-                    <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                      <span>{pr.icon}</span>
-                      <span>{pr.phase}</span>
-                    </span>
-                    <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                      {pr.badge}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
-                    💡 {pr.tip}
-                  </p>
-                </div>
-              ))}
+        {isAnalyzing ? (
+          <div className="p-4 bg-white/80 backdrop-blur-xs rounded-xl border border-indigo-200 text-center space-y-2 animate-pulse">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-teal-500 text-white flex items-center justify-center mx-auto shadow-md">
+              <Loader2 size={20} className="animate-spin text-white" />
             </div>
-
-            {/* Recommended Clinic Treatments */}
-            <div>
-              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                <Target size={11} className="text-indigo-600" />
-                <span>คอร์ส/บริการในคลินิกที่ AI แนะนำตรงจุด:</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                {analysis.courses.map((course, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => onSelectCourse && onSelectCourse(course)}
-                    className={`p-2 rounded-xl bg-white border border-indigo-100 hover:border-indigo-300 transition-all shadow-2xs flex items-center justify-between gap-2 ${
-                      onSelectCourse ? 'cursor-pointer hover:bg-indigo-50/50 active:scale-98' : ''
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-black text-indigo-900 truncate">
-                          {course.name}
-                        </span>
-                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-700 shrink-0">
-                          {course.tag}
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-slate-500 truncate mt-0.5">
-                        {course.highlight}
-                      </p>
-                    </div>
-                    {onSelectCourse && (
-                      <ChevronRight size={14} className="text-indigo-400 shrink-0" />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Auto-save Info Footer */}
-            <div className="flex items-center justify-between text-[10px] text-indigo-700 font-bold bg-indigo-100/60 px-2.5 py-1 rounded-lg">
-              <span className="flex items-center gap-1">
-                <CheckCircle2 size={12} className="text-emerald-600" />
-                ผลวิเคราะห์และคอร์สแนะนำจะถูกบันทึกส่งต่อไปยังหน้า POS ให้พนักงานทันที
-              </span>
-            </div>
+            <p className="text-xs font-bold text-indigo-900">
+              ✨ Iris AI กำลังสแกนวิเคราะห์ภาพถ่ายผิวหน้าอย่างละเอียด...
+            </p>
+            <p className="text-[10px] text-slate-500">
+              ระบบกำลังตรวจจับสิว ฝ้ากระ ความชุ่มชื้น ริ้วรอย และคำนวณอายุผิวหน้า
+            </p>
           </div>
         ) : (
-          <div className="p-2.5 bg-white/70 backdrop-blur-xs rounded-xl border border-indigo-100/60 text-center">
-            <p className="text-xs text-slate-600 font-medium">
-              ✨ แตะเลือกปัญหาผิวด้านบน หรือพิมพ์ข้อความในช่องด้านบน เพื่อให้ AI วิเคราะห์ลำดับการรักษาและจับคู่คอร์สที่ตรงจุดให้โดยอัตโนมัติ
-            </p>
+          <div className="space-y-2.5">
+            {/* If AI scan result from photo exists, show detailed diagnosis banner */}
+            {aiScanResult && (
+              <div className="bg-white/90 backdrop-blur-xs p-3 rounded-xl border border-indigo-200 shadow-xs space-y-2">
+                <div className="flex items-center justify-between flex-wrap gap-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold">
+                      📸
+                    </span>
+                    <span className="text-xs font-black text-slate-800">
+                      ผลสแกนใบหน้าด้วย AI
+                    </span>
+                  </div>
+                  {aiScanResult.estimatedSkinAge && (
+                    <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400/20 to-orange-400/20 text-orange-800 border border-orange-200">
+                      🧬 อายุผิว {aiScanResult.estimatedSkinAge} ปี
+                    </span>
+                  )}
+                </div>
+
+                {aiScanResult.skinAgeStatus && (
+                  <p className="text-[11px] text-indigo-800 font-semibold bg-indigo-50/70 p-1.5 rounded-lg">
+                    ✨ {aiScanResult.skinAgeStatus}
+                  </p>
+                )}
+
+                {/* Score Pills */}
+                {aiScanResult.scores && (
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1 pt-1">
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-center">
+                      <div className="text-[9px] text-slate-500 font-bold">สิว/รอยแดง</div>
+                      <div className={`text-xs font-black ${aiScanResult.scores.acne >= 8 ? 'text-emerald-600' : aiScanResult.scores.acne >= 6 ? 'text-amber-600' : 'text-rose-600'}`}>
+                        {aiScanResult.scores.acne}/10
+                      </div>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-center">
+                      <div className="text-[9px] text-slate-500 font-bold">ฝ้า/กระ</div>
+                      <div className={`text-xs font-black ${aiScanResult.scores.darkSpots >= 8 ? 'text-emerald-600' : aiScanResult.scores.darkSpots >= 6 ? 'text-amber-600' : 'text-rose-600'}`}>
+                        {aiScanResult.scores.darkSpots}/10
+                      </div>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-center">
+                      <div className="text-[9px] text-slate-500 font-bold">ความชุ่มชื้น</div>
+                      <div className={`text-xs font-black ${aiScanResult.scores.moisture >= 8 ? 'text-emerald-600' : aiScanResult.scores.moisture >= 6 ? 'text-amber-600' : 'text-rose-600'}`}>
+                        {aiScanResult.scores.moisture}/10
+                      </div>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-center">
+                      <div className="text-[9px] text-slate-500 font-bold">รูขุมขน</div>
+                      <div className={`text-xs font-black ${aiScanResult.scores.pores >= 8 ? 'text-emerald-600' : aiScanResult.scores.pores >= 6 ? 'text-amber-600' : 'text-rose-600'}`}>
+                        {aiScanResult.scores.pores}/10
+                      </div>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-center">
+                      <div className="text-[9px] text-slate-500 font-bold">ริ้วรอย</div>
+                      <div className={`text-xs font-black ${aiScanResult.scores.wrinkles >= 8 ? 'text-emerald-600' : aiScanResult.scores.wrinkles >= 6 ? 'text-amber-600' : 'text-rose-600'}`}>
+                        {aiScanResult.scores.wrinkles}/10
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {aiScanResult.summary && (
+                  <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
+                    🔍 <strong>สภาพผิวที่ตรวจพบ:</strong> {aiScanResult.summary}
+                  </p>
+                )}
+                {aiScanResult.recommendation && (
+                  <p className="text-[11px] text-teal-800 leading-relaxed font-medium bg-teal-50/70 p-1.5 rounded-lg border border-teal-100">
+                    💡 <strong>คำแนะนำจาก AI:</strong> {aiScanResult.recommendation}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {analysis ? (
+              <div className="space-y-2.5">
+                {/* Clinical Priorities */}
+                <div className="space-y-1.5">
+                  {analysis.priorities.map((pr, idx) => (
+                    <div key={idx} className="bg-white/85 backdrop-blur-xs p-2.5 rounded-xl border border-indigo-100/80 shadow-2xs">
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                          <span>{pr.icon}</span>
+                          <span>{pr.phase}</span>
+                        </span>
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                          {pr.badge}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
+                        💡 {pr.tip}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Recommended Clinic Treatments */}
+                <div>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                    <Target size={11} className="text-indigo-600" />
+                    <span>คอร์ส/บริการในคลินิกที่ AI แนะนำตรงจุด:</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {analysis.courses.map((course, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => onSelectCourse && onSelectCourse(course)}
+                        className={`p-2 rounded-xl bg-white border border-indigo-100 hover:border-indigo-300 transition-all shadow-2xs flex items-center justify-between gap-2 ${
+                          onSelectCourse ? 'cursor-pointer hover:bg-indigo-50/50 active:scale-98' : ''
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-black text-indigo-900 truncate">
+                              {course.name}
+                            </span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-700 shrink-0">
+                              {course.tag}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 truncate mt-0.5">
+                            {course.highlight}
+                          </p>
+                        </div>
+                        {onSelectCourse && (
+                          <ChevronRight size={14} className="text-indigo-400 shrink-0" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Auto-save Info Footer */}
+                <div className="flex items-center justify-between text-[10px] text-indigo-700 font-bold bg-indigo-100/60 px-2.5 py-1 rounded-lg">
+                  <span className="flex items-center gap-1">
+                    <CheckCircle2 size={12} className="text-emerald-600" />
+                    ผลวิเคราะห์และคอร์สแนะนำจะถูกบันทึกส่งต่อไปยังหน้า POS ให้พนักงานทันที
+                  </span>
+                </div>
+              </div>
+            ) : (
+              !aiScanResult && (
+                <div className="p-2.5 bg-white/70 backdrop-blur-xs rounded-xl border border-indigo-100/60 text-center">
+                  <p className="text-xs text-slate-600 font-medium">
+                    ✨ แตะเลือกปัญหาผิวด้านบน ถ่ายรูปใบหน้า หรือพิมพ์ข้อความในช่องด้านบน เพื่อให้ AI วิเคราะห์ลำดับการรักษาและจับคู่คอร์สที่ตรงจุดให้โดยอัตโนมัติ
+                  </p>
+                </div>
+              )
+            )}
           </div>
         )}
       </div>
     </div>
   );
 }
+
+

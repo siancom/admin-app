@@ -170,3 +170,4 @@ export function analyzeSkinIssue(text) {
     summaryText: `AI แนะนำ: ${courses.map(c => c.shortName).join(' + ')} (${primaryPhase})`
   };
 }
+

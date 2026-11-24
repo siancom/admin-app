@@ -45,7 +45,7 @@ import html2canvas from 'html2canvas';
 import * as XLSX from 'xlsx';
 
 // --- UTILS & PARSERS ---
-import { getLocalYYYYMMDD, normalizeBranchName, getTotalStock, getBranchStock, formatDateTimeStr, parseNumber, parseQty, parseHistoryTime, parseCSVRow, parseThaiDate, compressImage } from './utils/parse';
+import { getLocalYYYYMMDD, normalizeBranchName, getTotalStock, getBranchStock, formatDateTimeStr, parseNumber, parseQty, parseHistoryTime, parseCSVRow, parseThaiDate, compressImage, blobToBase64 } from './utils/parse';
 import { getFuzzyKey } from './utils/fuzzy';
 import { 
   isUsageType, isAddType, isFreeUsageApp as isFreeUsage, extractHistoryQty, 
@@ -360,12 +360,19 @@ export default function App() {
     dob: '',
     age: '',
     issue: '',
+    photoFile: null,
+    photoPreview: null,
+    photoBase64: null,
+    aiSkinScanResult: null,
     addressNo: '',
     subDistrict: '',
     district: '',
     province: '',
     zipcode: ''
   });
+  const [isAnalyzingSkin, setIsAnalyzingSkin] = useState(false);
+  const customerCameraInputRef = useRef(null);
+  const customerFileInputRef = useRef(null);
   
   // 🌟 เพิ่มสถานะสำหรับระบบแก้ไขข้อมูลลูกค้า 🌟
   const [isEditCustomerOpen, setIsEditCustomerOpen] = useState(false);
@@ -4337,6 +4344,100 @@ const flexMessage = {
     });
   };
 
+  // 🌟 AI Skin Analysis from Customer Photo 🌟
+  const handleAnalyzeCustomerPhoto = async (base64Data) => {
+    if (!base64Data) return;
+    try {
+      setIsAnalyzingSkin(true);
+      showToast('กำลังส่งภาพถ่ายให้ Iris AI วิเคราะห์สภาพผิว...', 'info');
+
+      const response = await fetch('https://asia-southeast1-iris-clinic-app.cloudfunctions.net/aiSkinAnalysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: base64Data,
+          mimeType: 'image/jpeg',
+          scanMode: 'skin'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`AI Server ตอบกลับ status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data && (data.scores || data.summary || data.greeting)) {
+        // Extract concerns
+        const detectedIssues = [];
+        if (data.scores) {
+          if (data.scores.acne <= 7) detectedIssues.push('สิวอักเสบ/รอยแดง');
+          if (data.scores.darkSpots <= 7) detectedIssues.push('ฝ้า/กระ/รอยดำ');
+          if (data.scores.moisture <= 7) detectedIssues.push('ผิวแห้งขาดน้ำ');
+          if (data.scores.pores <= 7) detectedIssues.push('รูขุมขนกว้าง/หน้ามัน');
+          if (data.scores.wrinkles <= 7) detectedIssues.push('ริ้วรอย/หย่อนคล้อย');
+          if (data.scores.brightness <= 7) detectedIssues.push('ผิวหมองคล้ำ');
+          if (data.scores.cellTurnover >= 7) detectedIssues.push('ผลัดเซลล์ผิว');
+        }
+        if (data.hydrationAnalysis?.isDehydrated && !detectedIssues.includes('ผิวแห้งขาดน้ำ')) {
+          detectedIssues.push('ผิวแห้งขาดน้ำ');
+        }
+
+        let detectedText = detectedIssues.join(', ');
+        if (!detectedText && data.summary) {
+          detectedText = data.summary;
+        }
+
+        setNewCustomerForm(prev => {
+          const updatedAge = (!prev.age && data.estimatedSkinAge) ? String(data.estimatedSkinAge) : prev.age;
+          const updatedIssue = detectedText 
+            ? (prev.issue ? `${prev.issue}, ${detectedText}` : detectedText)
+            : prev.issue;
+          return {
+            ...prev,
+            issue: updatedIssue,
+            age: updatedAge,
+            aiSkinScanResult: data
+          };
+        });
+
+        showToast('✨ Iris AI วิเคราะห์สภาพผิวเรียบร้อยแล้ว!', 'success');
+      }
+    } catch (err) {
+      console.warn('AI analysis error:', err);
+      showToast('ระบบบันทึกรูปถ่ายแล้ว (สามารถแตะเลือกปัญหาผิวด้านล่างได้ทันที)', 'info');
+    } finally {
+      setIsAnalyzingSkin(false);
+    }
+  };
+
+  const handleCustomerPhotoSelected = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsAnalyzingSkin(true);
+      const compressedBlob = await compressImage(file, 900, 900, 0.82);
+      const photoFile = new File([compressedBlob], `cust_photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      const previewUrl = URL.createObjectURL(compressedBlob);
+      const base64Data = await blobToBase64(compressedBlob);
+
+      setNewCustomerForm(prev => ({
+        ...prev,
+        photoFile,
+        photoPreview: previewUrl,
+        photoBase64: base64Data
+      }));
+
+      // Immediately trigger AI skin analysis!
+      await handleAnalyzeCustomerPhoto(base64Data);
+    } catch (err) {
+      console.error('Photo processing error:', err);
+      showToast('ไม่สามารถประมวลผลรูปภาพได้: ' + err.message, 'error');
+      setIsAnalyzingSkin(false);
+    } finally {
+      if (e.target) e.target.value = '';
+    }
+  };
+
   // --- CUSTOMER ACTIONS ---
   const handleAddCustomer = async (e) => { 
     e.preventDefault(); 
@@ -4363,6 +4464,17 @@ const flexMessage = {
         return;
       }
 
+      let uploadedPhotoUrl = '';
+      if (newCustomerForm.photoFile) {
+        try {
+          const photoStorageRef = ref(storage, `customer_photos/${cleanPhone}_${Date.now()}.jpg`);
+          await uploadBytes(photoStorageRef, newCustomerForm.photoFile);
+          uploadedPhotoUrl = await getDownloadURL(photoStorageRef);
+        } catch (uploadErr) {
+          console.warn('Customer photo upload error:', uploadErr);
+        }
+      }
+
       const skinAnalysis = analyzeSkinIssue(newCustomerForm.issue);
 
       const docData = { 
@@ -4378,6 +4490,14 @@ const flexMessage = {
         age: newCustomerForm.age || '',
         "ปัญหาผิวหน้า": String(newCustomerForm.issue || ''), 
         issue: String(newCustomerForm.issue || ''),
+        imageUrl: uploadedPhotoUrl || '',
+        photoUrl: uploadedPhotoUrl || '',
+        customerPhoto: uploadedPhotoUrl || '',
+        pictureUrl: uploadedPhotoUrl || '',
+        linePictureUrl: uploadedPhotoUrl || '',
+        aiSkinScanResult: newCustomerForm.aiSkinScanResult || null,
+        aiEstimatedSkinAge: newCustomerForm.aiSkinScanResult?.estimatedSkinAge || null,
+        aiSkinScores: newCustomerForm.aiSkinScanResult?.scores || null,
         aiRecommendedCourses: skinAnalysis ? skinAnalysis.courses.map(c => c.name) : [],
         aiCarePhase: skinAnalysis ? skinAnalysis.primaryPhase : '',
         aiRecommendation: skinAnalysis ? skinAnalysis.summaryText : '',
@@ -4400,6 +4520,7 @@ const flexMessage = {
       setNewCustomerForm({ 
         firstName: '', lastName: '', name: '', nickname: '',
         phone: '', gender: 'หญิง', dob: '', age: '', issue: '',
+        photoFile: null, photoPreview: null, photoBase64: null, aiSkinScanResult: null,
         addressNo: '', subDistrict: '', district: '', province: '', zipcode: ''
       }); 
       
@@ -8856,6 +8977,128 @@ const flexMessage = {
             <span>กรอกข้อมูลลูกค้าให้ครบถ้วนเพื่อสร้างประวัติในระบบและสะสมยอดสิทธิประโยชน์</span>
           </div>
 
+          {/* 🌟 Customer Profile Photo & Instant AI Face/Skin Scan 🌟 */}
+          <div className="bg-gradient-to-r from-teal-50/90 via-indigo-50/60 to-purple-50/90 border-2 border-teal-150 rounded-2xl p-3 sm:p-3.5 shadow-2xs relative overflow-hidden">
+            <div className="flex items-center gap-3 sm:gap-4">
+              {/* Photo Avatar / Preview */}
+              <div className="relative shrink-0">
+                <div className="w-20 h-20 sm:w-22 sm:h-22 rounded-2xl bg-white border-2 border-teal-200/80 shadow-xs overflow-hidden flex items-center justify-center relative group">
+                  {newCustomerForm.photoPreview ? (
+                    <img 
+                      src={newCustomerForm.photoPreview} 
+                      alt="Customer face preview" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-slate-50/90 flex flex-col items-center justify-center text-slate-400 p-1 text-center">
+                      <div className="w-9 h-9 rounded-full bg-teal-100 text-teal-600 flex items-center justify-center mb-1 shadow-2xs">
+                        <Camera size={18} />
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-500 leading-tight">ถ่ายรูปใบหน้า</span>
+                    </div>
+                  )}
+
+                  {/* Scanning overlay on the photo */}
+                  {isAnalyzingSkin && (
+                    <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-[1px] flex flex-col items-center justify-center text-white p-1 text-center">
+                      <Loader2 size={24} className="animate-spin text-teal-300 mb-1" />
+                      <span className="text-[9px] font-black tracking-wide text-teal-200">Iris AI สแกน...</span>
+                    </div>
+                  )}
+                </div>
+
+                {newCustomerForm.photoPreview && !isAnalyzingSkin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewCustomerForm(prev => ({
+                        ...prev,
+                        photoFile: null,
+                        photoPreview: null,
+                        photoBase64: null,
+                        aiSkinScanResult: null
+                      }));
+                    }}
+                    className="absolute -top-1.5 -right-1.5 w-6 h-6 bg-rose-500 hover:bg-rose-600 text-white rounded-full flex items-center justify-center shadow-md active:scale-90 transition-transform cursor-pointer"
+                    title="ลบรูปถ่าย"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+
+              {/* Action Buttons & Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                  <span className="text-xs font-black text-slate-800">รูปถ่ายลูกค้า & ให้ AI วิเคราะห์ทันที</span>
+                  {newCustomerForm.aiSkinScanResult ? (
+                    <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2 rounded-full border border-emerald-200">
+                      AI สแกนสำเร็จ ✨
+                    </span>
+                  ) : (
+                    <span className="bg-teal-100 text-teal-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-teal-200">
+                      Iris AI Face Scan
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 leading-tight mb-2.5">
+                  ถ่ายรูปหน้าตรงเพื่อวิเคราะห์ปัญหาผิว คาดคะเนอายุผิว และวางแผนโปรแกรมรักษาให้อัตโนมัติ
+                </p>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={isAnalyzingSkin}
+                    onClick={() => customerCameraInputRef.current?.click()}
+                    className="px-2.5 py-1.5 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Camera size={14} />
+                    <span>{newCustomerForm.photoPreview ? 'ถ่ายใหม่' : 'ถ่ายรูปใบหน้า'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isAnalyzingSkin}
+                    onClick={() => customerFileInputRef.current?.click()}
+                    className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 shadow-2xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <ImageIcon size={14} className="text-indigo-500" />
+                    <span>{newCustomerForm.photoPreview ? 'เปลี่ยนรูป' : 'เลือกจากเครื่อง'}</span>
+                  </button>
+
+                  {newCustomerForm.photoBase64 && !isAnalyzingSkin && (
+                    <button
+                      type="button"
+                      onClick={() => handleAnalyzeCustomerPhoto(newCustomerForm.photoBase64)}
+                      className="px-2 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 transition-all flex items-center gap-1 active:scale-95 cursor-pointer"
+                      title="ให้ AI วิเคราะห์ใหม่อีกครั้ง"
+                    >
+                      <Sparkles size={13} className="text-indigo-600" />
+                      <span>วิเคราะห์ใหม่</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Hidden file inputs for Camera and File picker */}
+            <input 
+              ref={customerCameraInputRef}
+              type="file" 
+              accept="image/*" 
+              capture="user" 
+              className="hidden" 
+              onChange={handleCustomerPhotoSelected}
+            />
+            <input 
+              ref={customerFileInputRef}
+              type="file" 
+              accept="image/*" 
+              className="hidden" 
+              onChange={handleCustomerPhotoSelected}
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <InputField 
               label="ชื่อ" 
@@ -8969,6 +9212,8 @@ const flexMessage = {
           <SkinAiBanner 
             issue={newCustomerForm.issue}
             onChangeIssue={(val) => setNewCustomerForm({...newCustomerForm, issue: val})}
+            aiScanResult={newCustomerForm.aiSkinScanResult}
+            isAnalyzing={isAnalyzingSkin}
           />
 
           <div className="border-t border-slate-100 pt-3">
