@@ -3829,80 +3829,84 @@ export default function POSSystem({
       
       {/* Left: Inventory */}
       <div className="flex-1 flex flex-col h-full border-r border-slate-200">
-        <div className="p-4 bg-white border-b border-slate-200">
+        <div className="p-2.5 sm:p-4 bg-white border-b border-slate-200">
           
           {/* Top Row: Bed status & Live Sales Bar */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 mb-3">
+          <div className="flex items-stretch gap-1.5 sm:gap-3 mb-3">
             <button 
               onClick={() => setIsBedModalOpen(true)} 
-              className="flex-1 py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl border border-indigo-200 shadow-xs flex items-center justify-center gap-2 transition-all active:scale-[0.99] relative"
+              className="shrink-0 sm:flex-1 py-1.5 sm:py-2 px-2 sm:px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl border border-indigo-200 shadow-xs flex items-center justify-center gap-1.5 sm:gap-2 transition-all active:scale-[0.99] relative"
+              title="ดูสถานะเตียงทรีตเมนต์ (Bed Management)"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-600 shrink-0"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg>
-              <span className="text-xs sm:text-sm">ดูสถานะเตียงทรีตเมนต์ (Bed Management)</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-1" title="ระบบเตียงพร้อมใช้งาน"></span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-600 shrink-0 sm:w-[18px] sm:h-[18px]"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg>
+              <span className="text-xs sm:text-sm whitespace-nowrap font-black">
+                <span className="sm:hidden">สถานะเตียง</span>
+                <span className="hidden sm:inline">ดูสถานะเตียงทรีตเมนต์ (Bed Management)</span>
+              </span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5 sm:ml-1 shrink-0" title="ระบบเตียงพร้อมใช้งาน"></span>
             </button>
 
             {/* แถบแสดงยอดขายสวยๆ ต่อท้ายป้ายเตียง */}
             <div 
               onClick={() => setShowSalesHistory(true)}
-              className="flex items-center gap-2 lg:gap-3 bg-gradient-to-r from-emerald-50/90 via-teal-50/70 to-indigo-50/80 hover:from-emerald-100/90 hover:via-teal-100/80 hover:to-indigo-100/90 border border-emerald-200/90 rounded-xl p-1.5 px-3 lg:px-3.5 shadow-xs hover:shadow-md transition-all cursor-pointer group select-none active:scale-[0.99] shrink-0"
+              className="flex-1 min-w-0 flex items-center justify-between sm:justify-start gap-1.5 sm:gap-2 lg:gap-3 bg-gradient-to-r from-emerald-50/90 via-teal-50/70 to-indigo-50/80 hover:from-emerald-100/90 hover:via-teal-100/80 hover:to-indigo-100/90 border border-emerald-200/90 rounded-xl p-1.5 px-2 sm:px-3 lg:px-3.5 shadow-xs hover:shadow-md transition-all cursor-pointer group select-none active:scale-[0.99]"
               title="แตะเพื่อดูรายงานยอดขายและประวัติการขายฉบับเต็ม"
             >
               {/* Icon & Live status */}
               <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                <TrendingUp size={16} strokeWidth={2.5} />
+                <TrendingUp size={15} strokeWidth={2.5} className="sm:w-4 sm:h-4" />
               </div>
 
               {/* Total Today Sales */}
-              <div className="flex flex-col text-left">
+              <div className="flex flex-col text-left min-w-0 shrink-0">
                 <div className="flex items-center gap-1 leading-none">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 tracking-wide">
-                    ยอดขายวันนี้ {globalBranch ? `(${globalBranch})` : ''}
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                  <span className="text-[8px] sm:text-[10px] font-bold text-slate-500 tracking-wide truncate max-w-[75px] sm:max-w-none">
+                    ยอดวันนี้ {globalBranch ? `(${globalBranch})` : ''}
                   </span>
                 </div>
-                <div className="text-sm sm:text-base font-black text-emerald-950 tracking-tight leading-tight mt-0.5">
+                <div className="text-xs sm:text-base font-black text-emerald-950 tracking-tight leading-tight mt-0.5">
                   ฿{totalTodayRevenue.toLocaleString()}
                 </div>
               </div>
 
               {/* Divider */}
-              <div className="h-6 w-px bg-slate-300/60 hidden md:block mx-0.5"></div>
+              <div className="h-5 sm:h-6 w-px bg-slate-300/60 mx-0.5 shrink-0"></div>
 
               {/* Breakdown Pills */}
-              <div className="hidden md:flex items-center gap-1.5 flex-wrap">
+              <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5">
                 {/* เงินสด */}
-                <div className="bg-white/90 border border-emerald-200/80 text-emerald-800 px-2 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs group-hover:bg-white transition-colors">
-                  <Banknote size={12} className="text-emerald-600 shrink-0" />
-                  <span className="text-slate-500 text-[9px]">สด</span>
+                <div className="bg-white/90 border border-emerald-200/80 text-emerald-800 px-1.5 sm:px-2 py-0.5 rounded-md sm:rounded-lg text-[9px] sm:text-[10px] font-bold flex items-center gap-0.5 sm:gap-1 shadow-2xs group-hover:bg-white transition-colors shrink-0">
+                  <Banknote size={11} className="text-emerald-600 shrink-0 sm:w-3 sm:h-3" />
+                  <span className="text-slate-500 text-[8px] sm:text-[9px]">สด</span>
                   <span className="font-extrabold">฿{(todaySalesBreakdown?.cash || 0).toLocaleString()}</span>
                 </div>
 
                 {/* โอน */}
-                <div className="bg-white/90 border border-blue-200/80 text-blue-800 px-2 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs group-hover:bg-white transition-colors">
-                  <Smartphone size={12} className="text-blue-600 shrink-0" />
-                  <span className="text-slate-500 text-[9px]">โอน</span>
+                <div className="bg-white/90 border border-blue-200/80 text-blue-800 px-1.5 sm:px-2 py-0.5 rounded-md sm:rounded-lg text-[9px] sm:text-[10px] font-bold flex items-center gap-0.5 sm:gap-1 shadow-2xs group-hover:bg-white transition-colors shrink-0">
+                  <Smartphone size={11} className="text-blue-600 shrink-0 sm:w-3 sm:h-3" />
+                  <span className="text-slate-500 text-[8px] sm:text-[9px]">โอน</span>
                   <span className="font-extrabold">฿{(todaySalesBreakdown?.transfer || 0).toLocaleString()}</span>
                 </div>
 
                 {/* ปลายทาง/COD/ค้าง (ถ้ามี) */}
                 {((todaySalesBreakdown?.cod || 0) + (todaySalesBreakdown?.credit || 0)) > 0 && (
-                  <div className="bg-white/90 border border-amber-200/80 text-amber-800 px-2 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs group-hover:bg-white transition-colors hidden xl:flex">
-                    <span className="text-amber-600 text-[9px]">COD/ค้าง</span>
+                  <div className="bg-white/90 border border-amber-200/80 text-amber-800 px-1.5 sm:px-2 py-0.5 rounded-md sm:rounded-lg text-[9px] sm:text-[10px] font-bold flex items-center gap-0.5 sm:gap-1 shadow-2xs group-hover:bg-white transition-colors shrink-0 hidden md:flex">
+                    <span className="text-amber-600 text-[8px] sm:text-[9px]">COD/ค้าง</span>
                     <span className="font-extrabold">฿{((todaySalesBreakdown?.cod || 0) + (todaySalesBreakdown?.credit || 0)).toLocaleString()}</span>
                   </div>
                 )}
 
                 {/* บิล */}
-                <div className="bg-white/90 border border-indigo-200/80 text-indigo-800 px-2 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs group-hover:bg-white transition-colors">
-                  <FileText size={11} className="text-indigo-600 shrink-0" />
+                <div className="bg-white/90 border border-indigo-200/80 text-indigo-800 px-1.5 sm:px-2 py-0.5 rounded-md sm:rounded-lg text-[9px] sm:text-[10px] font-bold flex items-center gap-0.5 sm:gap-1 shadow-2xs group-hover:bg-white transition-colors shrink-0">
+                  <FileText size={10} className="text-indigo-600 shrink-0 sm:w-[11px] sm:h-[11px]" />
                   <span className="font-extrabold">{todayBillCount}</span>
-                  <span className="text-slate-500 text-[9px]">บิล</span>
+                  <span className="text-slate-500 text-[8px] sm:text-[9px]">บิล</span>
                 </div>
               </div>
 
               {/* Click arrow */}
-              <div className="text-slate-400 group-hover:text-emerald-700 group-hover:translate-x-0.5 transition-all hidden xl:flex items-center pl-0.5">
+              <div className="text-slate-400 group-hover:text-emerald-700 group-hover:translate-x-0.5 transition-all hidden xl:flex items-center pl-0.5 shrink-0">
                 <ChevronRight size={14} />
               </div>
             </div>
