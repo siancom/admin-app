@@ -4592,6 +4592,20 @@ export default function POSSystem({
                   )}
                 </button>
               )}
+              {/* 🌟 ปุ่มจี้ไฝ ไว้ท้ายสุดในแถวเดียวเพื่อง่ายต่อการเลือก 🌟 */}
+              <button 
+                type="button"
+                onClick={() => setActiveTab('mole')}
+                className={`flex-1 py-2 px-2 sm:px-4 rounded-xl font-bold transition-all flex items-center justify-center gap-1.5 relative cursor-pointer ${
+                  activeTab === 'mole'
+                    ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white shadow-md shadow-orange-500/25 ring-2 ring-orange-200'
+                    : 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-sm shadow-orange-500/20 active:scale-95'
+                }`}
+                title="จี้ไฝ / กระ / ติ่งเนื้อ (กดเลือกราคาด่วน)"
+              >
+                <Target size={20} className="text-white shrink-0" />
+                <span className="text-xs sm:text-sm font-black text-white tracking-wide whitespace-nowrap">จี้ไฝ</span>
+              </button>
             </div>
           )}
           <div className="block lg:hidden mb-2 flex items-center gap-2">
@@ -5303,15 +5317,15 @@ export default function POSSystem({
                   )}
                 </div>
               </div>
-            ) : activeTab === 'services' ? (
+            ) : (activeTab === 'services' || activeTab === 'mole') ? (
               <div className="col-span-full">
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   <div 
                     className="p-4 rounded-2xl shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-full bg-gradient-to-br from-amber-50/80 via-orange-50/70 to-white border-2 border-orange-200/90 relative overflow-hidden group"
                   >
                     <div className="flex items-center justify-between gap-2 mb-2">
-                      <div className="w-12 h-12 rounded-2xl bg-orange-500 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                        <Scissors size={24} />
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                        <Target size={24} />
                       </div>
                       <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 border border-orange-200">
                         หัตถการรายครั้ง • ไม่คิดค่าคอมคอร์ส
