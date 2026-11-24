@@ -33,12 +33,12 @@ import { MACHINE_TREATMENT_ADDONS, STANDARD_FACIAL_SERVICES } from '../data/mach
 
 // 🌟 รายการมาตรฐานที่ได้ค่ามือพนักงาน (DF บริการ)
 const HAND_FEE_PRESETS = [
-  { id: 'facial_massage', name: 'นวดหน้าใส / ทรีทเม้นท์', fee: 50, icon: Sparkles, desc: 'นวดหน้า ผลักวิตามิน หรือทรีตเมนต์' },
-  { id: 'acne_extraction', name: 'กดสิว', fee: 30, icon: Droplet, desc: 'เคลียร์สิวอุดตัน สิวเสี้ยน' },
-  { id: 'body_spa', name: 'สปา / ขัดตัว', fee: 100, icon: Flame, desc: 'สครับผิว ขัดผิวกาย นวดอโรมา' },
-  { id: 'laser_ipl', name: 'IPL / เลเซอร์', fee: 50, icon: Zap, desc: 'ยิงแสง IPL หน้าใส / รักแร้' },
-  { id: 'mole_removal', name: 'จี้ไฝ / กระ / ติ่งเนื้อ', fee: 100, icon: Target, desc: 'กำจัดไฝ กระ ติ่งเนื้อ ขี้แมลงวัน' },
-  { id: 'facial_mask', name: 'พอก / มาร์คหน้า', fee: 30, icon: Heart, desc: 'มาร์คบำรุง พอกฆ่าเชื้อสิว' }
+  { id: 'acne_extraction', name: 'กดสิว', fee: 10, icon: Droplet, desc: 'เคลียร์สิวอุดตัน สิวเสี้ยน (10 บ.)' },
+  { id: 'facial_massage', name: 'นวดหน้าใส / ทรีทเม้นท์', fee: 50, icon: Sparkles, desc: 'นวดหน้า ผลักวิตามิน ทรีตเมนต์ (50 บ.)' },
+  { id: 'body_spa', name: 'สปา / ขัดตัว', fee: 100, icon: Flame, desc: 'สครับผิว ขัดผิวกาย นวดอโรมา (100 บ.)' },
+  { id: 'laser_ipl', name: 'IPL / เลเซอร์', isBillCalculated: true, icon: Zap, desc: 'คำนวณตามบิล (10-20%)' },
+  { id: 'mole_removal', name: 'จี้ไฝ / กระ / ติ่งเนื้อ', isBillCalculated: true, icon: Target, desc: 'คำนวณตามบิล (10-20%)' },
+  { id: 'facial_mask', name: 'พอก / มาร์คหน้า', fee: 30, icon: Heart, desc: 'มาร์คบำรุง พอกฆ่าเชื้อสิว (30 บ.)' }
 ];
 const CosmeticsIcon = ({ size = 24, className = "" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -657,13 +657,49 @@ export default function POSSystem({
   const [showCustomHandFeeInput, setShowCustomHandFeeInput] = useState(false);
   const [customHandFeeForm, setCustomHandFeeForm] = useState({ name: '', fee: '' });
 
+  const computePresetFee = (preset) => {
+    if (!preset.isBillCalculated) return preset.fee;
+
+    // หาว่าในตะกร้ามีคอร์ส/รายการที่ตรงกับประเภทนี้หรือไม่
+    let matchedPrice = 0;
+    if (preset.id === 'laser_ipl') {
+      const iplItem = cart.find(i => {
+        const n = String(i.name || '').toLowerCase();
+        return n.includes('ipl') || n.includes('laser') || n.includes('เลเซอร์');
+      });
+      if (iplItem) {
+        matchedPrice = (Number(iplItem.price) || 0) * (Number(iplItem.qty) || 1);
+      }
+    } else if (preset.id === 'mole_removal') {
+      const moleItem = cart.find(i => {
+        const n = String(i.name || '').toLowerCase();
+        return n.includes('จี้') || n.includes('mole') || n.includes('ไฝ') || n.includes('กระ') || n.includes('ติ่งเนื้อ');
+      });
+      if (moleItem) {
+        matchedPrice = (Number(moleItem.price) || 0) * (Number(moleItem.qty) || 1);
+      }
+    }
+
+    // หากไม่มีรายการเฉพาะเจาะจง ให้คิดตามยอดสุทธิของบิล (total)
+    const targetPrice = matchedPrice > 0 ? matchedPrice : (total > 0 ? total : 0);
+    if (targetPrice <= 0) return 50; // ขั้นต่ำ
+    return targetPrice < 1000 ? Math.round(targetPrice * 0.10) : Math.round(targetPrice * 0.20);
+  };
+
   const toggleHandFee = (preset) => {
+    const feeToUse = computePresetFee(preset);
     setSelectedHandFees(prev => {
       const idx = prev.findIndex(item => item.id === preset.id);
       if (idx >= 0) {
         return prev.filter((_, i) => i !== idx);
       } else {
-        return [...prev, { id: preset.id, name: preset.name, fee: Number(preset.fee), qty: 1 }];
+        return [...prev, { 
+          id: preset.id, 
+          name: preset.name, 
+          fee: Number(feeToUse), 
+          qty: 1, 
+          isBillCalculated: !!preset.isBillCalculated 
+        }];
       }
     });
   };
@@ -946,6 +982,7 @@ export default function POSSystem({
               const selected = selectedHandFees.find(h => h.id === preset.id);
               const isSelected = !!selected;
               const Icon = preset.icon;
+              const currentFee = computePresetFee(preset);
 
               return (
                 <div
@@ -966,7 +1003,7 @@ export default function POSSystem({
                     <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md ${
                       isSelected ? 'bg-white text-orange-600' : 'bg-orange-100 text-orange-700'
                     }`}>
-                      +฿{preset.fee}
+                      {preset.isBillCalculated ? `+฿${currentFee} (ตามบิล)` : `+฿${preset.fee}`}
                     </span>
                   </div>
 
@@ -975,7 +1012,7 @@ export default function POSSystem({
                       {preset.name}
                     </p>
                     <p className={`text-[9px] truncate mt-0.5 ${isSelected ? 'text-orange-100' : 'text-slate-400'}`}>
-                      {preset.desc}
+                      {preset.isBillCalculated ? 'คิด 10-20% ตามยอดบิล' : preset.desc}
                     </p>
                   </div>
 

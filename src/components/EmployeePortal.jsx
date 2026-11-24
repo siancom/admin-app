@@ -754,10 +754,10 @@ export default function EmployeePortal({
                            <div className="bg-white/60 p-3 rounded-xl border border-blue-100 flex flex-col md:col-span-2 gap-2">
                               <span className="font-bold text-slate-700 mb-1">🖐️ เรทค่ามือ (Service Fees)</span>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-[11px] md:text-xs">
-                                 <div className="flex justify-between border-b border-blue-50 pb-1"><span>กดสิว</span><span className="font-black text-emerald-600">30 บ./เคส</span></div>
-                                 <div className="flex justify-between border-b border-blue-50 pb-1"><span>ทรีทเม้นท์/นวดหน้า/เลเซอร์ IPL</span><span className="font-black text-emerald-600">50 บ./เคส</span></div>
+                                 <div className="flex justify-between border-b border-blue-50 pb-1"><span>กดสิว</span><span className="font-black text-emerald-600">10 บ./เคส</span></div>
+                                 <div className="flex justify-between border-b border-blue-50 pb-1"><span>ทรีทเม้นท์/นวดหน้า</span><span className="font-black text-emerald-600">50 บ./เคส</span></div>
                                  <div className="flex justify-between border-b border-blue-50 pb-1"><span>สปาขัดตัว</span><span className="font-black text-emerald-600">100 บ./เคส</span></div>
-                                 <div className="flex justify-between border-b border-blue-50 pb-1"><span>จี้ไฝ/กระ/ติ่งเนื้อ</span><span className="font-black text-emerald-600">10-20% ของยอดบิล</span></div>
+                                 <div className="flex justify-between border-b border-blue-50 pb-1"><span>IPL / จี้ไฝ/กระ/ติ่งเนื้อ</span><span className="font-black text-emerald-600">10-20% ตามยอดบิล</span></div>
                               </div>
                            </div>
                         </div>

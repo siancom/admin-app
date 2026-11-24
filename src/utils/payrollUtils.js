@@ -17,23 +17,38 @@ export function calculateServiceLogFee(s) {
   let rawAmount = parseNumber(s.amount);
   const isPOS = typeof s.note === 'string' && s.note.startsWith('POS:');
 
-  if (isPOS && (typeName.includes('จี้ไฝ') || typeName.includes('mole')) && rawAmount < 100) {
-    rawAmount = rawAmount * 10;
+  // ถ้ามีการระบุ serviceFee มาโดยตรงจาก POS ให้ใช้ค่านั้นเป็นอันดับแรก
+  if (s.serviceFee !== undefined && s.serviceFee !== null && s.serviceFee !== '') {
+    return parseNumber(s.serviceFee);
   }
 
-  if (typeName.includes('นวดหน้า') || typeName.includes('active skin') || typeName.includes('ipl รักแร้') || typeName.includes('ทรีทเม้นท์')) {
-    return 50;
-  }
+  // 1. กดสิว = 10 บาท
   if (typeName.includes('กดสิว')) {
-    return 30;
+    return 10;
   }
+
+  // 2. ขัดตัว / สปา = 100 บาท
   if (typeName.includes('สปา') || typeName.includes('ขัดตัว')) {
     return 100;
   }
-  if (typeName.includes('จี้ไฝ') || typeName.includes('กระ') || typeName.includes('ติ่งเนื้อ') || typeName.includes('mole')) {
-    return rawAmount < 1000 ? rawAmount * 0.10 : rawAmount * 0.20;
+
+  // 3. IPL และ รายการจี้ (จี้ไฝ/กระ/ติ่งเนื้อ) = คำนวณตามบิล (ยอด < 1,000 ได้ 10%, ยอด >= 1,000 ได้ 20%)
+  if (typeName.includes('จี้') || typeName.includes('ipl') || typeName.includes('mole') || typeName.includes('กระ') || typeName.includes('ติ่งเนื้อ') || typeName.includes('เลเซอร์')) {
+    if (isPOS && (typeName.includes('จี้') || typeName.includes('mole')) && rawAmount < 100) {
+      rawAmount = rawAmount * 10;
+    }
+    if (rawAmount > 0) {
+      return rawAmount < 1000 ? Math.round(rawAmount * 0.10) : Math.round(rawAmount * 0.20);
+    }
+    return 50;
   }
-  return isPOS ? rawAmount * 0.10 : rawAmount;
+
+  // 4. นวดหน้า / ทรีทเม้นท์ / Active Skin = 50 บาท
+  if (typeName.includes('นวดหน้า') || typeName.includes('active skin') || typeName.includes('ทรีทเม้นท์') || typeName.includes('ทรีตเมนต์')) {
+    return 50;
+  }
+
+  return isPOS ? Math.round(rawAmount * 0.10) : rawAmount;
 }
 
 /**
