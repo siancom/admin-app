@@ -1164,20 +1164,40 @@ export default function POSSystem({
     
     // Sort and deduplicate items inside each group (prevent duplicate cards/buttons)
     Object.values(groups).forEach(g => {
-       const seen = new Set();
-       const uniqueItems = [];
+       const bestByKey = new Map();
 
        g.items.forEach(c => {
          const name = String(getFuzzyKey(c, ["ชื่อคอส", "col_4", "ชื่อสินค้า", "col_2"]) || '').trim();
+         const cleanName = name
+           .replace(/\(ซื้อเพิ่มโปร\)/g, '')
+           .replace(/\(\s*\d+\s*ครั้ง\s*\)/g, '')
+           .replace(/\d+\s*ครั้ง/g, '')
+           .replace(/[\s\-_()（）[\]]/g, '')
+           .toLowerCase();
          const price = parseNumber(getFuzzyKey(c, ["ราคา", "ราคาขาย", "col_5"]));
          const isPromo = name.includes('ซื้อเพิ่มโปร');
          const sess = String(getFuzzyKey(c, ["จำนวนครั้ง", "col_7", "col_6"]) || (name.match(/(\d+)\s*ครั้ง/) ? name.match(/(\d+)\s*ครั้ง/)[1] : '1')).trim();
-         const dedupKey = `${name}_${price}_${isPromo}_${sess}`;
-         if (!seen.has(dedupKey)) {
-           seen.add(dedupKey);
-           uniqueItems.push(c);
+         // Dedup by cleanName + promo status + session count + price
+         const dedupKey = `${cleanName}_${isPromo ? 'promo' : sess}_${price}`;
+
+         // Priority: prefer specific numbered code like F-A1 over generic F-A for 1 session
+         const code = String(getFuzzyKey(c, ["รหัสคอส", "col_1"]) || '').trim();
+         let priority = 0;
+         if (/\d+$/.test(code)) priority += 3;
+         if (code) priority += 2;
+         if (name.includes('(')) priority += 1;
+
+         if (!bestByKey.has(dedupKey)) {
+           bestByKey.set(dedupKey, { item: c, priority });
+         } else {
+           const existing = bestByKey.get(dedupKey);
+           if (priority > existing.priority) {
+             bestByKey.set(dedupKey, { item: c, priority });
+           }
          }
        });
+
+       const uniqueItems = Array.from(bestByKey.values()).map(v => v.item);
 
        uniqueItems.sort((a, b) => {
           const nameA = String(getFuzzyKey(a, ["ชื่อคอส", "col_4", "ชื่อสินค้า", "col_2"]) || '');
@@ -9049,6 +9069,10 @@ export default function POSSystem({
                         const sessVal = String(getFuzzyKey(c, ["จำนวนครั้ง", "col_7", "col_6", "จำนวนครั้งที่ได้"]) || (nameStr.match(/(\d+)\s*ครั้ง/) ? nameStr.match(/(\d+)\s*ครั้ง/)[1] : '1'));
                         const sessLabel = isPromo ? 'ซื้อเพิ่มโปร' : `${sessVal} ครั้ง`;
                         const code = String(getFuzzyKey(c, ["รหัสคอส", "col_1"]) || '');
+                        const displayName = nameStr
+                          .replace(/\(\s*\d+\s*ครั้ง\s*\)/g, '')
+                          .replace(/\(ซื้อเพิ่มโปร\)/g, '')
+                          .trim() || nameStr;
 
                         return (
                           <div
@@ -9075,7 +9099,7 @@ export default function POSSystem({
                                 {code && <span className="text-[10px] text-slate-400 font-mono">{code}</span>}
                               </div>
                               <h4 className="font-bold text-slate-800 text-sm group-hover:text-violet-700 transition-colors line-clamp-1">
-                                {nameStr}
+                                {displayName}
                               </h4>
                             </div>
 
