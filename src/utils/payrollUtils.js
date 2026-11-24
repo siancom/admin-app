@@ -88,9 +88,12 @@ export function calculateEmployeeMonthlyPayroll(
     if (staffNames.includes(emp.name)) {
       const price = parseNumber(getFuzzyKey(h, ['ราคา', 'price', 'จำนวนเงิน', 'ยอดเงิน']) || 0);
       const typeStr = String(getFuzzyKey(h, ['ประเภท', 'col_4']) || '');
+      const itemStr = String(getFuzzyKey(h, ['สินค้า', 'รายการ', 'col_18']) || '');
       const shareCount = staffNames.length || 1;
       if (typeStr.includes('ซื้อสินค้า')) {
         rawCommission += (price * ((parseFloat(emp.productCommissionRate) || 0) / 100)) / shareCount;
+      } else if (typeStr.includes('บริการ') || typeStr.includes('จี้') || itemStr.includes('จี้') || h.isService || h.noCourseCommission || h.type === 'service') {
+        // 🌟 รายการจี้ / หัตถการรายครั้ง: คิดเป็นค่ามือ (DF) ตามบิล ไม่คำนวณเป็นค่าคอมคอร์ส
       } else {
         rawCommission += (price * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
       }

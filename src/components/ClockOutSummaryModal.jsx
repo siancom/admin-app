@@ -139,9 +139,12 @@ export default function ClockOutSummaryModal({
       if (staffNames.includes(employee.name)) {
         const price = parseNumber(getFuzzyKey(h, ['ราคา', 'price', 'จำนวนเงิน', 'ยอดเงิน']) || 0);
         const typeStr = String(getFuzzyKey(h, ['ประเภท', 'col_4']) || '');
+        const itemStr = String(getFuzzyKey(h, ['สินค้า', 'รายการ', 'col_18']) || '');
         const shareCount = staffNames.length || 1;
         if (typeStr.includes('ซื้อสินค้า')) {
           comm += (price * ((parseFloat(employee.productCommissionRate) || 0) / 100)) / shareCount;
+        } else if (typeStr.includes('บริการ') || typeStr.includes('จี้') || itemStr.includes('จี้') || h.isService || h.noCourseCommission || h.type === 'service') {
+          // 🌟 รายการจี้ / หัตถการรายครั้ง: คิดเป็นค่ามือ (DF) ตามบิล ไม่คำนวณเป็นค่าคอมคอร์ส
         } else {
           comm += (price * ((parseFloat(employee.commissionRate) || 0) / 100)) / shareCount;
         }
@@ -692,3 +695,4 @@ export default function ClockOutSummaryModal({
     </div>
   );
 }
+

@@ -341,7 +341,7 @@ export default function POSSystem({
     { id: 'acne_sets', label: 'รักษาสิว/ฝ้า' },
     { id: 'nourish', label: 'บำรุงฟื้นฟู' },
     { id: 'ipl', label: 'IPL กำจัดขน' },
-    { id: 'walkin', label: 'วอคอิน' }
+    { id: 'single_session', label: 'คอร์สรายครั้ง' }
   ];
 
   const getCourseCategory = (c) => {
@@ -355,7 +355,7 @@ export default function POSSystem({
     if (type === 'รักษาสิว/ฝ้า') return 'acne_sets';
     if (type === 'บำรุงฟื้นฟู') return 'nourish';
     if (type === 'IPL กำจัดขน') return 'ipl';
-    if (type === 'วอคอิน') return 'walkin';
+    if (type === 'วอคอิน' || type === 'คอร์สรายครั้ง' || type === 'รายครั้ง' || type === 'single_session' || type === 'service') return 'single_session';
     
     let code = String(getFuzzyKey(c, ["รหัสคอส", "col_1"]) || '').trim();
     if (!code) return 'other';
@@ -1119,6 +1119,8 @@ export default function POSSystem({
                cart.forEach(item => {
                  if (item.type === 'product' || item.type === 'claim_item') {
                    prodGross += (item.price || 0) * (item.qty || 1);
+                 } else if (item.type === 'service' || item.isService || item.noCourseCommission || item.id?.startsWith('srv_mole') || item.name?.includes('จี้')) {
+                   // 🌟 รายการจี้ / หัตถการรายครั้ง: ไม่คำนวณเป็นค่าคอมคอร์ส (คิดเป็นค่ามือ DF ตามบิล)
                  } else {
                    courseGross += (item.price || 0) * (item.qty || 1);
                  }
@@ -1542,6 +1544,9 @@ export default function POSSystem({
         counts[g.category] = (counts[g.category] || 0) + 1;
       }
     });
+    // 🌟 รายการหัตถการรายครั้ง (จี้ไฝ / ประเมินราคา)
+    counts.single_session = (counts.single_session || 0) + 1;
+    counts.all = (counts.all || 0) + 1;
     return counts;
   }, [filteredCourses, groupedSingleCourses]);
 
@@ -3017,13 +3022,19 @@ export default function POSSystem({
             "เบอร์โทร": cPhone,
             "cleanPhone": custCleanPhone,
             "หมายเลขคำสั่งซื้อ": orderNo,
-            "ประเภท": "รับบริการ",
+            "ประเภท": "รับบริการ (จี้/หัตถการ)",
+            "col_4": "รับบริการ (จี้/หัตถการ)",
             "สถานะ": "เรียบร้อย",
             "รายการ": item.name,
+            "สินค้า": item.name,
+            "col_18": item.name,
             "จำนวน": String(item.qty),
             "ยอดเงิน": String(item.price * item.qty),
+            "col_19": String(item.price * item.qty),
             "สาขา": String(globalBranch || "สำนักงานใหญ่"),
-            "พนักงาน": paymentStaff
+            "พนักงาน": paymentStaff,
+            "isService": true,
+            "noCourseCommission": true
           });
 
           // Find employee IDs for service_logs
@@ -5222,35 +5233,152 @@ export default function POSSystem({
                       )
                   })}
 
-                  {/* Manual Walk-in Items */}
-                  {(multiCourseTab === 'all' || multiCourseTab === 'walkin') && (
-                      <div 
-                        key="srv_mole_walkin"
-                        onClick={() => setQuickPriceModalItem({ id: 'srv_mole_walkin', name: 'จี้ (วอคอิน)', price: 0, type: 'service' })}
-                        className="p-3 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-md cursor-pointer transition-all active:scale-95 flex flex-col h-full bg-gradient-to-br from-violet-50 to-fuchsia-50 border border-violet-200 hover:border-violet-300 relative overflow-hidden"
-                      >
-                        <div className="absolute -right-2 -bottom-4 text-[80px] font-black text-fuchsia-500/10 rotate-12 pointer-events-none select-none z-0 leading-none truncate w-24 text-center">จี้</div>
-                        <div className="font-semibold text-slate-800 flex-1 line-clamp-3 text-xs sm:text-sm leading-snug relative z-10">จี้ (วอคอิน)</div>
-                        <div className="mt-2 sm:mt-3 flex items-end justify-between relative z-10">
-                          <div className="font-bold text-sm sm:text-lg text-fuchsia-600">ระบุราคา</div>
-                          <div className="text-[10px] text-violet-600 font-bold bg-violet-100 px-1.5 py-0.5 rounded-md shadow-sm border border-violet-200">ใช้ทันที</div>
+                  {/* Manual Single-Session / Walk-in Items */}
+                  {(multiCourseTab === 'all' || multiCourseTab === 'single_session' || multiCourseTab === 'walkin') && (
+                    <div 
+                      key="srv_mole_walkin"
+                      className="p-3.5 sm:p-4 rounded-2xl shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-full bg-gradient-to-br from-amber-50/80 via-orange-50/70 to-white border-2 border-orange-200/90 relative overflow-hidden group col-span-1 sm:col-span-2"
+                    >
+                      <div className="absolute -right-2 -bottom-4 text-[70px] font-black text-orange-500/10 rotate-12 pointer-events-none select-none z-0">
+                        จี้
+                      </div>
+                      
+                      <div className="relative z-10">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="w-10 h-10 rounded-xl bg-orange-500 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                            <Scissors size={20} />
+                          </div>
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 border border-orange-200">
+                            หัตถการรายครั้ง • ไม่คิดค่าคอมคอร์ส
+                          </span>
+                        </div>
+                        
+                        <div className="font-black text-slate-800 text-sm sm:text-base">
+                          จี้ไฝ / กระ / ติ่งเนื้อ (รายครั้ง)
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5 mb-2.5">
+                          เลือกราคาเพิ่มลงตะกร้าทันที (คำนวณค่ามือตามบิล 10-20%):
                         </div>
                       </div>
+
+                      {/* 8 Quick Price Preset Buttons */}
+                      <div className="relative z-10 space-y-1.5">
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {[200, 300, 500, 800, 1000, 1500, 2000, 5000].map((p) => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const cartItem = {
+                                  id: `srv_mole_${Date.now()}_${p}`,
+                                  name: `จี้ไฝ / กระ / ติ่งเนื้อ (฿${p.toLocaleString()})`,
+                                  price: p,
+                                  originalPrice: p,
+                                  qty: 1,
+                                  type: 'service',
+                                  isService: true,
+                                  noCourseCommission: true,
+                                  isManualPrice: true
+                                };
+                                setCart(prev => [...prev, cartItem]);
+                                showToast(`เพิ่ม "จี้ไฝ" ฿${p.toLocaleString()} ลงตะกร้าแล้ว`, 'success');
+                              }}
+                              className="py-1.5 px-1 bg-white hover:bg-orange-500 hover:text-white text-orange-700 border border-orange-200 hover:border-orange-500 rounded-lg font-black text-xs transition-all shadow-2xs active:scale-95 text-center cursor-pointer"
+                            >
+                              ฿{p.toLocaleString()}
+                            </button>
+                          ))}
+                        </div>
+                        
+                        <button
+                          type="button"
+                          onClick={() => setQuickPriceModalItem({ id: 'srv_mole', name: 'จี้ไฝ / กระ / ติ่งเนื้อ', price: 0, type: 'service' })}
+                          className="w-full py-1.5 text-center text-[11px] font-bold text-orange-600 hover:text-orange-700 bg-orange-100/70 hover:bg-orange-100 rounded-lg transition-colors border border-orange-200/80 cursor-pointer"
+                        >
+                          + ระบุราคาอื่น / กรอกจำนวนเอง...
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
             ) : activeTab === 'services' ? (
-              [{id: 'srv_mole', name: 'จี้ไฝ'}, {id: 'srv_consult', name: 'ประเมินราคา'}].map(srv => (
-                <div key={srv.id} onClick={() => setQuickPriceModalItem({ id: srv.id, name: srv.name, price: 0, type: 'service' })} className="bg-white border border-slate-200 rounded-2xl p-4 cursor-pointer hover:border-orange-500 hover:shadow-md transition-all group flex flex-col h-full">
-                  <div className="flex-1 flex flex-col items-center justify-center py-6 gap-3">
-                    <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 group-hover:scale-110 transition-transform">
-                      <Scissors size={32} />
+              <div className="col-span-full">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  <div 
+                    className="p-4 rounded-2xl shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-full bg-gradient-to-br from-amber-50/80 via-orange-50/70 to-white border-2 border-orange-200/90 relative overflow-hidden group"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="w-12 h-12 rounded-2xl bg-orange-500 text-white flex items-center justify-center shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                        <Scissors size={24} />
+                      </div>
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 border border-orange-200">
+                        หัตถการรายครั้ง • ไม่คิดค่าคอมคอร์ส
+                      </span>
                     </div>
-                    <div className="font-bold text-slate-800 text-lg text-center">{srv.name}</div>
-                    <div className="text-xs font-medium text-slate-400 text-center">คลิกเพื่อเพิ่มลงตะกร้า<br/>และระบุราคา</div>
+                    
+                    <div className="font-black text-slate-800 text-base">
+                      จี้ไฝ / กระ / ติ่งเนื้อ
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1 mb-3">
+                      เลือกราคาเพิ่มลงตะกร้าทันที (คำนวณค่ามือตามบิล 10-20%):
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-1.5 mb-2">
+                      {[200, 300, 500, 800, 1000, 1500, 2000, 5000].map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => {
+                            const cartItem = {
+                              id: `srv_mole_${Date.now()}_${p}`,
+                              name: `จี้ไฝ / กระ / ติ่งเนื้อ (฿${p.toLocaleString()})`,
+                              price: p,
+                              originalPrice: p,
+                              qty: 1,
+                              type: 'service',
+                              isService: true,
+                              noCourseCommission: true,
+                              isManualPrice: true
+                            };
+                            setCart(prev => [...prev, cartItem]);
+                            showToast(`เพิ่ม "จี้ไฝ" ฿${p.toLocaleString()} ลงตะกร้าแล้ว`, 'success');
+                          }}
+                          className="py-2 px-1 bg-white hover:bg-orange-500 hover:text-white text-orange-700 border border-orange-200 hover:border-orange-500 rounded-xl font-black text-xs transition-all shadow-2xs active:scale-95 text-center cursor-pointer"
+                        >
+                          ฿{p.toLocaleString()}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setQuickPriceModalItem({ id: 'srv_mole', name: 'จี้ไฝ / กระ / ติ่งเนื้อ', price: 0, type: 'service' })}
+                      className="w-full py-2 text-center text-xs font-bold text-orange-600 hover:text-orange-700 bg-orange-100/70 hover:bg-orange-100 rounded-xl transition-colors border border-orange-200/80 cursor-pointer"
+                    >
+                      + ระบุราคาอื่น / กรอกจำนวนเอง...
+                    </button>
+                  </div>
+
+                  <div 
+                    onClick={() => setQuickPriceModalItem({ id: 'srv_consult', name: 'ประเมินราคา / บริการพิเศษ', price: 0, type: 'service' })}
+                    className="p-4 rounded-2xl shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-full bg-white border-2 border-slate-200 hover:border-orange-400 cursor-pointer group"
+                  >
+                    <div>
+                      <div className="w-12 h-12 bg-slate-100 text-slate-600 group-hover:bg-orange-100 group-hover:text-orange-600 rounded-2xl flex items-center justify-center mb-3 transition-colors">
+                        <Sparkles size={24} />
+                      </div>
+                      <div className="font-black text-slate-800 text-base">ประเมินราคา / บริการพิเศษ</div>
+                      <p className="text-xs text-slate-400 mt-1">คลิกเพื่อกำหนดชื่อและราคาเองตามประเมิน</p>
+                    </div>
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-orange-600 font-bold">
+                      <span>ระบุราคาเอง</span>
+                      <ChevronRight size={16} />
+                    </div>
                   </div>
                 </div>
-              ))
+              </div>
             ) : (
               <>
                 {filteredPendingPayments.length > 0 && (
@@ -9999,6 +10127,30 @@ export default function POSSystem({
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
               />
             </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1.5">
+                เลือกราคาด่วน (200 - 5,000 บาท):
+              </label>
+              <div className="grid grid-cols-4 gap-1.5 mb-2">
+                {[200, 300, 500, 800, 1000, 1500, 2000, 5000].map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => {
+                      setQuickPriceModalItem(prev => ({ ...prev, priceInput: String(p) }));
+                    }}
+                    className={`py-2 px-1 rounded-xl font-black text-xs transition-all border text-center cursor-pointer ${
+                      Number(quickPriceModalItem.priceInput) === p
+                        ? 'bg-orange-500 text-white border-orange-500 shadow-sm shadow-orange-500/25 ring-2 ring-orange-200'
+                        : 'bg-orange-50/70 hover:bg-orange-100 text-orange-700 border-orange-200'
+                    }`}
+                  >
+                    ฿{p.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="grid grid-cols-3 gap-3">
               <div className="col-span-2">
                 <label className="block text-xs font-bold text-slate-500 mb-1">ราคา (บาท) <span className="text-red-500">*</span></label>
@@ -10024,6 +10176,8 @@ export default function POSSystem({
                           originalPrice: finalPrice,
                           qty: finalQty,
                           type: quickPriceModalItem.type || 'service',
+                          isService: true,
+                          noCourseCommission: true,
                           isManualPrice: true
                         }]);
                         showToast(`เพิ่ม "${finalName}" (฿${finalPrice.toLocaleString()}) ลงตะกร้าแล้ว`, 'success');
@@ -10065,6 +10219,8 @@ export default function POSSystem({
                     originalPrice: finalPrice,
                     qty: finalQty,
                     type: quickPriceModalItem.type || 'service',
+                    isService: true,
+                    noCourseCommission: true,
                     isManualPrice: true
                   }]);
                   showToast(`เพิ่ม "${finalName}" (฿${finalPrice.toLocaleString()}) ลงตะกร้าแล้ว`, 'success');
