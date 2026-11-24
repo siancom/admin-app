@@ -10,7 +10,7 @@ import PayslipModal from './PayslipModal';
 import EmployeePortal from './EmployeePortal';
 import JobApplicationModal from './JobApplicationModal';
 import EmploymentContractModal from './EmploymentContractModal';
-export default function EmployeeDashboard({ employees = [], attendance = [], histories = [], branches = [], leaves = [], advancePayments = [], dailySales = [], onGoToPOS, appSettings = {}, orders = [], serviceLogs = [], requisitions = [], jobApplications = [] }) {
+export default function EmployeeDashboard({ employees = [], attendance = [], histories = [], branches = [], leaves = [], advancePayments = [], dailySales = [], onGoToPOS, appSettings = {}, orders = [], serviceLogs = [], requisitions = [], jobApplications = [], bookings = [] }) {
   const [activeTab, setActiveTab] = useState('attendance');
   const [branchFilter, setBranchFilter] = useState('ทั้งหมด');
   const [selectedApplication, setSelectedApplication] = useState(null);
@@ -1641,6 +1641,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
            appSettings={appSettings}
            orders={orders}
            serviceLogs={serviceLogs}
+           bookings={bookings}
            onClose={() => setSelectedEmployeeForPortal(null)}
            onClockIn={(emp) => handleClockIn(emp.id, emp.name)}
            onClockOut={(att) => handleClockOut(att.id, att.branch, selectedEmployeeForPortal.branch)}

@@ -6907,7 +6907,7 @@ const flexMessage = {
             />
           )}
 
-          {activeTab === 'employees' && globalRole === 'owner' && <EmployeeDashboard employees={employees} requisitions={employeeRequisitions} jobApplications={jobApplications} attendance={employeeAttendance} histories={histories} branches={branches} leaves={employeeLeaves} advancePayments={advancePayments} dailySales={dailySales} appSettings={appSettings} orders={orders} serviceLogs={serviceLogs} onGoToPOS={handlePosAccess} />}
+          {activeTab === 'employees' && globalRole === 'owner' && <EmployeeDashboard employees={employees} requisitions={employeeRequisitions} jobApplications={jobApplications} attendance={employeeAttendance} histories={histories} branches={branches} leaves={employeeLeaves} advancePayments={advancePayments} dailySales={dailySales} appSettings={appSettings} orders={orders} serviceLogs={serviceLogs} bookings={bookings} onGoToPOS={handlePosAccess} />}
 
           {activeTab === 'courses' && (
             <div className="flex flex-col h-full space-y-4 max-w-7xl mx-auto">
@@ -10268,6 +10268,7 @@ const flexMessage = {
           appSettings={appSettings}
           orders={orders}
           serviceLogs={serviceLogs}
+          bookings={bookings}
           globalBranch={globalBranch}
           globalRole={globalRole}
           initialEmployee={initialEmployeeForAttendance}

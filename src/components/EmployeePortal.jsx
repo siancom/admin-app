@@ -7,6 +7,7 @@ import { parseNumber, getLocalYYYYMMDD, normalizeBranchName, parseThaiDate } fro
 import { getOrderStatus } from '../utils/dateUtils';
 import { calculateEmployeeMonthlyPayroll, calculateServiceLogFee } from '../utils/payrollUtils';
 import EmploymentContractModal from './EmploymentContractModal';
+import ClockOutSummaryModal from './ClockOutSummaryModal';
 
 export default function EmployeePortal({
   employee,
@@ -19,6 +20,7 @@ export default function EmployeePortal({
   dailySales = [],
   serviceLogs = [],
   orders = [],
+  bookings = [],
   appSettings = {},
   onClose,
   onClockIn,
@@ -35,6 +37,7 @@ export default function EmployeePortal({
   const [payrollMonth, setPayrollMonth] = useState(getLocalYYYYMMDD().substring(0, 7));
   const [calendarSelection, setCalendarSelection] = useState([]);
   const [showPayslip, setShowPayslip] = useState(false);
+  const [showClockOutSummary, setShowClockOutSummary] = useState(false);
   const [leaveForm, setLeaveForm] = useState({ leaveType: 'ลาป่วย', startDate: '', endDate: '', reason: '', dates: [], replacementDate: '' });
   const [advanceForm, setAdvanceForm] = useState({ amount: '', reason: '' });
   const [suppliesForm, setSuppliesForm] = useState({ itemName: '', quantity: '', reason: '' });
@@ -704,7 +707,7 @@ export default function EmployeePortal({
                               <ShoppingCart size={24} /> เปิด POS ขายสินค้า
                            </button>
                            {isActiveShift ? (
-                              <button onClick={() => onClockOut(todayAtt)} className="w-full py-3 bg-white hover:bg-rose-50 text-rose-600 rounded-2xl font-black text-sm border border-rose-200 transition-colors active:scale-95 flex items-center justify-center gap-2">
+                              <button onClick={() => setShowClockOutSummary(true)} className="w-full py-3 bg-white hover:bg-rose-50 text-rose-600 rounded-2xl font-black text-sm border border-rose-200 transition-colors active:scale-95 flex items-center justify-center gap-2">
                                  <UserMinus size={18} /> บันทึกออกงาน
                               </button>
                            ) : !hasSubmittedEOD && (
@@ -1713,6 +1716,29 @@ export default function EmployeePortal({
       
       {showContract && (
         <EmploymentContractModal employee={employee} onClose={() => setShowContract(false)} />
+      )}
+
+      {showClockOutSummary && (
+        <ClockOutSummaryModal
+          isOpen={showClockOutSummary}
+          onClose={() => setShowClockOutSummary(false)}
+          onConfirmClockOut={async () => {
+            setShowClockOutSummary(false);
+            if (onClockOut) await onClockOut(todayAtt);
+          }}
+          employee={employee}
+          attendanceRecord={todayAtt}
+          orders={orders}
+          serviceLogs={serviceLogs}
+          histories={histories}
+          bookings={bookings}
+          dailySales={dailySales}
+          onGoToPOS={() => {
+            setShowClockOutSummary(false);
+            onClose();
+            if (onGoToPOS) onGoToPOS();
+          }}
+        />
       )}
     </div>
   );

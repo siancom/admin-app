@@ -5,11 +5,13 @@ import { addDoc, updateDoc, doc } from 'firebase/firestore';
 import { getLocalYYYYMMDD, normalizeBranchName, parseThaiDate } from '../utils/parse';
 import EmployeePortal from './EmployeePortal';
 import PinModal from './PinModal';
+import ClockOutSummaryModal from './ClockOutSummaryModal';
 
-export default function FrontAttendanceModal({ employees = [], attendance = [], branches = [], leaves = [], advancePayments = [], histories = [], dailySales = [], onClose, onGoToPOS, appSettings = {}, orders = [], serviceLogs = [], requisitions = [], globalBranch, globalRole, initialEmployee, featureFlags = {}, mode = 'board', onStaffIdentity }) {
+export default function FrontAttendanceModal({ employees = [], attendance = [], branches = [], leaves = [], advancePayments = [], histories = [], dailySales = [], onClose, onGoToPOS, appSettings = {}, orders = [], serviceLogs = [], bookings = [], requisitions = [], globalBranch, globalRole, initialEmployee, featureFlags = {}, mode = 'board', onStaffIdentity }) {
   const [branchFilter, setBranchFilter] = useState(globalBranch || 'ทั้งหมด');
   const [selectedBranches, setSelectedBranches] = useState({});
   const [selectedEmployeeForPortal, setSelectedEmployeeForPortal] = useState(null);
+  const [clockOutSummaryData, setClockOutSummaryData] = useState(null);
   // PIN gate: ต้องใส่ PIN เฉพาะตัวก่อนเข้าพอร์ทัลพนักงาน
   const [pinModal, setPinModal] = useState({ isOpen: false, employee: null, error: '' });
 
@@ -118,7 +120,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
     const todayAtt = getTodayAttendance(emp.id);
     if (action === 'clockout') {
       if (todayAtt && !todayAtt.clockOut) {
-        await handleClockOut(todayAtt.id, emp.name, todayAtt.branch, emp.branch);
+        setClockOutSummaryData({ emp, todayAtt });
       }
       return;
     }
@@ -256,7 +258,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
     }
   };
 
-  const handleClockOut = async (attendanceId, empName, attBranch, empBranch) => {
+  const handleClockOut = async (attendanceId, empName, attBranch, empBranch, skipConfirm = false) => {
     const branchToCheck = attBranch || empBranch;
     // Check if EOD is submitted for this branch
     if (normalizeBranchName(branchToCheck) !== 'เฉวง') {
@@ -273,7 +275,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
         }
     }
 
-    if (!window.confirm(`ต้องการบันทึกเวลาออกงานของ ${empName} ใช่หรือไม่?`)) return;
+    if (!skipConfirm && !window.confirm(`ต้องการบันทึกเวลาออกงานของ ${empName} ใช่หรือไม่?`)) return;
     try {
       const time = new Date().toISOString();
       await updateDoc(doc(db, 'employee_attendance', attendanceId), { clockOut: time });
@@ -451,10 +453,11 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
            appSettings={appSettings}
            orders={orders}
            serviceLogs={serviceLogs}
+           bookings={bookings}
            isAdmin={globalRole === 'owner'}
            onClose={() => setSelectedEmployeeForPortal(null)}
            onClockIn={(emp) => handleClockIn(emp.id, emp.name, emp.branch)}
-           onClockOut={(att) => handleClockOut(att.id, att.employeeName, att.branch, selectedEmployeeForPortal.branch)}
+           onClockOut={(att) => handleClockOut(att.id, att.employeeName, att.branch, selectedEmployeeForPortal.branch, true)}
            onGoToPOS={onGoToPOS}
            onChangePin={async (newPin) => {
              try {
@@ -466,6 +469,32 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
              }
            }}
          />
+      )}
+
+      {/* Clock Out Summary Modal (triggered from attendance board card) */}
+      {clockOutSummaryData && (
+        <ClockOutSummaryModal
+          isOpen={!!clockOutSummaryData}
+          onClose={() => setClockOutSummaryData(null)}
+          onConfirmClockOut={async () => {
+            const { emp, todayAtt } = clockOutSummaryData;
+            setClockOutSummaryData(null);
+            await handleClockOut(todayAtt.id, emp.name, todayAtt.branch, emp.branch, true);
+          }}
+          employee={clockOutSummaryData.emp}
+          attendanceRecord={clockOutSummaryData.todayAtt}
+          orders={orders}
+          serviceLogs={serviceLogs}
+          histories={histories}
+          bookings={bookings}
+          dailySales={dailySales}
+          onGoToPOS={() => {
+            const emp = clockOutSummaryData.emp;
+            setClockOutSummaryData(null);
+            if (onStaffIdentity) onStaffIdentity(emp);
+            if (onGoToPOS) onGoToPOS();
+          }}
+        />
       )}
 
       {/* PIN Gate Modal */}
