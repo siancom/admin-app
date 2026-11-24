@@ -981,7 +981,7 @@ export default function POSSystem({
             {HAND_FEE_PRESETS.map((preset) => {
               const selected = selectedHandFees.find(h => h.id === preset.id);
               const isSelected = !!selected;
-              const Icon = preset.icon;
+              const Icon = preset.icon || Sparkles;
               const currentFee = computePresetFee(preset);
 
               return (
