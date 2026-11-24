@@ -52,6 +52,15 @@ export default function SalesHistoryModal({
     return () => { isMounted = false; };
   }, [isOpen, globalBranch, showToast]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   const fetchOrders = async () => {
       if (!isOpen) return;
       setIsLoading(true);
@@ -298,9 +307,30 @@ export default function SalesHistoryModal({
   });
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] shadow-2xl overflow-hidden flex flex-col">
-        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl sm:rounded-3xl w-full max-w-4xl max-h-[92vh] shadow-2xl overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="p-3.5 sm:p-4 px-4 sm:px-6 border-b border-slate-200 flex justify-between items-center bg-slate-50/95 backdrop-blur-sm shrink-0 sticky top-0 z-30">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 text-white flex items-center justify-center shadow-xs">
+              <FileText size={18} strokeWidth={2.5} />
+            </div>
+            <div>
+              <h3 className="text-sm sm:text-base font-black text-slate-800 leading-tight">
+                รายงานและประวัติการขาย {globalBranch ? `(สาขา${globalBranch})` : ''}
+              </h3>
+              <p className="text-[10px] sm:text-xs text-slate-500 font-medium">สรุปยอดประจำวัน, EOD และประวัติบิล</p>
+            </div>
+          </div>
+
+          <button 
+            type="button"
+            onClick={onClose} 
+            className="flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-rose-500 hover:bg-rose-600 text-white font-black text-xs sm:text-sm rounded-xl transition-all active:scale-95 shadow-md shadow-rose-200 cursor-pointer"
+            title="ปิดหน้าต่าง (Close)"
+          >
+            <X size={16} strokeWidth={2.5} />
+            <span>ปิดหน้าต่าง</span>
+          </button>
         </div>
         <div className="p-4 bg-white border-b border-slate-100 shadow-sm z-0 shrink-0 overflow-y-auto max-h-[40vh]">
           {/* Owner Date Filter */}
@@ -507,10 +537,6 @@ export default function SalesHistoryModal({
               </div>
             </>
           )}
-
-          <button onClick={onClose} className="absolute right-4 top-4 p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors z-10">
-            <X size={24} />
-          </button>
         </div>
         
         <div className="p-4 border-b border-slate-100 bg-white">
@@ -624,6 +650,20 @@ export default function SalesHistoryModal({
               })}
             </div>
           )}
+        </div>
+
+        {/* Modal Footer with Clear Close Button */}
+        <div className="p-3.5 px-6 border-t border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
+          <div className="text-xs text-slate-500 font-medium">
+            พบทั้งหมด <span className="font-bold text-slate-700">{displayedOrders.length}</span> รายการ
+          </div>
+          <button 
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs sm:text-sm rounded-xl transition-all active:scale-95 cursor-pointer shadow-xs"
+          >
+            ปิดหน้าต่าง
+          </button>
         </div>
       </div>
       

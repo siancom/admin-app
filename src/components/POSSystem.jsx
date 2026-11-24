@@ -4451,15 +4451,14 @@ export default function POSSystem({
                 >
                   <div className="w-full aspect-[4/3] bg-slate-100 rounded-lg sm:rounded-xl mb-2 sm:mb-3 overflow-hidden relative group flex items-center justify-center">
                     {salesScore > 0 && !isSpecialMode && (
-                      <div className="absolute top-1.5 left-1.5 z-10 bg-gradient-to-r from-amber-500 to-rose-500 text-white text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-md shadow-md flex items-center gap-0.5">
-                        <Flame size={11} className="fill-white" />
-                        <span>ขายดี {salesScore > 1 ? `(${salesScore})` : ''}</span>
+                      <div className="absolute top-1.5 left-1.5 z-10 bg-gradient-to-r from-amber-500 to-rose-500 text-white p-1 rounded-md shadow-md flex items-center justify-center" title={`สินค้าขายดี (${salesScore} ชิ้น)`}>
+                        <Flame size={12} className="fill-white text-white" />
                       </div>
                     )}
                     {cartQty > 0 && !isSpecialMode && !isStockMode && (
-                      <div className="absolute top-1.5 right-1.5 z-10 bg-indigo-600 text-white text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-md shadow-md flex items-center gap-1 border border-white animate-in zoom-in-75 duration-150">
-                        <ShoppingCart size={10} className="shrink-0" />
-                        <span>ในตะกร้า {cartQty}</span>
+                      <div className="absolute top-1.5 right-1.5 z-10 bg-indigo-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-md shadow-md flex items-center gap-1 border border-white animate-in zoom-in-75 duration-150" title={`ในตะกร้า ${cartQty} ชิ้น`}>
+                        <ShoppingCart size={11} className="shrink-0" />
+                        <span>{cartQty}</span>
                       </div>
                     )}
                     {imageUrl ? (
@@ -4513,11 +4512,6 @@ export default function POSSystem({
                     )}
                     
                     <div className="flex items-center gap-1 shrink-0">
-                      {cartQty > 0 && !isSpecialMode && !isStockMode && (
-                        <div className="flex items-center justify-center min-w-[28px] px-1.5 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-indigo-600 text-white shadow-sm" title={`จำนวนในตะกร้า: ${cartQty} ชิ้น`}>
-                          +{cartQty}
-                        </div>
-                      )}
                       {(() => {
                            const currentBranch = globalBranch || "สำนักงานใหญ่";
                            const v = getBranchStock(p, currentBranch);

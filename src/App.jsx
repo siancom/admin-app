@@ -5264,50 +5264,52 @@ const flexMessage = {
       </div>
 
       {/* 🌟 จุดสีแสดงสถานะการซิงค์ข้อมูลมุมขวาบน (Mobile / Floating Top-Right Sync Dot) 🌟 */}
-      <div 
-        onClick={() => triggerToast(
-          isCloudLoading 
-            ? `กำลังซิงค์ข้อมูล Cloud (${loadingProgress}%)` 
-            : isDbConnected 
-              ? 'ข้อมูลเชื่อมต่อและซิงค์เรียลไทม์กับ Cloud เรียบร้อยแล้ว' 
-              : 'ระบบออฟไลน์ ขาดการเชื่อมต่อ Cloud',
-          isCloudLoading ? 'info' : isDbConnected ? 'success' : 'error'
-        )}
-        className="lg:hidden fixed top-3 right-3 z-50 flex items-center cursor-pointer pointer-events-auto active:scale-95 transition-all print:hidden"
-        title={
-          isCloudLoading 
-            ? `กำลังซิงค์ข้อมูล Cloud... (${loadingProgress}%)` 
-            : isDbConnected 
-              ? 'ซิงค์ข้อมูลเรียบร้อย (Cloud Online)' 
-              : 'ขาดการเชื่อมต่อ Cloud'
-        }
-      >
-        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border shadow-sm backdrop-blur-md transition-all ${
-          isCloudLoading 
-            ? 'bg-amber-50/95 border-amber-200 text-amber-700' 
-            : isDbConnected 
-              ? 'bg-white/95 border-emerald-200 text-emerald-700 shadow-emerald-500/10' 
-              : 'bg-rose-50/95 border-rose-200 text-rose-700'
-        }`}>
-          <span className="relative flex h-2.5 w-2.5 shrink-0">
-            {isCloudLoading ? (
-              <>
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
-              </>
-            ) : isDbConnected ? (
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]"></span>
-            ) : (
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 animate-pulse"></span>
-            )}
-          </span>
-          {isCloudLoading && (
-            <span className="text-[9px] font-bold text-amber-700 font-mono">
-              {loadingProgress}%
-            </span>
+      {activeTab !== 'pos' && (
+        <div 
+          onClick={() => triggerToast(
+            isCloudLoading 
+              ? `กำลังซิงค์ข้อมูล Cloud (${loadingProgress}%)` 
+              : isDbConnected 
+                ? 'ข้อมูลเชื่อมต่อและซิงค์เรียลไทม์กับ Cloud เรียบร้อยแล้ว' 
+                : 'ระบบออฟไลน์ ขาดการเชื่อมต่อ Cloud',
+            isCloudLoading ? 'info' : isDbConnected ? 'success' : 'error'
           )}
+          className="lg:hidden fixed top-3 right-3 z-50 flex items-center cursor-pointer pointer-events-auto active:scale-95 transition-all print:hidden"
+          title={
+            isCloudLoading 
+              ? `กำลังซิงค์ข้อมูล Cloud... (${loadingProgress}%)` 
+              : isDbConnected 
+                ? 'ซิงค์ข้อมูลเรียบร้อย (Cloud Online)' 
+                : 'ขาดการเชื่อมต่อ Cloud'
+          }
+        >
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border shadow-sm backdrop-blur-md transition-all ${
+            isCloudLoading 
+              ? 'bg-amber-50/95 border-amber-200 text-amber-700' 
+              : isDbConnected 
+                ? 'bg-white/95 border-emerald-200 text-emerald-700 shadow-emerald-500/10' 
+                : 'bg-rose-50/95 border-rose-200 text-rose-700'
+          }`}>
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              {isCloudLoading ? (
+                <>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                </>
+              ) : isDbConnected ? (
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]"></span>
+              ) : (
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 animate-pulse"></span>
+              )}
+            </span>
+            {isCloudLoading && (
+              <span className="text-[9px] font-bold text-amber-700 font-mono">
+                {loadingProgress}%
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Sidebar (Desktop Only) */}
       <aside className={`hidden lg:flex flex-col fixed inset-y-0 left-0 w-64 bg-white/95 backdrop-blur-xl border-r border-gray-200 z-40`}>
