@@ -5,6 +5,7 @@ import { db, getCol } from '../config/firebase';
 import { getBranchStock, getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
 import BarcodeScannerModal from './BarcodeScannerModal';
 import { sendOrderLineNotification } from '../utils/lineUtils';
+import ClearMonthlyPosSalesModal from './ClearMonthlyPosSalesModal';
 
 export default function SalesHistoryModal({ 
   isOpen, onClose, showToast, globalBranch,
@@ -17,6 +18,7 @@ export default function SalesHistoryModal({
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState('sales');
   const [showScanner, setShowScanner] = useState(false);
+  const [showClearModal, setShowClearModal] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -483,6 +485,14 @@ export default function SalesHistoryModal({
                         <FileText size={14} /> พรีวิวใบสรุปยอด
                       </button>
                       <button 
+                        type="button"
+                        onClick={() => setShowClearModal(true)} 
+                        className="flex-1 sm:flex-none px-3 py-2 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-xl text-[10px] sm:text-xs font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
+                        title="ล้างข้อมูลการขาย POS เดือนนี้เพื่อเตรียมใช้งานจริง (ไม่รวมการส่งยอด)"
+                      >
+                        <Trash2 size={14} className="text-rose-600" /> ล้างยอดขาย POS เดือนนี้
+                      </button>
+                      <button 
                         onClick={() => { onClose(); setShowEodModal(true); }} 
                         className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-md shadow-indigo-200/50 active:scale-95 flex items-center justify-center gap-2 sm:ml-auto mt-2 sm:mt-0"
                       >
@@ -674,6 +684,16 @@ export default function SalesHistoryModal({
           setSearchTerm(code);
           setShowScanner(false);
           showToast('อ่านบาร์โค้ดสำเร็จ', 'success');
+        }}
+      />
+
+      <ClearMonthlyPosSalesModal
+        isOpen={showClearModal}
+        onClose={() => setShowClearModal(false)}
+        globalBranch={globalBranch}
+        showToast={showToast}
+        onSuccess={() => {
+          fetchOrders();
         }}
       />
     </div>

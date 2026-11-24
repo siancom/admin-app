@@ -28,6 +28,7 @@ import Barcode128 from './Barcode128';
 import SignaturePad from './SignaturePad';
 import ShopeeImportModal from './ShopeeImportModal';
 import SalesHistoryModal from './SalesHistoryModal';
+import ClearMonthlyPosSalesModal from './ClearMonthlyPosSalesModal';
 import BarcodeScannerModal from './BarcodeScannerModal';
 import { MACHINE_TREATMENT_ADDONS, STANDARD_FACIAL_SERVICES } from '../data/machineAddons';
 import { analyzeSkinIssue } from '../utils/skinAiUtils';
@@ -384,6 +385,7 @@ export default function POSSystem({
   const [showWebOrdersModal, setShowWebOrdersModal] = useState(false);
   const [showCustomerContextModal, setShowCustomerContextModal] = useState(false);
   const [showSalesHistory, setShowSalesHistory] = useState(false);
+  const [showClearPosMonthModal, setShowClearPosMonthModal] = useState(false);
   const [showShopeeModal, setShowShopeeModal] = useState(false);
   const [showDiscountSection, setShowDiscountSection] = useState(false);
   const [viewCourseDetails, setViewCourseDetails] = useState(null);
@@ -4262,6 +4264,17 @@ export default function POSSystem({
                 <ChevronRight size={14} />
               </div>
             </div>
+
+            {/* Quick Action: ล้างยอดขาย POS เดือนนี้ */}
+            <button 
+              type="button"
+              onClick={() => setShowClearPosMonthModal(true)}
+              className="p-1.5 sm:p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl border border-rose-200/80 shadow-xs transition-all active:scale-95 shrink-0 flex items-center justify-center gap-1 cursor-pointer"
+              title="ล้างข้อมูลการขาย POS เดือนนี้เพื่อเตรียมใช้งานจริง (ไม่รวมการส่งยอด)"
+            >
+              <Trash2 size={16} className="text-rose-600" />
+              <span className="hidden xl:inline text-xs font-bold text-rose-700">ล้างยอดขาย POS</span>
+            </button>
           </div>
 
           {/* Clocked in Employees Header */}
@@ -9374,6 +9387,17 @@ export default function POSSystem({
           });
           setShowPreviewModal(true);
           setPrintMode('receipt');
+        }}
+      />
+
+      <ClearMonthlyPosSalesModal
+        isOpen={showClearPosMonthModal}
+        onClose={() => setShowClearPosMonthModal(false)}
+        globalBranch={globalBranch}
+        branches={branches}
+        showToast={showToast}
+        onSuccess={() => {
+          // Reset cart or reload if needed
         }}
       />
       
