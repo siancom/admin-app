@@ -41,6 +41,26 @@ const CosmeticsIcon = ({ size = 24, className = "" }) => (
   </svg>
 );
 
+const WalkingPersonIcon = ({ size = 18, className = "" }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <circle cx="13" cy="4" r="2"/>
+    <path d="m9 20 3-6-3-2V8l4 2 2 4 3 1"/>
+    <path d="m6 17 3-3"/>
+    <path d="m14 14 2 6"/>
+  </svg>
+);
+
 export const normProductStr = (s) => String(s || '').toLowerCase().replace(/[\s\-_()（）[\]]/g, '');
 
 export const isServiceOrCourseProduct = (p) => {
@@ -463,6 +483,35 @@ export default function POSSystem({
   const [isBedModalOpen, setIsBedModalOpen] = useState(false);
   // Checkout Details
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+
+  const handleSelectWalkIn = () => {
+    let walkIn = customers.find(c => {
+      const name = String(getFuzzyKey(c, ["ชื่อ", "col_1", "computedName"]) || '').toLowerCase();
+      return name.includes('walk-in') || name.includes('วอคอิน') || name.includes('ลูกค้าทั่วไป');
+    });
+
+    if (!walkIn) {
+      walkIn = {
+        id: 'walkin-default',
+        "ชื่อ": "ลูกค้าทั่วไป (Walk-in)",
+        "เบอร์โทร": "-",
+        computedName: "ลูกค้าทั่วไป (Walk-in)",
+        computedPhone: "-",
+        isWalkIn: true,
+        isApproved: false
+      };
+    } else {
+      walkIn = {
+        ...walkIn,
+        isWalkIn: true
+      };
+    }
+
+    setSelectedCustomer(walkIn);
+    setCustomerSearch('');
+    setIsCustomerDropdownOpen(false);
+    showToast('เลือกลูกค้าทั่วไป (Walk-in) เรียบร้อยแล้ว', 'info');
+  };
   const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
 
@@ -4148,10 +4197,22 @@ export default function POSSystem({
                       )}
                     </div>
               </div>
+              {/* ปุ่มลูกค้าวอคอิน (รูปคนเดิน) */}
+              <button 
+                type="button"
+                onClick={handleSelectWalkIn}
+                className="px-2.5 sm:px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-1 transition-all shadow-sm active:scale-95 shrink-0"
+                title="เลือกลูกค้าทั่วไป / วอคอิน (Walk-in)"
+              >
+                <WalkingPersonIcon size={18} className="text-emerald-700" />
+                <span className="text-[11px] font-bold hidden sm:inline">วอคอิน</span>
+              </button>
+
               {onAddCustomer && (
                    <button 
+                     type="button"
                      onClick={onAddCustomer}
-                     className="px-3 bg-indigo-100 hover:bg-indigo-200 text-indigo-600 rounded-xl font-bold flex items-center justify-center transition-colors shadow-sm"
+                     className="px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-bold flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0"
                      title="เพิ่มลูกค้าใหม่"
                    >
                      <Plus size={18} />
@@ -5026,7 +5087,11 @@ export default function POSSystem({
               <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-indigo-200 shadow-sm">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center overflow-hidden shrink-0 border border-indigo-200 shadow-sm">
-                    {(() => {
+                    {selectedCustomer.isWalkIn ? (
+                      <div className="w-full h-full bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                        <WalkingPersonIcon size={20} />
+                      </div>
+                    ) : (() => {
                       const picData = getProfilePicData(selectedCustomer, customers);
                       if (picData && picData.primary) {
                         return (
@@ -5044,7 +5109,13 @@ export default function POSSystem({
                   <div className="flex-1">
                     <div className="font-semibold text-slate-800 flex items-center flex-wrap gap-2">
                         {selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]))}
-                        {isVipCustomer && <span className="bg-yellow-100 text-yellow-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-yellow-200">VIP</span>}
+                        {selectedCustomer.isWalkIn ? (
+                          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <WalkingPersonIcon size={12} /> Walk-in
+                          </span>
+                        ) : (
+                          isVipCustomer && <span className="bg-yellow-100 text-yellow-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-yellow-200">VIP</span>
+                        )}
                         {orderChannel === 'shopee' && <span className="bg-orange-100 text-orange-600 text-[10px] font-bold px-1.5 py-0.5 rounded border border-orange-200 ml-1">ส่วนลดพิเศษ</span>}
                         {(selectedCustomer.isApproved || vipStats.isVip) && (
                           <button 
@@ -5055,7 +5126,7 @@ export default function POSSystem({
                             <Award size={10} /> ใบสมัคร VIP
                           </button>
                         )}
-                        {onViewCustomerProfile && (
+                        {onViewCustomerProfile && !selectedCustomer.isWalkIn && (
                           <button 
                             onClick={() => {
                               onViewCustomerProfile(selectedCustomer);
@@ -5070,18 +5141,21 @@ export default function POSSystem({
                     </div>
                     <div className="text-sm text-slate-500 mb-1">{selectedCustomer.computedPhone || String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]))}</div>
                     
-                    {/* VIP Progress Bar */}
-                    <div className="text-[10px] text-slate-500 w-full max-w-xs mt-1">
-                        <div className="flex justify-between mb-0.5">
-                            <span>ยอดสะสม: ฿{vipStats.amount.toLocaleString()}</span>
-                            {!isVipCustomer && <span>ขาด ฿{(5000 - vipStats.amount).toLocaleString()}</span>}
-                        </div>
-                        {!isVipCustomer && (
-                            <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                                <div className="bg-indigo-500 h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (vipStats.amount / 5000) * 100)}%` }}></div>
-                            </div>
-                        )}
-                    </div>
+                    {!selectedCustomer.isWalkIn ? (
+                      <div className="text-[10px] text-slate-500 w-full max-w-xs mt-1">
+                          <div className="flex justify-between mb-0.5">
+                              <span>ยอดสะสม: ฿{vipStats.amount.toLocaleString()}</span>
+                              {!isVipCustomer && <span>ขาด ฿{(5000 - vipStats.amount).toLocaleString()}</span>}
+                          </div>
+                          {!isVipCustomer && (
+                              <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                  <div className="bg-indigo-500 h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (vipStats.amount / 5000) * 100)}%` }}></div>
+                              </div>
+                          )}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-emerald-700 font-bold mt-1">ลูกค้าทั่วไปหน้าร้าน (ไม่สะสมยอด)</div>
+                    )}
                     <div className="flex gap-2 mt-2">
                       {customerCreditBalance > 0 && (
                         <div className="inline-flex items-center gap-1.5 bg-orange-50 text-orange-600 border border-orange-100 px-2 py-1 rounded-lg text-xs font-bold shadow-sm">
@@ -5105,113 +5179,137 @@ export default function POSSystem({
               {renderCustomerContext()}
               </>
             ) : (
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input 
-                  type="text"
-                  placeholder="ค้นหาลูกค้า (ชื่อ, เบอร์โทร)..."
-                  className="w-full pl-10 pr-10 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  value={customerSearch}
-                  onChange={(e) => {
-                    setCustomerSearch(e.target.value);
-                    setIsCustomerDropdownOpen(true);
-                  }}
-                  onFocus={() => setIsCustomerDropdownOpen(true)}
-                />
-                <button 
-                  onClick={() => setScannerTarget('customerSearch')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
-                  title="สแกนคิวอาร์โค้ดลูกค้า"
-                >
-                  <ScanLine size={18} />
-                </button>
-                
-                {isCustomerDropdownOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-100 max-h-60 overflow-y-auto z-50">
-                    {filteredCustomers.length > 0 ? (
-                      filteredCustomers.map(c => {
-                        const amt = c.realAccumulatedAmount !== undefined ? c.realAccumulatedAmount : getCustomerAccumulatedAmount(c);
-                        const isVip = c.isApproved !== undefined ? c.isApproved : amt >= 5000;
-                        return (
-                        <div 
-                          key={c.id} 
-                          onClick={() => {
-                            setSelectedCustomer(c);
-                            setCustomerSearch('');
-                            setIsCustomerDropdownOpen(false);
-                            const cPhone = String(c.computedPhone || getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').trim();
-                            const hasCourses = courses.some(course => String(getFuzzyKey(course, ["เบอร์โทร", "col_1"]) || '').trim() === cPhone && course.computedRemainQty > 0);
-                            if (hasCourses) {
-                              setActiveTab('my_courses');
-                              showToast('พบคอร์สคงเหลือ สามารถคลิกตัดคอร์สได้ทันที!', 'success');
-                            }
-                          }}
-                          className="px-4 py-3 hover:bg-indigo-50 cursor-pointer border-b border-slate-50 last:border-0 flex items-center gap-3"
-                        >
-                          <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-slate-100 flex items-center justify-center border border-slate-200">
-                            {(() => {
-                              const picData = getProfilePicData(c, customers);
-                              if (picData && picData.primary) {
-                                return (
-                                  <img 
-                                    src={picData.primary} 
-                                    onError={(e) => handleProfileImgError(e, picData.fallback)}
-                                    alt="Profile"
-                                    className="w-full h-full object-cover"
-                                  />
-                                );
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input 
+                    type="text"
+                    placeholder="ค้นหาลูกค้า (ชื่อ, เบอร์โทร)..."
+                    className="w-full pl-10 pr-10 py-2.5 h-11 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-medium"
+                    value={customerSearch}
+                    onChange={(e) => {
+                      setCustomerSearch(e.target.value);
+                      setIsCustomerDropdownOpen(true);
+                    }}
+                    onFocus={() => setIsCustomerDropdownOpen(true)}
+                  />
+                  <button 
+                    onClick={() => setScannerTarget('customerSearch')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition-colors"
+                    title="สแกนคิวอาร์โค้ดลูกค้า"
+                  >
+                    <ScanLine size={18} />
+                  </button>
+                  
+                  {isCustomerDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-100 max-h-60 overflow-y-auto z-50">
+                      {filteredCustomers.length > 0 ? (
+                        filteredCustomers.map(c => {
+                          const amt = c.realAccumulatedAmount !== undefined ? c.realAccumulatedAmount : getCustomerAccumulatedAmount(c);
+                          const isVip = c.isApproved !== undefined ? c.isApproved : amt >= 5000;
+                          return (
+                          <div 
+                            key={c.id} 
+                            onClick={() => {
+                              setSelectedCustomer(c);
+                              setCustomerSearch('');
+                              setIsCustomerDropdownOpen(false);
+                              const cPhone = String(c.computedPhone || getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').trim();
+                              const hasCourses = courses.some(course => String(getFuzzyKey(course, ["เบอร์โทร", "col_1"]) || '').trim() === cPhone && course.computedRemainQty > 0);
+                              if (hasCourses) {
+                                setActiveTab('my_courses');
+                                showToast('พบคอร์สคงเหลือ สามารถคลิกตัดคอร์สได้ทันที!', 'success');
                               }
-                              return <User size={16} className="text-slate-400" />;
-                            })()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-slate-800 flex items-center gap-2 truncate flex-wrap">
-                                {c.computedName || String(getFuzzyKey(c, ["ชื่อ", "col_1"]))}
-                                {isVip && <span className="bg-yellow-100 text-yellow-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-yellow-200">VIP</span>}
-                                {(c.isApproved || amt >= 5000) && (
-                                  <button 
-                                    onClick={(e) => { e.stopPropagation(); onOpenVipForm(c); setCustomerSearch(''); setIsCustomerDropdownOpen(false); }}
-                                    className="bg-orange-500 hover:bg-orange-600 transition-colors text-white px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 active:scale-95 shadow-sm ml-auto"
-                                    title="ดู/สร้างใบสมัคร VIP"
-                                  >
-                                    <Award size={10} /> ใบสมัคร VIP
-                                  </button>
-                                )}
+                            }}
+                            className="px-4 py-3 hover:bg-indigo-50 cursor-pointer border-b border-slate-50 last:border-0 flex items-center gap-3"
+                          >
+                            <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-slate-100 flex items-center justify-center border border-slate-200">
+                              {(() => {
+                                const picData = getProfilePicData(c, customers);
+                                if (picData && picData.primary) {
+                                  return (
+                                    <img 
+                                      src={picData.primary} 
+                                      onError={(e) => handleProfileImgError(e, picData.fallback)}
+                                      alt="Profile"
+                                      className="w-full h-full object-cover"
+                                    />
+                                  );
+                                }
+                                return <User size={16} className="text-slate-400" />;
+                              })()}
                             </div>
-                            <div className="text-sm text-slate-500 mb-1">{c.computedPhone || String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]))}</div>
-                            <div className="text-[11px] text-slate-500 w-full mt-1">
-                                <div className="flex justify-between mb-0.5">
-                                    <span>ยอดสะสม: ฿{amt.toLocaleString()}</span>
-                                    {!isVip && <span>ขาด ฿{(5000 - amt).toLocaleString()}</span>}
-                                </div>
-                                {!isVip && (
-                                    <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                                        <div className="bg-yellow-400 h-1.5 rounded-full" style={{ width: `${Math.min(100, (amt / 5000) * 100)}%` }}></div>
-                                    </div>
-                                )}
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-slate-800 flex items-center gap-2 truncate flex-wrap">
+                                  {c.computedName || String(getFuzzyKey(c, ["ชื่อ", "col_1"]))}
+                                  {isVip && <span className="bg-yellow-100 text-yellow-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-yellow-200">VIP</span>}
+                                  {(c.isApproved || amt >= 5000) && (
+                                    <button 
+                                      onClick={(e) => { e.stopPropagation(); onOpenVipForm(c); setCustomerSearch(''); setIsCustomerDropdownOpen(false); }}
+                                      className="bg-orange-500 hover:bg-orange-600 transition-colors text-white px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 active:scale-95 shadow-sm ml-auto"
+                                      title="ดู/สร้างใบสมัคร VIP"
+                                    >
+                                      <Award size={10} /> ใบสมัคร VIP
+                                    </button>
+                                  )}
+                              </div>
+                              <div className="text-sm text-slate-500 mb-1">{c.computedPhone || String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]))}</div>
+                              <div className="text-[11px] text-slate-500 w-full mt-1">
+                                  <div className="flex justify-between mb-0.5">
+                                      <span>ยอดสะสม: ฿{amt.toLocaleString()}</span>
+                                      {!isVip && <span>ขาด ฿{(5000 - amt).toLocaleString()}</span>}
+                                  </div>
+                                  {!isVip && (
+                                      <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                          <div className="bg-yellow-400 h-1.5 rounded-full" style={{ width: `${Math.min(100, (amt / 5000) * 100)}%` }}></div>
+                                      </div>
+                                  )}
+                              </div>
                             </div>
+                            {onViewCustomerProfile && (
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onViewCustomerProfile(c);
+                                  setIsMobileCartOpen(false);
+                                  setIsCustomerDropdownOpen(false);
+                                  setCustomerSearch('');
+                                }}
+                                className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold shrink-0"
+                              >
+                                <User size={12} />
+                                ดูประวัติ
+                              </button>
+                            )}
                           </div>
-                          {onViewCustomerProfile && (
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onViewCustomerProfile(c);
-                                setIsMobileCartOpen(false);
-                                setIsCustomerDropdownOpen(false);
-                                setCustomerSearch('');
-                              }}
-                              className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold shrink-0"
-                            >
-                              <User size={12} />
-                              ดูประวัติ
-                            </button>
-                          )}
-                        </div>
-                      )})
-                    ) : (
-                      <div className="px-4 py-3 text-center text-slate-500">ไม่พบลูกค้า</div>
-                    )}
-                  </div>
+                        )})
+                      ) : (
+                        <div className="px-4 py-3 text-center text-slate-500">ไม่พบลูกค้า</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* ปุ่มลูกค้าวอคอิน (รูปคนเดิน) */}
+                <button 
+                  type="button"
+                  onClick={handleSelectWalkIn}
+                  className="px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95 shrink-0"
+                  title="เลือกลูกค้าทั่วไป / วอคอิน (Walk-in)"
+                >
+                  <WalkingPersonIcon size={18} className="text-emerald-700" />
+                  <span className="text-xs font-bold hidden xl:inline">วอคอิน</span>
+                </button>
+
+                {onAddCustomer && (
+                  <button 
+                    type="button"
+                    onClick={onAddCustomer}
+                    className="px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-bold flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0"
+                    title="เพิ่มลูกค้าใหม่"
+                  >
+                    <Plus size={18} />
+                  </button>
                 )}
               </div>
             )}

@@ -348,7 +348,22 @@ export default function App() {
 
   const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
   const [isAddressManagerOpen, setIsAddressManagerOpen] = useState(false);
-  const [newCustomerForm, setNewCustomerForm] = useState({ name: '', phone: '', issue: '' });
+  const [newCustomerForm, setNewCustomerForm] = useState({ 
+    firstName: '',
+    lastName: '',
+    name: '', 
+    nickname: '',
+    phone: '', 
+    gender: 'หญิง',
+    dob: '',
+    age: '',
+    issue: '',
+    addressNo: '',
+    subDistrict: '',
+    district: '',
+    province: '',
+    zipcode: ''
+  });
   
   // 🌟 เพิ่มสถานะสำหรับระบบแก้ไขข้อมูลลูกค้า 🌟
   const [isEditCustomerOpen, setIsEditCustomerOpen] = useState(false);
@@ -4324,23 +4339,68 @@ const flexMessage = {
   const handleAddCustomer = async (e) => { 
     e.preventDefault(); 
     try { 
-      await addDoc(getCol('customers'), { 
-        "ชื่อ": String(newCustomerForm.name).trim(), 
-        "เบอร์โทร": String(newCustomerForm.phone).trim(), 
-        computedName: String(newCustomerForm.name).trim(),
-        computedPhone: String(newCustomerForm.phone).trim(),
+      const computedName = `${newCustomerForm.firstName || ''} ${newCustomerForm.lastName || ''}`.trim() || String(newCustomerForm.name || '').trim();
+      const cleanPhone = String(newCustomerForm.phone || '').trim().replace(/\D/g, '');
+
+      if (!computedName) {
+        showToast('กรุณาระบุชื่อลูกค้า', 'error');
+        return;
+      }
+      if (!cleanPhone || cleanPhone.length < 9) {
+        showToast('กรุณาระบุเบอร์โทรศัพท์ให้ถูกต้อง (9-10 หลัก)', 'error');
+        return;
+      }
+
+      // ตรวจสอบเบอร์ซ้ำ
+      const isDuplicate = customers.some(c => {
+        const p = String(c.computedPhone || c["เบอร์โทร"] || c.col_3 || '').replace(/\D/g, '');
+        return p && p === cleanPhone;
+      });
+      if (isDuplicate) {
+        showToast(`เบอร์โทรศัพท์ ${cleanPhone} มีในระบบแล้ว`, 'error');
+        return;
+      }
+
+      const docData = { 
+        "ชื่อ": computedName, 
+        "เบอร์โทร": cleanPhone, 
+        computedName: computedName,
+        computedPhone: cleanPhone,
+        firstName: newCustomerForm.firstName || computedName.split(' ')[0] || '',
+        lastName: newCustomerForm.lastName || computedName.split(' ')[1] || '',
+        nickname: newCustomerForm.nickname || '',
+        gender: newCustomerForm.gender || 'หญิง',
+        dob: newCustomerForm.dob || '',
+        age: newCustomerForm.age || '',
         "ปัญหาผิวหน้า": String(newCustomerForm.issue || ''), 
+        issue: String(newCustomerForm.issue || ''),
+        addressNo: newCustomerForm.addressNo || '',
+        subDistrict: newCustomerForm.subDistrict || '',
+        district: newCustomerForm.district || '',
+        province: newCustomerForm.province || '',
+        zipcode: newCustomerForm.zipcode || '',
         "หมายเลขใบสะสม": `Irismember${Math.floor(1000 + Math.random()*9000)}`, 
         "ยอดสะสม": "0", 
         "สถานะสมาชิก": "ยังไม่สะสมยอด",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
-      }); 
+      };
+
+      const docRef = await addDoc(getCol('customers'), docData); 
+      const createdCustomer = { id: docRef.id, ...docData };
+
       setIsAddCustomerOpen(false); 
-      setNewCustomerForm({ name: '', phone: '', issue: '' }); 
-      showToast('เพิ่มลูกค้าใหม่สำเร็จ!'); 
+      setNewCustomerForm({ 
+        firstName: '', lastName: '', name: '', nickname: '',
+        phone: '', gender: 'หญิง', dob: '', age: '', issue: '',
+        addressNo: '', subDistrict: '', district: '', province: '', zipcode: ''
+      }); 
+      
+      // Auto-select for POS!
+      setPosPreselectedCustomer(createdCustomer);
+      showToast('เพิ่มลูกค้าใหม่และเลือกเข้าสู่ระบบเรียบร้อยแล้ว!', 'success'); 
     } catch (err) { 
-      showToast(`ข้อผิดพลาด: ${err.message}`); 
+      showToast(`ข้อผิดพลาด: ${err.message}`, 'error'); 
     } 
   };
 
@@ -8762,14 +8822,172 @@ const flexMessage = {
          </form>
       </ModalWrapper>
 
-      {/* Add Customer Modal */}
-      <ModalWrapper isOpen={isAddCustomerOpen} onClose={() => setIsAddCustomerOpen(false)} title="เพิ่มลูกค้าใหม่" icon={UserPlus} colorClass="bg-indigo-100 text-indigo-600">
-         <form onSubmit={handleAddCustomer} className="space-y-4">
-             <InputField label="ชื่อลูกค้า" required placeholder="เช่น คุณสมหญิง..." value={newCustomerForm.name} onChange={e => setNewCustomerForm({...newCustomerForm, name: e.target.value})} />
-             <InputField label="เบอร์โทรศัพท์" required placeholder="08X-XXX-XXXX" value={newCustomerForm.phone} onChange={e => setNewCustomerForm({...newCustomerForm, phone: e.target.value})} />
-             <InputField label="ปัญหาผิวหน้า (ถ้ามี)" placeholder="เช่น สิว, ฝ้า..." value={newCustomerForm.issue} onChange={e => setNewCustomerForm({...newCustomerForm, issue: e.target.value})} />
-             <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 rounded-xl mt-4 shadow-lg active:scale-95 transition-all">บันทึกข้อมูลลูกค้า</button>
-         </form>
+      {/* Add Customer Modal - Customer App Style */}
+      <ModalWrapper 
+        isOpen={isAddCustomerOpen} 
+        onClose={() => setIsAddCustomerOpen(false)} 
+        title="ลงทะเบียนลูกค้าใหม่" 
+        icon={UserPlus} 
+        colorClass="bg-teal-100 text-teal-700"
+        maxWidth="max-w-xl"
+        noMaxHeight={true}
+      >
+        <form onSubmit={handleAddCustomer} className="space-y-4 max-h-[75vh] overflow-y-auto px-1 hide-scrollbar">
+          
+          <div className="bg-teal-50/90 border border-teal-150 p-3 rounded-2xl flex items-center gap-2.5 text-teal-900 text-xs">
+            <Sparkles size={18} className="text-teal-600 shrink-0" />
+            <span>กรอกข้อมูลลูกค้าให้ครบถ้วนเพื่อสร้างประวัติในระบบและสะสมยอดสิทธิประโยชน์</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <InputField 
+              label="ชื่อ" 
+              required 
+              placeholder="เช่น คุณสมหญิง" 
+              value={newCustomerForm.firstName} 
+              onChange={e => setNewCustomerForm({
+                ...newCustomerForm, 
+                firstName: e.target.value,
+                name: `${e.target.value} ${newCustomerForm.lastName || ''}`.trim()
+              })} 
+            />
+            <InputField 
+              label="นามสกุล" 
+              placeholder="เช่น ใจดี" 
+              value={newCustomerForm.lastName} 
+              onChange={e => setNewCustomerForm({
+                ...newCustomerForm, 
+                lastName: e.target.value,
+                name: `${newCustomerForm.firstName || ''} ${e.target.value}`.trim()
+              })} 
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <InputField 
+              label="ชื่อเล่น" 
+              placeholder="เช่น หญิง" 
+              value={newCustomerForm.nickname} 
+              onChange={e => setNewCustomerForm({...newCustomerForm, nickname: e.target.value})} 
+            />
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+                เบอร์โทรศัพท์ <span className="text-red-500">*</span>
+              </label>
+              <input 
+                type="tel"
+                required
+                maxLength={10}
+                placeholder="08X-XXX-XXXX"
+                value={newCustomerForm.phone}
+                onChange={e => {
+                  const val = e.target.value.replace(/\D/g, '');
+                  if (val.length <= 10) setNewCustomerForm({...newCustomerForm, phone: val});
+                }}
+                className={`w-full border-2 bg-gray-50/50 rounded-xl p-3 text-sm outline-none transition-all font-medium text-gray-800 ${newCustomerForm.phone && newCustomerForm.phone.length === 10 ? 'border-emerald-400 focus:border-emerald-500 focus:bg-white' : 'border-gray-100 focus:border-teal-400 focus:bg-white'}`}
+              />
+              {newCustomerForm.phone && newCustomerForm.phone.length < 10 && (
+                <p className="text-amber-600 text-[10px] mt-1 font-bold">กรอกให้ครบ 10 หลัก (ปัจจุบัน {newCustomerForm.phone.length} หลัก)</p>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">เพศ</label>
+              <select 
+                value={newCustomerForm.gender} 
+                onChange={e => setNewCustomerForm({...newCustomerForm, gender: e.target.value})}
+                className="w-full border-2 border-gray-100 bg-gray-50/50 rounded-xl p-3 text-sm outline-none focus:border-teal-400 focus:bg-white transition-all font-medium text-gray-800"
+              >
+                <option value="หญิง">หญิง</option>
+                <option value="ชาย">ชาย</option>
+                <option value="อื่นๆ">อื่นๆ</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">วัน/เดือน/ปีเกิด (พ.ศ.)</label>
+              <input 
+                type="text"
+                placeholder="วว/ดด/ปปปป"
+                value={newCustomerForm.dob}
+                onChange={e => {
+                  const val = e.target.value;
+                  let newAge = newCustomerForm.age;
+                  const yearMatch = val.match(/\d{4}/);
+                  if (yearMatch) {
+                    const year = parseInt(yearMatch[0], 10);
+                    const currentYearCE = new Date().getFullYear();
+                    if (year > 2400 && year <= currentYearCE + 543) {
+                      newAge = String(currentYearCE + 543 - year);
+                    } else if (year > 1900 && year <= currentYearCE) {
+                      newAge = String(currentYearCE - year);
+                    }
+                  }
+                  setNewCustomerForm({...newCustomerForm, dob: val, age: newAge});
+                }}
+                className="w-full border-2 border-gray-100 bg-gray-50/50 rounded-xl p-3 text-sm outline-none focus:border-teal-400 focus:bg-white transition-all font-medium text-gray-800"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">อายุ (ปี)</label>
+              <input 
+                type="number"
+                placeholder="เช่น 28"
+                value={newCustomerForm.age}
+                onChange={e => setNewCustomerForm({...newCustomerForm, age: e.target.value})}
+                className="w-full border-2 border-gray-100 bg-gray-50/50 rounded-xl p-3 text-sm outline-none focus:border-teal-400 focus:bg-white transition-all font-medium text-gray-800"
+              />
+            </div>
+          </div>
+
+          <InputField 
+            label="ปัญหาผิวหน้า / ความกังวลที่ต้องการดูแล" 
+            placeholder="เช่น สิวอักเสบ, ฝ้ากระ, ผิวแห้งขาดน้ำ, ริ้วรอย..." 
+            value={newCustomerForm.issue} 
+            onChange={e => setNewCustomerForm({...newCustomerForm, issue: e.target.value})} 
+          />
+
+          <div className="border-t border-slate-100 pt-3">
+            <h4 className="text-xs font-bold text-slate-700 mb-2.5 flex items-center gap-1.5">
+              <span>📍 ที่อยู่ลูกค้า (สำหรับส่งสินค้าหรือออกใบเสร็จ)</span>
+            </h4>
+            <div className="grid grid-cols-2 gap-2.5">
+              <InputField 
+                label="บ้านเลขที่ / หมู่บ้าน / ถนน" 
+                placeholder="เช่น 123/45 ม.2 ถ.ทวีราษฎร์ภักดี" 
+                value={newCustomerForm.addressNo} 
+                onChange={e => setNewCustomerForm({...newCustomerForm, addressNo: e.target.value})} 
+              />
+              <InputField 
+                label="ตำบล / แขวง" 
+                placeholder="เช่น บ่อผุด" 
+                value={newCustomerForm.subDistrict} 
+                onChange={e => setNewCustomerForm({...newCustomerForm, subDistrict: e.target.value})} 
+              />
+              <InputField 
+                label="อำเภอ / เขต" 
+                placeholder="เช่น เกาะสมุย" 
+                value={newCustomerForm.district} 
+                onChange={e => setNewCustomerForm({...newCustomerForm, district: e.target.value})} 
+              />
+              <InputField 
+                label="จังหวัด / รหัสไปรษณีย์" 
+                placeholder="เช่น สุราษฎร์ธานี 84320" 
+                value={newCustomerForm.province} 
+                onChange={e => setNewCustomerForm({...newCustomerForm, province: e.target.value})} 
+              />
+            </div>
+          </div>
+
+          <button 
+            type="submit" 
+            className="w-full bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white font-black py-3.5 rounded-xl shadow-lg shadow-teal-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer"
+          >
+            <Save size={18} />
+            <span>บันทึกข้อมูลลูกค้า</span>
+          </button>
+        </form>
       </ModalWrapper>
 
       {/* Add Course Modal */}
