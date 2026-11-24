@@ -361,6 +361,8 @@ export default function POSSystem({
   const [showDiscountSection, setShowDiscountSection] = useState(false);
   const [viewCourseDetails, setViewCourseDetails] = useState(null);
   const [selectedCourseForPromoModal, setSelectedCourseForPromoModal] = useState(null);
+  const [selectedGroupedCourse, setSelectedGroupedCourse] = useState(null);
+  const [groupedCourseFilterTab, setGroupedCourseFilterTab] = useState('all'); // 'all' | 'regular' | 'promo'
   const [posPromoProgramLetter, setPosPromoProgramLetter] = useState('all');
   const [selectedCourseForUsage, setSelectedCourseForUsage] = useState(null);
   const [isSyncingWoo, setIsSyncingWoo] = useState(false);
@@ -1160,18 +1162,40 @@ export default function POSSystem({
       groups[groupKey].items.push(c);
     });
     
-    // Sort items inside each group: by sessions ascending (1, 5, 10), then promo
+    // Sort and deduplicate items inside each group (prevent duplicate cards/buttons)
     Object.values(groups).forEach(g => {
-       g.items.sort((a, b) => {
+       const seen = new Set();
+       const uniqueItems = [];
+
+       g.items.forEach(c => {
+         const name = String(getFuzzyKey(c, ["ชื่อคอส", "col_4", "ชื่อสินค้า", "col_2"]) || '').trim();
+         const price = parseNumber(getFuzzyKey(c, ["ราคา", "ราคาขาย", "col_5"]));
+         const isPromo = name.includes('ซื้อเพิ่มโปร');
+         const sess = String(getFuzzyKey(c, ["จำนวนครั้ง", "col_7", "col_6"]) || (name.match(/(\d+)\s*ครั้ง/) ? name.match(/(\d+)\s*ครั้ง/)[1] : '1')).trim();
+         const dedupKey = `${name}_${price}_${isPromo}_${sess}`;
+         if (!seen.has(dedupKey)) {
+           seen.add(dedupKey);
+           uniqueItems.push(c);
+         }
+       });
+
+       uniqueItems.sort((a, b) => {
           const nameA = String(getFuzzyKey(a, ["ชื่อคอส", "col_4", "ชื่อสินค้า", "col_2"]) || '');
           const nameB = String(getFuzzyKey(b, ["ชื่อคอส", "col_4", "ชื่อสินค้า", "col_2"]) || '');
-          if (nameA.includes('ซื้อเพิ่มโปร') && !nameB.includes('ซื้อเพิ่มโปร')) return 1;
-          if (!nameA.includes('ซื้อเพิ่มโปร') && nameB.includes('ซื้อเพิ่มโปร')) return -1;
+          const isPromoA = nameA.includes('ซื้อเพิ่มโปร');
+          const isPromoB = nameB.includes('ซื้อเพิ่มโปร');
+          if (isPromoA !== isPromoB) return isPromoA ? 1 : -1; // regular first, promo second
 
           const sessA = parseInt(getFuzzyKey(a, ["จำนวนครั้ง", "col_7", "col_6"])) || (nameA.match(/(\d+)\s*ครั้ง/) ? parseInt(nameA.match(/(\d+)\s*ครั้ง/)[1]) : 1);
           const sessB = parseInt(getFuzzyKey(b, ["จำนวนครั้ง", "col_7", "col_6"])) || (nameB.match(/(\d+)\s*ครั้ง/) ? parseInt(nameB.match(/(\d+)\s*ครั้ง/)[1]) : 1);
-          return sessA - sessB;
+          if (sessA !== sessB) return sessA - sessB;
+
+          const priceA = parseNumber(getFuzzyKey(a, ["ราคา", "ราคาขาย", "col_5"]));
+          const priceB = parseNumber(getFuzzyKey(b, ["ราคา", "ราคาขาย", "col_5"]));
+          return priceA - priceB;
        });
+
+       g.items = uniqueItems;
     });
     
     return Object.values(groups);
@@ -4615,11 +4639,17 @@ export default function POSSystem({
                       const singleCourseImg = getPosCourseImageUrl(primaryItem, wooImagesMap);
                       const subItems = String(getFuzzyKey(primaryItem, ["รายการที่ได้รับ", "col_11"]) || '').trim();
                       const hasPromo = g.items.some(c => String(getFuzzyKey(c, ["ชื่อคอส", "col_4", "ชื่อสินค้า", "col_2"]) || '').includes('ซื้อเพิ่มโปร'));
+                      
+                      const prices = g.items.map(c => parseNumber(getFuzzyKey(c, ["ราคา", "ราคาขาย", "col_5"]))).filter(p => !isNaN(p) && p >= 0);
+                      const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+                      const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
+                      const hasMultipleOptions = g.items.length > 1;
 
                       return (
                       <div 
                         key={code} 
-                        className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col h-full relative overflow-hidden bg-white border border-slate-200 hover:border-violet-300"
+                        onClick={() => hasMultipleOptions ? setSelectedGroupedCourse(g) : addToCart(primaryItem, 'course')}
+                        className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col h-full relative overflow-hidden bg-white border border-slate-200 hover:border-violet-300 cursor-pointer active:scale-[0.98]"
                       >
                         {/* Course Image */}
                         <div className="w-full aspect-[4/3] bg-slate-50/90 rounded-xl mb-2 overflow-hidden relative group/img flex items-center justify-center border border-slate-100/80">
@@ -4643,6 +4673,7 @@ export default function POSSystem({
                           
                           {/* Info Button */}
                           <button 
+                            type="button"
                             onClick={(e) => { e.stopPropagation(); setViewCourseDetails(primaryItem); }}
                             className="absolute top-1.5 right-1.5 p-1 rounded-full bg-white/85 hover:bg-white text-slate-400 hover:text-violet-600 shadow-xs backdrop-blur-xs transition-colors z-10"
                             title="ดูรายละเอียดคอร์ส"
@@ -4650,53 +4681,75 @@ export default function POSSystem({
                             <Info size={13} />
                           </button>
 
-                          {/* Sessions count / Duration floating bottom-right */}
-                          <span className="absolute bottom-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-white/90 text-violet-700 shadow-2xs border border-violet-200/60 backdrop-blur-xs whitespace-nowrap">
-                            {g.items.length > 1 ? `${g.items.length} ระดับครั้ง` : '1 ครั้ง'}
-                          </span>
+                          {/* Sessions count / Options floating bottom-right */}
+                          {hasMultipleOptions ? (
+                            <span className="absolute bottom-1.5 right-1.5 text-[9px] font-bold px-2 py-0.5 rounded-md bg-white/95 text-violet-700 shadow-2xs border border-violet-200/80 backdrop-blur-xs whitespace-nowrap flex items-center gap-0.5">
+                              <Sparkles size={10} className="text-violet-600 fill-violet-400" /> {g.items.length} โปร/ระดับ
+                            </span>
+                          ) : (
+                            <span className="absolute bottom-1.5 right-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-white/90 text-slate-700 shadow-2xs border border-slate-200/60 backdrop-blur-xs whitespace-nowrap">
+                              1 ครั้ง
+                            </span>
+                          )}
                         </div>
 
                         {/* Title & Code */}
-                        <div className="flex-1 flex flex-col min-w-0 mb-2">
+                        <div className="flex-1 flex flex-col min-w-0 mb-1.5">
                           <span className="text-[9px] text-slate-400 font-mono mb-0.5 truncate">{code}</span>
                           <span className="text-xs sm:text-sm font-bold text-slate-800 line-clamp-2 leading-snug" title={g.baseName}>
                             {g.baseName}
                           </span>
                         </div>
 
-                        {/* Action Buttons: Choose number of sessions */}
-                        <div className="mt-auto flex flex-col gap-1 w-full pt-1.5 border-t border-slate-100">
-                           <div className={`grid ${g.items.length >= 3 ? 'grid-cols-3' : g.items.length === 2 ? 'grid-cols-2' : 'grid-cols-1'} gap-1 w-full`}>
-                             {g.items.map(c => {
-                                const nameStr = String(getFuzzyKey(c, ["ชื่อคอส", "col_4", "ชื่อสินค้า", "col_2"]) || '');
-                                const isPromo = nameStr.includes('ซื้อเพิ่มโปร');
-                                const price = parseNumber(getFuzzyKey(c, ["ราคา", "ราคาขาย", "col_5"]));
-                                const sessVal = String(getFuzzyKey(c, ["จำนวนครั้ง", "col_7", "col_6", "จำนวนครั้งที่ได้"]) || (nameStr.match(/(\d+)\s*ครั้ง/) ? nameStr.match(/(\d+)\s*ครั้ง/)[1] : '1'));
-                                const sessLabel = isPromo ? 'ซื้อเพิ่มโปร' : `${sessVal} ครั้ง`;
-                                
-                                return (
-                                  <div key={c.id} className="relative flex-1 min-w-0 group/tier">
-                                    <button
-                                      onClick={() => addToCart(c, 'course')}
-                                      className={`w-full flex flex-col items-center justify-center py-1.5 px-0.5 rounded-lg border text-center transition-all active:scale-95 shadow-2xs ${isPromo ? 'bg-emerald-500 hover:bg-emerald-600 border-emerald-600 text-white font-semibold' : 'bg-slate-50 hover:bg-violet-600 hover:text-white border-slate-200/80 hover:border-violet-600 text-slate-700 group-hover/tier:border-violet-400'}`}
-                                      title={`${g.baseName} (${sessLabel}) ฿${price.toLocaleString()}`}
-                                    >
-                                       <span className="font-bold text-[10px] leading-tight opacity-90 truncate w-full">{sessLabel}</span>
-                                       <span className="font-black text-xs leading-tight whitespace-nowrap mt-0.5">฿{price.toLocaleString()}</span>
-                                    </button>
-                                    {globalRole === 'owner' && (
-                                       <button 
-                                          onClick={(e) => handleEditMasterCoursePrice(e, c)}
-                                          className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-white text-slate-400 hover:text-violet-600 border border-slate-200 shadow-2xs flex items-center justify-center opacity-0 group-hover/tier:opacity-100 transition-opacity z-10"
-                                          title="แก้ไขราคาคอร์ส"
-                                       >
-                                          <Edit size={9} />
-                                       </button>
-                                    )}
-                                  </div>
-                                );
-                             })}
-                           </div>
+                        {/* Price & Action Button Footer (Clean like customer side) */}
+                        <div className="mt-auto pt-2 border-t border-slate-100 flex flex-col gap-1.5">
+                          <div className="flex items-baseline justify-between gap-1">
+                            <div className="flex items-baseline gap-1">
+                              {hasMultipleOptions && minPrice < maxPrice && (
+                                <span className="text-[10px] text-slate-400 font-bold">เริ่มต้น</span>
+                              )}
+                              <span className="text-sm sm:text-base font-black text-violet-600 leading-none">
+                                ฿{minPrice.toLocaleString()}
+                              </span>
+                              {hasMultipleOptions && maxPrice > minPrice && (
+                                <span className="text-[10px] text-slate-400 font-semibold">
+                                  - ฿{maxPrice.toLocaleString()}
+                                </span>
+                              )}
+                            </div>
+                            {hasPromo && (
+                              <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                มีโปร
+                              </span>
+                            )}
+                          </div>
+
+                          {hasMultipleOptions ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedGroupedCourse(g);
+                              }}
+                              className="w-full py-1.5 px-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1 transition-all active:scale-95"
+                            >
+                              <Sparkles size={12} />
+                              <span>เลือกโปร ({g.items.length})</span>
+                              <ChevronRight size={13} />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                addToCart(primaryItem, 'course');
+                              }}
+                              className="w-full py-1.5 px-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1 transition-all active:scale-95"
+                            >
+                              <Plus size={13} />
+                              <span>เพิ่มลงตะกร้า</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                       )
@@ -8886,6 +8939,180 @@ export default function POSSystem({
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🌟 Modal เลือกตัวเลือก/ระดับราคาคอร์สกลุ่ม (เช่น ไครโอเย็น สปาเย็น) เหมือนฝั่งลูกค้า 🌟 */}
+      {selectedGroupedCourse && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4">
+          <div 
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" 
+            onClick={() => { setSelectedGroupedCourse(null); setGroupedCourseFilterTab('all'); }}
+          ></div>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden relative z-10 animate-in fade-in zoom-in-95 duration-200 border border-slate-100 flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-violet-100 flex justify-between items-start bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 text-white">
+              <div className="pr-4 flex items-start gap-3">
+                {(() => {
+                  const pImg = getPosCourseImageUrl(selectedGroupedCourse.items[0], wooImagesMap);
+                  if (!pImg) return null;
+                  return (
+                    <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden border-2 border-white/60 shrink-0 shadow-md bg-white flex items-center justify-center p-0.5">
+                      <img src={pImg} alt="Course" className="w-full h-full object-contain rounded-xl" />
+                    </div>
+                  );
+                })()}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className="text-[11px] font-mono font-bold uppercase tracking-wider bg-white/20 px-2 py-0.5 rounded-full inline-block text-violet-100">
+                      {selectedGroupedCourse.primaryCode || 'COURSE'}
+                    </span>
+                    <span className="text-[11px] font-bold bg-white/20 text-white px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Sparkles size={11} /> {selectedGroupedCourse.items.length} ตัวเลือก
+                    </span>
+                  </div>
+                  <h3 className="font-extrabold text-base sm:text-lg text-white leading-tight line-clamp-1">
+                    {selectedGroupedCourse.baseName}
+                  </h3>
+                  <p className="text-xs text-violet-100 mt-0.5">แตะเลือกโปรโมชั่นหรือระดับราคาที่ต้องการเพื่อใส่ลงตะกร้า</p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => { setSelectedGroupedCourse(null); setGroupedCourseFilterTab('all'); }} 
+                className="text-white/80 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors shrink-0"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Filter Tabs & Options */}
+            {(() => {
+              const regularItems = selectedGroupedCourse.items.filter(c => !String(getFuzzyKey(c, ["ชื่อคอส", "col_4", "ชื่อสินค้า", "col_2"]) || '').includes('ซื้อเพิ่มโปร'));
+              const promoItems = selectedGroupedCourse.items.filter(c => String(getFuzzyKey(c, ["ชื่อคอส", "col_4", "ชื่อสินค้า", "col_2"]) || '').includes('ซื้อเพิ่มโปร'));
+              const showTabs = regularItems.length > 0 && promoItems.length > 0;
+              
+              return (
+                <>
+                  {showTabs && (
+                    <div className="px-4 sm:px-5 pt-3 pb-1 border-b border-slate-100 flex gap-2 overflow-x-auto bg-slate-50/70">
+                      <button
+                        type="button"
+                        onClick={() => setGroupedCourseFilterTab('all')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                          groupedCourseFilterTab === 'all'
+                            ? 'bg-violet-600 text-white shadow-xs'
+                            : 'text-slate-600 hover:bg-slate-200/60'
+                        }`}
+                      >
+                        ทั้งหมด ({selectedGroupedCourse.items.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGroupedCourseFilterTab('regular')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                          groupedCourseFilterTab === 'regular'
+                            ? 'bg-violet-600 text-white shadow-xs'
+                            : 'text-slate-600 hover:bg-slate-200/60'
+                        }`}
+                      >
+                        รายครั้งปกติ ({regularItems.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGroupedCourseFilterTab('promo')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                          groupedCourseFilterTab === 'promo'
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100/70 border border-emerald-200/60'
+                        }`}
+                      >
+                        ซื้อเพิ่มโปร ({promoItems.length})
+                      </button>
+                    </div>
+                  )}
+
+                  {/* List of Options */}
+                  <div className="p-4 sm:p-5 space-y-2.5 overflow-y-auto flex-1">
+                    {selectedGroupedCourse.items
+                      .filter(c => {
+                        const isPromo = String(getFuzzyKey(c, ["ชื่อคอส", "col_4", "ชื่อสินค้า", "col_2"]) || '').includes('ซื้อเพิ่มโปร');
+                        if (groupedCourseFilterTab === 'regular') return !isPromo;
+                        if (groupedCourseFilterTab === 'promo') return isPromo;
+                        return true;
+                      })
+                      .map((c, idx) => {
+                        const nameStr = String(getFuzzyKey(c, ["ชื่อคอส", "col_4", "ชื่อสินค้า", "col_2"]) || '');
+                        const isPromo = nameStr.includes('ซื้อเพิ่มโปร');
+                        const price = parseNumber(getFuzzyKey(c, ["ราคา", "ราคาขาย", "col_5"]));
+                        const sessVal = String(getFuzzyKey(c, ["จำนวนครั้ง", "col_7", "col_6", "จำนวนครั้งที่ได้"]) || (nameStr.match(/(\d+)\s*ครั้ง/) ? nameStr.match(/(\d+)\s*ครั้ง/)[1] : '1'));
+                        const sessLabel = isPromo ? 'ซื้อเพิ่มโปร' : `${sessVal} ครั้ง`;
+                        const code = String(getFuzzyKey(c, ["รหัสคอส", "col_1"]) || '');
+
+                        return (
+                          <div
+                            key={c.id || idx}
+                            onClick={() => {
+                              addToCart(c, 'course');
+                              setSelectedGroupedCourse(null);
+                              setGroupedCourseFilterTab('all');
+                              showToast(`เพิ่ม "${nameStr}" ลงในตะกร้าแล้ว`, 'success');
+                            }}
+                            className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer shadow-xs hover:shadow-md flex items-center justify-between gap-3 group relative overflow-hidden ${
+                              isPromo
+                                ? 'border-emerald-100 hover:border-emerald-500 hover:bg-emerald-50/40 bg-white'
+                                : 'border-violet-100 hover:border-violet-500 hover:bg-violet-50/40 bg-white'
+                            }`}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                  isPromo ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-violet-100 text-violet-800 border border-violet-200'
+                                }`}>
+                                  {sessLabel}
+                                </span>
+                                {code && <span className="text-[10px] text-slate-400 font-mono">{code}</span>}
+                              </div>
+                              <h4 className="font-bold text-slate-800 text-sm group-hover:text-violet-700 transition-colors line-clamp-1">
+                                {nameStr}
+                              </h4>
+                            </div>
+
+                            <div className="flex items-center gap-3 shrink-0">
+                              <div className="text-right">
+                                <div className={`font-black text-lg sm:text-xl leading-none ${isPromo ? 'text-emerald-600' : 'text-violet-600'}`}>
+                                  ฿{price.toLocaleString()}
+                                </div>
+                              </div>
+
+                              <div className={`p-2 rounded-xl text-white transition-all group-hover:scale-105 shadow-2xs ${
+                                isPromo ? 'bg-emerald-600' : 'bg-violet-600'
+                              }`}>
+                                <Plus size={16} strokeWidth={2.5} />
+                              </div>
+
+                              {globalRole === 'owner' && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleEditMasterCoursePrice(e, c);
+                                  }}
+                                  className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-violet-100 text-slate-400 hover:text-violet-600 flex items-center justify-center transition-colors"
+                                  title="แก้ไขราคาคอร์ส"
+                                >
+                                  <Edit size={13} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
