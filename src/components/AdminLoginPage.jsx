@@ -168,6 +168,10 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
         setEmpSuccessMsg('ยืนยันรหัสผ่านสำเร็จ ✨ กำลังเปิดระบบ...');
       }
 
+      try {
+        sessionStorage.setItem(`pin_ok_${selectedEmp.id}`, String(Date.now()));
+      } catch (e) {}
+
       setTimeout(() => {
         if (onStaffLoginSuccess) {
           onStaffLoginSuccess(targetBranch, selectedEmp);

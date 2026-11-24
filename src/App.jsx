@@ -2840,12 +2840,15 @@ export default function App() {
     setActiveTab('mole_removal');
   };
 
-  // 🌟 พนักงานยืนยัน PIN สำเร็จจากหน้าล็อกอิน (สไลด์ PIN เท่ๆ)
+  // 🌟 พนักงานยืนยัน PIN สำเร็จจากหน้าล็อกอิน (สไลด์ PIN เท่ๆ) -> เปิดหน้า Employee Portal ก่อนไป POS
   const handleStaffDirectLogin = (branch, emp) => {
     const targetBranch = branch || emp?.branch || globalBranch || 'เฉวง';
     if (emp) {
       localStorage.setItem('personalEmployeeId', emp.id);
+      try { sessionStorage.setItem(`pin_ok_${emp.id}`, String(Date.now())); } catch (e) {}
       setActiveStaff(emp);
+      setInitialEmployeeForAttendance(emp);
+      setShowFrontAttendance(true);
     }
     localStorage.setItem('selectedBranch', targetBranch);
     localStorage.setItem('userRole', 'staff');
@@ -2853,8 +2856,8 @@ export default function App() {
     setGlobalRole('staff');
     grantAdminSession();
     setLoginGate(false);
-    setActiveTab('pos');
-    showToast(`เข้าสู่ระบบสำเร็จ • ยินดีต้อนรับ ${emp?.name || ''}`, 'success');
+    setActiveTab('dashboard');
+    showToast(`ยินดีต้อนรับ ${emp?.name || ''} ✨`, 'success');
   };
 
   // 🌟 ส่งยอดด่วนจากหน้าล็อกอิน — เปิด POS เฉพาะหน้า EOD (ไม่ออก session 8 ชม.) เสร็จแล้วกลับหน้าล็อกอิน

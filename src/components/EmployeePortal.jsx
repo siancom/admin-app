@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Clock, Calendar, CheckCircle, UserCheck, UserMinus, X, User, LogOut, Send, Check, XCircle, History, DollarSign, Wallet, ShoppingCart, Lock, Trash2, FileText, ShieldAlert, Gift, Percent, Edit3, RotateCcw } from 'lucide-react';
+import { Clock, Calendar, CheckCircle, UserCheck, UserMinus, X, User, LogOut, Send, Check, XCircle, History, DollarSign, Wallet, ShoppingCart, Lock, Trash2, FileText, ShieldAlert, Gift, Percent, Edit3, RotateCcw, ArrowRight } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import PayslipModal from './PayslipModal';
@@ -726,8 +726,31 @@ export default function EmployeePortal({
                               <ShoppingCart size={24} /> เปิด POS ขายสินค้า
                            </button>
                            {isActiveShift ? (
-                              <button onClick={() => setShowClockOutSummary(true)} className="w-full py-3 bg-white hover:bg-rose-50 text-rose-600 rounded-2xl font-black text-sm border border-rose-200 transition-colors active:scale-95 flex items-center justify-center gap-2">
-                                 <UserMinus size={18} /> บันทึกออกงาน
+                              <button 
+                                 type="button"
+                                 onClick={() => setShowClockOutSummary(true)} 
+                                 className="group w-full p-3.5 sm:p-4 bg-gradient-to-r from-rose-500 via-rose-600 to-red-600 hover:from-rose-600 hover:to-red-700 text-white rounded-2xl font-black shadow-lg shadow-rose-500/25 border-2 border-rose-400/40 transition-all active:scale-[0.98] flex items-center justify-between gap-3 cursor-pointer"
+                              >
+                                 <div className="flex items-center gap-3 min-w-0">
+                                    <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-white/20 backdrop-blur-md border border-white/30 text-white flex items-center justify-center shadow-inner shrink-0 group-hover:scale-105 transition-transform">
+                                       <LogOut size={22} className="rotate-180 drop-shadow-xs" />
+                                    </div>
+                                    <div className="text-left min-w-0">
+                                       <div className="text-base sm:text-lg font-black text-white leading-tight flex items-center gap-1.5 flex-wrap">
+                                          <span>เลิกงาน / บันทึกเวลาออกงาน</span>
+                                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-white/25 text-white tracking-wide border border-white/20">
+                                             จบกะวันนี้
+                                          </span>
+                                       </div>
+                                       <p className="text-[11px] font-medium text-rose-100/90 mt-0.5 truncate">
+                                          แตะเพื่อสรุปยอดขาย ค่าคอม ค่ามือ และลงเวลาเลิกงาน
+                                       </p>
+                                    </div>
+                                 </div>
+                                 <div className="shrink-0 flex items-center gap-1 bg-white text-rose-700 font-black text-xs px-3 py-2 rounded-xl shadow-md group-hover:bg-rose-50 group-hover:translate-x-0.5 transition-all">
+                                    <span>กดเลิกงาน</span>
+                                    <ArrowRight size={14} />
+                                 </div>
                               </button>
                            ) : !hasSubmittedEOD && (
                               <p className="text-[10px] text-center text-amber-600 font-bold">💡 ยังเปิด POS ได้เพื่อส่งยอดประจำวัน (EOD) — ส่งแล้วจึงปิดก่อนออกงานได้</p>
