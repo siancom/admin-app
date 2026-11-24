@@ -2829,6 +2829,18 @@ export default function App() {
     showToast('เข้าสู่ระบบเจ้าของร้านสำเร็จ 👑');
   };
 
+  // 🌟 เปิดหน้าจี้ไฝโดยตรงจากแบนเนอร์หน้าล็อกอิน
+  const [posInitialTab, setPosInitialTab] = useState(null);
+  const handleOpenMoleFromLogin = (branch) => {
+    const targetBranch = branch || globalBranch || 'เฉวง';
+    localStorage.setItem('selectedBranch', targetBranch);
+    setGlobalBranch(targetBranch);
+    grantAdminSession();
+    setLoginGate(false);
+    setActiveTab('pos');
+    setPosInitialTab('mole');
+  };
+
   // 🌟 ส่งยอดด่วนจากหน้าล็อกอิน — เปิด POS เฉพาะหน้า EOD (ไม่ออก session 8 ชม.) เสร็จแล้วกลับหน้าล็อกอิน
   const [posAutoOpenEod, setPosAutoOpenEod] = useState(null);
   const [loginFlash, setLoginFlash] = useState(null);
@@ -5438,6 +5450,7 @@ const flexMessage = {
           onOwnerEnter={handleOwnerLoginGate}
           dailySales={dailySales}
           onQuickEod={handleQuickEodLoginGate}
+          onOpenMoleService={handleOpenMoleFromLogin}
           flashMessage={loginFlash}
         />
       )}
@@ -5729,6 +5742,8 @@ const flexMessage = {
               onAddCustomer={() => setIsAddCustomerOpen(true)}
               autoOpenEod={posAutoOpenEod}
               onQuickEodFinished={handleQuickEodFinished}
+              initialTab={posInitialTab}
+              onClearInitialTab={() => setPosInitialTab(null)}
             />
             </ErrorBoundary>
           )}

@@ -313,7 +313,9 @@ export default function POSSystem({
   onAddCustomer,
   onOpenVipForm = () => {},
   autoOpenEod = null, // 🌟 ส่งยอดด่วนจากหน้าล็อกอิน: { employeeId }
-  onQuickEodFinished = () => {}
+  onQuickEodFinished = () => {},
+  initialTab = null,
+  onClearInitialTab = () => {}
 }) {
   // 🌟 โหมดส่งยอดด่วน — เปิดหน้า EOD ทันที (ไม่เด้ง SOD) และแจ้ง parent เมื่อปิดหน้าต่าง
   const quickEodActiveRef = useRef(!!autoOpenEod);
@@ -805,6 +807,14 @@ export default function POSSystem({
       if (clearPosPreselectedCustomer) clearPosPreselectedCustomer();
     }
   }, [posPreselectedCustomer, clearPosPreselectedCustomer]);
+
+  // Handle Initial Tab (e.g. from Mole banner)
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+      if (onClearInitialTab) onClearInitialTab();
+    }
+  }, [initialTab, onClearInitialTab]);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [receiptData, setReceiptData] = useState(null);
