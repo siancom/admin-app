@@ -347,6 +347,7 @@ export default function POSSystem({
   };
   
   const [cart, setCart] = useState([]);
+  const totalCartQty = useMemo(() => cart.reduce((sum, item) => sum + (Number(item.qty) || 1), 0), [cart]);
   const [activeCustomerAppOrderIds, setActiveCustomerAppOrderIds] = useState([]);
   // 🌟 ยอดที่ลูกค้า "จ่ายเครดิตไปแล้วในแอป" ของออเดอร์ที่โหลดเข้าตะกร้า — ใช้กัน POS ตัดเครดิตซ้ำ 2 ครั้ง
   const [appCreditPaidAmount, setAppCreditPaidAmount] = useState(0);
@@ -695,6 +696,7 @@ export default function POSSystem({
         window.print();
         if (receiptData?.orderNo === 'DRAFT') setReceiptData(null);
         setShowPreviewModal(false);
+        setActiveTab('products');
       }, 50);
       return () => clearTimeout(timer);
     }
@@ -709,10 +711,12 @@ export default function POSSystem({
         window.print();
         if (receiptData?.orderNo === 'DRAFT') setReceiptData(null);
         setShowPreviewModal(false);
+        setActiveTab('products');
       }
       if (e.key === 'Escape') {
         if (receiptData?.orderNo === 'DRAFT') setReceiptData(null);
         setShowPreviewModal(false);
+        setActiveTab('products');
       }
     };
     document.addEventListener('keydown', handleKey);
@@ -1696,14 +1700,15 @@ export default function POSSystem({
           // ไม่เพิ่มจำนวนการตัดคอร์สซ้ำซ้อนเมื่อกดเข้ามาดู ให้คงไว้ที่ 1 เสมอ
           return prev;
         }
-        if ((type === 'product' || type === 'claim_item') && existing.qty >= existing.maxQty) {
-          showToast(type === 'claim_item' ? 'เบิกครบโควต้าแล้ว' : 'จำนวนสินค้าไม่เพียงพอ');
+        if (type === 'claim_item' && existing.qty >= existing.maxQty) {
+          showToast('เบิกครบโควต้าแล้ว');
           return prev;
         }
-        return prev.map(i => i.id === targetCartId && i.type === type ? { ...i, qty: i.qty + 1 } : i);
+        // สำหรับสินค้าทั่วไป (product) หรือคอร์ส ให้เพิ่มจำนวนได้เสมอทุกครั้งที่กด
+        return prev.map(i => i.id === targetCartId && i.type === type ? { ...i, qty: (Number(i.qty) || 1) + 1, maxQty: 9999 } : i);
       } else {
         if (type === 'product') {
-          let maxQty = parseQty(getBranchStock(item, globalBranch || 'สำนักงานใหญ่'));
+          let maxQty = 9999;
           let price = computeFinalPrice(item, isVipCustomer);
           let nameStr = String(getFuzzyKey(item, ["ชื่อสินค้า", "col_2"]));
           const fullPrice = parseNumber(getFuzzyKey(item, ["ราคาขายเต็ม", "col_6"]));
@@ -1791,10 +1796,10 @@ export default function POSSystem({
     setCart(prev => {
       return prev.map(i => {
         if (i.id === id && i.type === type) {
-          const newQty = i.qty + delta;
+          const newQty = (Number(i.qty) || 1) + delta;
           if (newQty < 1) return i;
-          if ((type === 'product' || type === 'usage' || type === 'claim_item') && newQty > i.maxQty) {
-            showToast(type === 'claim_item' ? 'เบิกเกินโควต้าที่เหลือ' : (type === 'usage' ? 'จำนวนครั้งคอร์สไม่เพียงพอ' : 'จำนวนสินค้าเกินสต็อก'));
+          if ((type === 'usage' || type === 'claim_item') && newQty > i.maxQty) {
+            showToast(type === 'claim_item' ? 'เบิกเกินโควต้าที่เหลือ' : 'จำนวนครั้งคอร์สไม่เพียงพอ');
             return i;
           }
           return { ...i, qty: newQty };
@@ -3293,6 +3298,7 @@ export default function POSSystem({
       setActiveWcOrderId(null);
       setActiveCustomerAppOrderIds([]);
       setIsMobileCartOpen(false); // Close cart immediately so receipt shows properly
+      setActiveTab('products'); // 🌟 ชำระเงินเสร็จให้กลับมาหน้าขายครีมทุกครั้ง
 
       // If autoPrint is enabled — open preview immediately so print fires without user action
       if (autoPrint) {
@@ -4171,8 +4177,10 @@ export default function POSSystem({
               className="w-10 h-10 flex-shrink-0 rounded-xl flex items-center justify-center transition-all bg-indigo-600 text-white shadow-md shadow-indigo-200 relative lg:hidden"
             >
               <ShoppingCart size={18} />
-              {cart.length > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-white">{cart.length}</span>
+              {totalCartQty > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white text-[10px] font-black min-w-[20px] h-5 px-1 rounded-full flex items-center justify-center border-2 border-white shadow-md animate-in zoom-in-75 duration-150">
+                  {totalCartQty}
+                </span>
               )}
             </button>
           </div>
@@ -4376,18 +4384,26 @@ export default function POSSystem({
                 const discountRate = isSpecialMode ? getOwnerDiscountRate(p) : 0;
                 const memberPrice = parseNumber(getFuzzyKey(p, ["ราคาสมาชิก", "col_10"]));
                 const originalCostBasePrice = memberPrice > 0 ? memberPrice : fullPrice;
+                const cartItem = cart.find(i => i.id === p.id && i.type === 'product');
+                const cartQty = cartItem ? (Number(cartItem.qty) || 0) : 0;
 
                 return (
                 <div 
                   key={p.id} 
                   onClick={() => isOwnerPurchase ? addToCart(p, 'product', 'owner_purchase') : isBranchReq ? addToCart(p, 'product', 'branch_requisition') : isStockMode ? setStockInputModal({ isOpen: true, item: p, inputVal: '' }) : addToCart(p, 'product')}
-                  className={`bg-white p-2 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm border cursor-pointer transition-all flex flex-col h-full ${isSpecialMode ? "border-slate-100 hover:shadow-md hover:border-teal-200 active:scale-95" : isStockMode ? (stockAdjustments.some(a => a.id === p.id) ? "border-emerald-500 opacity-70" : "border-rose-400 animate-pulse shadow-[0_0_15px_rgba(251,113,133,0.3)]") : "border-slate-100 hover:shadow-md hover:border-indigo-200 active:scale-95"}`}
+                  className={`bg-white p-2 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm border cursor-pointer transition-all flex flex-col h-full ${isSpecialMode ? "border-slate-100 hover:shadow-md hover:border-teal-200 active:scale-95" : isStockMode ? (stockAdjustments.some(a => a.id === p.id) ? "border-emerald-500 opacity-70" : "border-rose-400 animate-pulse shadow-[0_0_15px_rgba(251,113,133,0.3)]") : (cartQty > 0 ? "border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/10 shadow-sm" : "border-slate-100 hover:shadow-md hover:border-indigo-200 active:scale-95")}`}
                 >
                   <div className="w-full aspect-[4/3] bg-slate-100 rounded-lg sm:rounded-xl mb-2 sm:mb-3 overflow-hidden relative group flex items-center justify-center">
                     {salesScore > 0 && !isSpecialMode && (
                       <div className="absolute top-1.5 left-1.5 z-10 bg-gradient-to-r from-amber-500 to-rose-500 text-white text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded-md shadow-md flex items-center gap-0.5">
                         <Flame size={11} className="fill-white" />
                         <span>ขายดี {salesScore > 1 ? `(${salesScore})` : ''}</span>
+                      </div>
+                    )}
+                    {cartQty > 0 && !isSpecialMode && !isStockMode && (
+                      <div className="absolute top-1.5 right-1.5 z-10 bg-indigo-600 text-white text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-md shadow-md flex items-center gap-1 border border-white animate-in zoom-in-75 duration-150">
+                        <ShoppingCart size={10} className="shrink-0" />
+                        <span>ในตะกร้า {cartQty}</span>
                       </div>
                     )}
                     {imageUrl ? (
@@ -4440,7 +4456,12 @@ export default function POSSystem({
                       </div>
                     )}
                     
-                    <div className="flex items-center shrink-0">
+                    <div className="flex items-center gap-1 shrink-0">
+                      {cartQty > 0 && !isSpecialMode && !isStockMode && (
+                        <div className="flex items-center justify-center min-w-[28px] px-1.5 py-0.5 rounded-full text-[10px] sm:text-xs font-black bg-indigo-600 text-white shadow-sm" title={`จำนวนในตะกร้า: ${cartQty} ชิ้น`}>
+                          +{cartQty}
+                        </div>
+                      )}
                       {(() => {
                            const currentBranch = globalBranch || "สำนักงานใหญ่";
                            const v = getBranchStock(p, currentBranch);
@@ -4942,7 +4963,7 @@ export default function POSSystem({
               <ChevronLeft size={24} /> <span>กลับ</span>
            </button>
            <h2 className="font-black text-lg text-slate-800 flex items-center gap-2 absolute left-1/2 -translate-x-1/2">
-             <ShoppingCart size={20} className="text-indigo-600" /> ตะกร้าสินค้า
+             <ShoppingCart size={20} className="text-indigo-600" /> ตะกร้าสินค้า {totalCartQty > 0 ? `(${totalCartQty})` : ''}
            </h2>
            <div className="w-16"></div> {/* Spacer for centering */}
         </div>
@@ -6641,6 +6662,7 @@ export default function POSSystem({
                 setOrderChannel('instore');
                 setActiveWcOrderId(null);
                 setIsMobileCartOpen(false);
+                setActiveTab('products'); // 🌟 กลับหน้าขายครีมทุกครั้ง
               }}
               className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors"
             >
@@ -6710,6 +6732,7 @@ export default function POSSystem({
                 onClick={() => {
                    if (receiptData.orderNo === 'DRAFT') setReceiptData(null);
                    setShowPreviewModal(false);
+                   setActiveTab('products');
                 }} 
                 className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold transition-colors shadow-sm"
               >
@@ -6720,6 +6743,7 @@ export default function POSSystem({
                    window.print();
                    if (receiptData.orderNo === 'DRAFT') setReceiptData(null);
                    setShowPreviewModal(false);
+                   setActiveTab('products');
                 }}
                 className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold flex items-center gap-2 shadow-md shadow-indigo-200 transition-colors"
               >
@@ -6764,6 +6788,7 @@ export default function POSSystem({
                    
                    if (receiptData.orderNo === 'DRAFT') setReceiptData(null);
                    setShowPreviewModal(false);
+                   setActiveTab('products');
                 }}
                 className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-2 shadow-md shadow-emerald-200 transition-colors"
               >
