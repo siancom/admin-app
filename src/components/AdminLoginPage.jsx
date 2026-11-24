@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, MapPin, Navigation, Users, Crown, Delete, ArrowRight, Loader2, Clock, Banknote, CheckCircle, Zap, Target } from 'lucide-react';
+import { Sparkles, MapPin, Navigation, Users, Crown, Delete, ArrowRight, Loader2, Clock, Banknote, CheckCircle, Zap, Target, AlertTriangle } from 'lucide-react';
 import { getLocalYYYYMMDD, normalizeBranchName, parseThaiDate } from '../utils/parse';
+import { db, getCol } from '../config/firebase';
+import { doc, addDoc, updateDoc } from 'firebase/firestore';
 
 // 🌟 หน้าล็อกอินแอดมิน IrisCare — เลือกสาขา (GPS ไฮไลต์อัตโนมัติ) + เข้าแบบพนักงาน/เจ้าของร้าน (รหัสผ่าน)
-export default function AdminLoginPage({ branches = [], employees = [], attendance = [], appSettings = {}, initialBranch = null, onStaffEnter, onOwnerEnter, onOpenAttendance, dailySales = [], onQuickEod, onOpenMoleService, flashMessage = null }) {
+export default function AdminLoginPage({ branches = [], employees = [], attendance = [], appSettings = {}, initialBranch = null, onStaffEnter, onOwnerEnter, onOpenAttendance, dailySales = [], onQuickEod, onOpenMoleService, onStaffLoginSuccess, flashMessage = null }) {
   const activeBranches = branches.filter(b => !b.isMaintenance);
   const displayBranches = activeBranches.length > 0 ? activeBranches : branches;
   const empBranchCount = new Set(employees.map(e => normalizeBranchName(e.branch)).filter(Boolean)).size;
@@ -13,10 +15,17 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
   const [selectedBranch, setSelectedBranch] = useState(() => {
     return initialBranch || localStorage.getItem('selectedBranch') || (displayBranches.length > 0 ? displayBranches[0].name : null);
   });
-  const [mode, setMode] = useState('main'); // 'main' | 'owner_passcode'
+  const [mode, setMode] = useState('main'); // 'main' | 'owner_passcode' | 'employee_pin'
   const [passcode, setPasscode] = useState('');
   const [passError, setPassError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 🌟 State สำหรับสไลด์กรอก PIN พนักงาน (เท่ๆ รวดเร็ว) 🌟
+  const [selectedEmp, setSelectedEmp] = useState(null);
+  const [empPasscode, setEmpPasscode] = useState('');
+  const [empPassError, setEmpPassError] = useState(false);
+  const [empIsSubmitting, setEmpIsSubmitting] = useState(false);
+  const [empSuccessMsg, setEmpSuccessMsg] = useState('');
 
   const branchEmployees = employees.filter(e => {
     if (!selectedBranch || isSingleBranchMode) return true;
@@ -87,6 +96,90 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
     if (k === 'del') { setPasscode(p => p.slice(0, -1)); return; }
     if (passcode.length >= 6) return;
     setPasscode(p => p + k);
+  };
+
+  const handleStartEmpPin = (emp) => {
+    if (!selectedBranch && emp.branch) {
+      setSelectedBranch(emp.branch);
+      localStorage.setItem('selectedBranch', emp.branch);
+    }
+    setSelectedEmp(emp);
+    setEmpPasscode('');
+    setEmpPassError(false);
+    setEmpSuccessMsg('');
+    setEmpIsSubmitting(false);
+    setMode('employee_pin');
+  };
+
+  const pressEmpKey = (k) => {
+    if (empIsSubmitting) return;
+    if (k === 'del') {
+      setEmpPasscode(p => p.slice(0, -1));
+      return;
+    }
+    if (empPasscode.length >= 4) return;
+    const next = empPasscode + k;
+    setEmpPasscode(next);
+    if (next.length === 4) {
+      handleEmpPinSubmit(next);
+    }
+  };
+
+  const handleEmpPinSubmit = async (pinToTest) => {
+    const pin = pinToTest || empPasscode;
+    if (!selectedEmp) return;
+    const correctPin = String(selectedEmp.pin || '1234');
+    if (pin !== correctPin) {
+      setEmpPassError(true);
+      setTimeout(() => {
+        setEmpPasscode('');
+        setEmpPassError(false);
+      }, 700);
+      return;
+    }
+
+    setEmpIsSubmitting(true);
+    try {
+      const targetBranch = selectedBranch || selectedEmp.branch || (displayBranches[0]?.name) || 'เฉวง';
+      const todayIsoStr = getLocalYYYYMMDD(now);
+      const empTodayAtts = attendance.filter(a => a.employeeId === selectedEmp.id && a.date === todayIsoStr);
+      const activeAtt = empTodayAtts.find(a => !a.clockOut);
+      const latestClosedAtt = empTodayAtts.filter(a => !!a.clockOut).sort((a,b) => new Date(b.clockOut || 0) - new Date(a.clockOut || 0))[0];
+
+      // 1. ถ้าเคยออกงานไปแล้ววันนี้ -> ลงเวลาต่อ / เข้างานต่อ (Reopen หรือบันทึกต่อ)
+      if (!activeAtt && latestClosedAtt) {
+        await updateDoc(doc(db, 'employee_attendance', latestClosedAtt.id), {
+          clockOut: null,
+          resumedAt: new Date().toISOString()
+        });
+        setEmpSuccessMsg('บันทึกเวลาเข้างานต่อสำเร็จ ⏱️ กำลังเปิดระบบ...');
+      } else if (!activeAtt) {
+        // 2. ยังไม่เคยเข้างานวันนี้ -> บันทึกเข้างานใหม่
+        await addDoc(getCol('employee_attendance'), {
+          employeeId: selectedEmp.id,
+          employeeName: selectedEmp.name,
+          branch: targetBranch,
+          date: todayIsoStr,
+          clockIn: new Date().toISOString(),
+          clockOut: null
+        });
+        setEmpSuccessMsg('ลงเวลาเข้างานสำเร็จ ✨ กำลังเปิดระบบ...');
+      } else {
+        setEmpSuccessMsg('ยืนยันรหัสผ่านสำเร็จ ✨ กำลังเปิดระบบ...');
+      }
+
+      setTimeout(() => {
+        if (onStaffLoginSuccess) {
+          onStaffLoginSuccess(targetBranch, selectedEmp);
+        } else if (onStaffEnter) {
+          onStaffEnter(targetBranch);
+        }
+      }, 350);
+    } catch (err) {
+      console.error('Error in employee login:', err);
+      alert('เกิดข้อผิดพลาดในการบันทึกเวลา: ' + err.message);
+      setEmpIsSubmitting(false);
+    }
   };
 
   // 🌟 ส่งยอดด่วน (EOD) — เช็คว่าสาขานี้ส่งยอดวันนี้แล้วหรือยัง
@@ -162,45 +255,45 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
         {/* การ์ดหลัก */}
         <div className="bg-white rounded-[32px] shadow-2xl p-5 sm:p-7 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
-          {/* 🌟 แบนเนอร์สวยๆ กดไปยังเมนูหน้าจี้ไฝได้ 🌟 */}
+          {/* 🌟 แบนเนอร์กดไปยังหน้าระบบจี้ไฝ (Mole Removal System) 🌟 */}
           <div 
             onClick={() => {
               if (onOpenMoleService) {
                 onOpenMoleService(selectedBranch || displayBranches[0]?.name || 'เฉวง');
               }
             }}
-            className="group relative overflow-hidden rounded-2xl p-3.5 sm:p-4 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-lg shadow-orange-500/20 border border-orange-300/40 cursor-pointer active:scale-[0.98] transition-all hover:shadow-xl hover:shadow-orange-500/30 mb-4"
+            className="group relative overflow-hidden rounded-2xl p-4 bg-gradient-to-r from-purple-700 via-indigo-700 to-teal-700 text-white shadow-xl shadow-indigo-900/30 border border-indigo-400/30 cursor-pointer active:scale-[0.98] transition-all hover:shadow-2xl hover:shadow-indigo-800/40 mb-4"
           >
             {/* Ambient background decoration */}
-            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/10 rounded-full blur-xl pointer-events-none"></div>
-            <div className="absolute top-0 right-0 w-full h-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-yellow-300/20 via-transparent to-transparent pointer-events-none"></div>
+            <div className="absolute -right-6 -bottom-6 w-28 h-28 bg-white/10 rounded-full blur-xl pointer-events-none"></div>
+            <div className="absolute top-0 right-0 w-full h-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-amber-400/20 via-transparent to-transparent pointer-events-none"></div>
 
             <div className="relative z-10 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center shrink-0 shadow-inner group-hover:scale-105 transition-transform">
-                  <Target size={22} className="text-white drop-shadow-sm" />
+                <div className="w-12 h-12 rounded-2xl bg-white/15 backdrop-blur-md border border-white/30 flex items-center justify-center shrink-0 shadow-inner group-hover:scale-105 transition-transform text-white">
+                  <Sparkles size={24} className="text-amber-300 drop-shadow-sm" />
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] font-black px-2 py-0.2 rounded-full bg-white/25 text-white tracking-wide border border-white/20">
-                      ✨ หัตถการยอดนิยม
+                    <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-400/25 text-amber-200 tracking-wide border border-amber-300/30">
+                      ✨ ระบบจัดการจี้ไฝ
                     </span>
-                    <span className="text-[10px] font-bold text-amber-100">
-                      ฿200 - ฿5,000
+                    <span className="text-[10px] font-bold text-teal-200">
+                      Mole Removal
                     </span>
                   </div>
-                  <h3 className="text-sm sm:text-base font-black text-white leading-tight mt-0.5 truncate drop-shadow-xs">
-                    จี้ไฝ / กระ / ติ่งเนื้อ
+                  <h3 className="text-base font-black text-white leading-tight mt-0.5 truncate drop-shadow-xs">
+                    ระบบจี้ไฝ (Mole Removal)
                   </h3>
-                  <p className="text-[10px] sm:text-[11px] text-amber-100/90 font-medium truncate mt-0.5">
-                    เลือกราคาด่วน 8 ราคา หรือระบุราคาเอง • คิดค่ามือตามบิล
+                  <p className="text-[11px] text-indigo-100/90 font-medium truncate mt-0.5">
+                    ค้นหาลูกค้าเพื่อตรวจสอบประวัติ หรือประเมินราคาหัตถการ
                   </p>
                 </div>
               </div>
 
-              <div className="shrink-0 flex items-center gap-1 bg-white text-orange-600 font-black text-xs px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl shadow-md transition-all group-hover:bg-amber-50 group-hover:translate-x-0.5">
-                <span>เปิดหน้าจี้ไฝ</span>
-                <ArrowRight size={13} />
+              <div className="shrink-0 flex items-center gap-1.5 bg-white text-indigo-800 font-black text-xs px-3.5 py-2 rounded-xl shadow-md transition-all group-hover:bg-amber-50 group-hover:translate-x-0.5">
+                <span>เปิดระบบจี้ไฝ</span>
+                <ArrowRight size={14} className="text-indigo-600" />
               </div>
             </div>
           </div>
@@ -261,19 +354,40 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
                 {selectedBranch ? (
                   <div className="space-y-2 mb-2">
                     {branchEmployees.map(emp => {
-                      const todayStr = getLocalYYYYMMDD(now);
-                      const todayAtt = attendance.find(a => a.employeeId === emp.id && a.date === todayStr && !a.clockOut);
-                      const isClockedIn = !!todayAtt;
-                      const clockInTime = todayAtt?.time || todayAtt?.clockIn || (todayAtt?.createdAt ? new Date(todayAtt.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '');
+                      const empTodayAtts = attendance.filter(a => a.employeeId === emp.id && a.date === todayIso);
+                      const activeAtt = empTodayAtts.find(a => !a.clockOut);
+                      const isClockedIn = !!activeAtt;
+                      const clockInTime = activeAtt?.time || activeAtt?.clockIn || (activeAtt?.createdAt ? new Date(activeAtt.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '');
+
+                      const latestClosedAtt = empTodayAtts.filter(a => !!a.clockOut).sort((a,b) => new Date(b.clockOut || 0) - new Date(a.clockOut || 0))[0];
+
+                      let totalMins = 0;
+                      empTodayAtts.forEach(a => {
+                        if (a.clockIn && a.clockOut) {
+                          const diff = (new Date(a.clockOut) - new Date(a.clockIn)) / (1000 * 60);
+                          if (diff > 0) totalMins += diff;
+                        } else if (a.clockIn && !a.clockOut) {
+                          const diff = (now - new Date(a.clockIn)) / (1000 * 60);
+                          if (diff > 0) totalMins += diff;
+                        }
+                      });
+                      const hWorked = Math.floor(totalMins / 60);
+                      const mWorked = Math.round(totalMins % 60);
+                      const workedText = `${hWorked} ชม. ${mWorked} น.`;
+
+                      const hasClockedOut = !isClockedIn && !!latestClosedAtt;
+                      const isShiftIncomplete = hasClockedOut && totalMins < (8 * 60);
 
                       return (
                         <div 
                           key={emp.id}
-                          onClick={() => { if (selectedBranch && onOpenAttendance) onOpenAttendance(selectedBranch, emp); }}
+                          onClick={() => handleStartEmpPin(emp)}
                           className={`group relative p-3 sm:p-3.5 rounded-2xl border-2 transition-all cursor-pointer active:scale-[0.99] flex items-center justify-between gap-3 ${
                             isClockedIn 
                               ? 'bg-gradient-to-r from-indigo-50/70 via-white to-teal-50/40 border-indigo-200/90 hover:border-indigo-400 hover:shadow-md hover:shadow-indigo-500/10' 
-                              : 'bg-white hover:bg-slate-50 border-gray-150 hover:border-emerald-300 hover:shadow-md hover:shadow-emerald-500/10'
+                              : isShiftIncomplete
+                                ? 'bg-gradient-to-r from-amber-50/80 via-white to-orange-50/50 border-amber-300 hover:border-amber-400 hover:shadow-md hover:shadow-amber-500/15'
+                                : 'bg-white hover:bg-slate-50 border-gray-150 hover:border-emerald-300 hover:shadow-md hover:shadow-emerald-500/10'
                           }`}
                         >
                           {/* Avatar + Info */}
@@ -290,7 +404,7 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
                               </div>
                               {/* Online / Clock-in status dot */}
                               <span className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white ${
-                                isClockedIn ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
+                                isClockedIn ? 'bg-emerald-500 animate-pulse' : isShiftIncomplete ? 'bg-amber-500 animate-bounce' : 'bg-slate-300'
                               }`} />
                             </div>
 
@@ -311,6 +425,16 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
                                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
                                     <CheckCircle size={10} className="text-emerald-600" />
                                     เข้างานแล้ว {clockInTime ? `• ${clockInTime} น.` : ''}
+                                  </span>
+                                ) : isShiftIncomplete ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 animate-pulse">
+                                    <Clock size={10} className="text-amber-600" />
+                                    ออกงานแล้ว • ทำไป {workedText} (ยังไม่ครบ 8 ชม.)
+                                  </span>
+                                ) : hasClockedOut ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                                    <CheckCircle size={10} className="text-blue-600" />
+                                    ครบกะแล้ว • {workedText}
                                   </span>
                                 ) : (
                                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
@@ -333,6 +457,18 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
                               <div className="py-2 px-3 sm:px-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-teal-600 text-white font-black text-xs shadow-xs flex items-center gap-1 group-hover:shadow-md transition-all">
                                 <Users size={12} />
                                 <span>เข้าสู่ระบบ</span>
+                                <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
+                              </div>
+                            ) : isShiftIncomplete ? (
+                              <div className="py-2 px-3 sm:px-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-teal-600 text-white font-black text-xs shadow-xs flex items-center gap-1 group-hover:shadow-md transition-all ring-2 ring-amber-300/60">
+                                <Clock size={12} />
+                                <span>ลงเวลาต่อ</span>
+                                <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
+                              </div>
+                            ) : hasClockedOut ? (
+                              <div className="py-2 px-3 sm:px-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-teal-600 text-white font-black text-xs shadow-xs flex items-center gap-1 group-hover:shadow-md transition-all">
+                                <Clock size={12} />
+                                <span>ลงเวลาต่อ</span>
                                 <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
                               </div>
                             ) : (
@@ -452,44 +588,182 @@ export default function AdminLoginPage({ branches = [], employees = [], attendan
             </div>
           )}
 
-          {/* STEP: รหัสผ่านพนักงาน */}
-          {mode === 'staff_passcode' && (
-            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-black text-gray-800 flex items-center">
-                  <Users size={16} className="text-indigo-500 mr-2" /> รหัสพนักงาน (PIN)
-                </h2>
-                <button onClick={() => { setMode('main'); setPasscode(''); }} className="text-[10px] font-black text-gray-400 hover:text-gray-600">
-                  ← ย้อนกลับ
-                </button>
-              </div>
+          {/* STEP: สไลด์กรอก PIN พนักงาน (เท่ๆ รวดเร็ว พร้อมรองรับลงเวลาต่อ) */}
+          {mode === 'employee_pin' && selectedEmp && (() => {
+            const empTodayAtts = attendance.filter(a => a.employeeId === selectedEmp.id && a.date === todayIso);
+            const activeAtt = empTodayAtts.find(a => !a.clockOut);
+            const isClockedInEmp = !!activeAtt;
+            const latestClosedAtt = empTodayAtts.filter(a => !!a.clockOut).sort((a,b) => new Date(b.clockOut || 0) - new Date(a.clockOut || 0))[0];
 
-              <div className={`flex items-center justify-center gap-3 mb-5 ${passError ? 'animate-in shake' : ''}`}>
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className={`w-11 h-13 rounded-xl border-2 flex items-center justify-center transition-all ${passError ? 'border-red-400 bg-red-50' : passcode.length > i ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 bg-gray-50'}`}>
-                    {passcode.length > i && <span className={`w-3.5 h-3.5 rounded-full ${passError ? 'bg-red-400' : 'bg-indigo-500'}`}></span>}
+            let totalMins = 0;
+            empTodayAtts.forEach(a => {
+              if (a.clockIn && a.clockOut) {
+                const diff = (new Date(a.clockOut) - new Date(a.clockIn)) / (1000 * 60);
+                if (diff > 0) totalMins += diff;
+              } else if (a.clockIn && !a.clockOut) {
+                const diff = (now - new Date(a.clockIn)) / (1000 * 60);
+                if (diff > 0) totalMins += diff;
+              }
+            });
+            const hWorked = Math.floor(totalMins / 60);
+            const mWorked = Math.round(totalMins % 60);
+            const workedTimeText = `${hWorked} ชม. ${mWorked} นาที`;
+
+            const isResumingShift = !isClockedInEmp && !!latestClosedAtt;
+            const isShiftUnder8Hours = isResumingShift && totalMins < (8 * 60);
+
+            return (
+              <div className="animate-in fade-in slide-in-from-right-6 duration-300">
+                <div className="flex items-center justify-between mb-4 pb-2 border-b border-gray-100">
+                  <button 
+                    type="button"
+                    onClick={() => { setMode('main'); setEmpPasscode(''); setSelectedEmp(null); }} 
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors"
+                  >
+                    <ArrowRight size={14} className="rotate-180" />
+                    <span>ย้อนกลับ</span>
+                  </button>
+                  <span className={`text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${
+                    isResumingShift 
+                      ? 'bg-amber-50 text-amber-800 border-amber-200' 
+                      : isClockedInEmp 
+                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200' 
+                        : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  }`}>
+                    {isResumingShift ? '⚡ ลงเวลาต่อ' : isClockedInEmp ? '🟢 เข้าสู่ระบบ' : '⏱️ ลงเวลาเข้างาน'}
+                  </span>
+                </div>
+
+                {/* Spotlight Employee Profile */}
+                <div className="flex flex-col items-center text-center mb-5">
+                  <div className="relative mb-2.5">
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl overflow-hidden bg-slate-100 border-3 border-teal-500/30 shadow-lg shadow-teal-500/10 flex items-center justify-center">
+                      {selectedEmp.profileImage ? (
+                        <img src={selectedEmp.profileImage} alt={selectedEmp.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-teal-500 to-indigo-600 flex items-center justify-center text-white font-black text-2xl">
+                          {selectedEmp.name ? selectedEmp.name.charAt(0) : <Users size={28} />}
+                        </div>
+                      )}
+                    </div>
+                    <span className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${
+                      isClockedInEmp ? 'bg-emerald-500 animate-pulse' : isResumingShift ? 'bg-amber-500 animate-bounce' : 'bg-slate-300'
+                    }`} />
                   </div>
-                ))}
-              </div>
 
-              <div className="grid grid-cols-3 gap-2.5 max-w-[260px] mx-auto">
-                {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(k => (
-                  <button key={k} onClick={() => { if (passcode.length < 4) pressKey(k); }} className="h-14 rounded-2xl bg-gray-50 hover:bg-indigo-50 border border-gray-100 text-xl font-black text-gray-700 active:scale-95 transition-all">{k}</button>
-                ))}
-                <button onClick={() => pressKey('del')} className="h-14 rounded-2xl bg-gray-50 hover:bg-red-50 border border-gray-100 flex items-center justify-center text-gray-400 active:scale-95 transition-all"><Delete size={20} /></button>
-                <button onClick={() => { if (passcode.length < 4) pressKey('0'); }} className="h-14 rounded-2xl bg-gray-50 hover:bg-indigo-50 border border-gray-100 text-xl font-black text-gray-700 active:scale-95 transition-all">0</button>
-                <button
-                  onClick={handleStaffSubmit}
-                  disabled={passcode.length < 4 || isSubmitting}
-                  className={`h-14 rounded-2xl flex items-center justify-center gap-1 text-[11px] font-black active:scale-95 transition-all ${passcode.length < 4 || isSubmitting ? 'bg-gray-100 text-gray-400' : 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/30'}`}
-                >
-                  {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
-                  {isSubmitting ? 'ตรวจสอบ' : 'เข้าสู่ระบบ'}
-                </button>
+                  <h3 className="text-lg font-black text-gray-900 leading-tight">
+                    {selectedEmp.name} {selectedEmp.nickname ? `(${selectedEmp.nickname})` : ''}
+                  </h3>
+                  
+                  {isResumingShift ? (
+                    <div className="mt-1 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200/80 text-[11px] font-bold text-amber-800 max-w-xs">
+                      {isShiftUnder8Hours ? (
+                        <span>⚠️ ออกงานแล้ว (ทำงานไป {workedTimeText} ยังไม่ครบ 8 ชม.) • กรอก PIN เพื่อลงเวลาเข้างานต่อ</span>
+                      ) : (
+                        <span>ออกงานแล้วเมื่อ {new Date(latestClosedAtt.clockOut).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น. • กรอก PIN เพื่อเข้างานต่อ</span>
+                      )}
+                    </div>
+                  ) : isClockedInEmp ? (
+                    <p className="text-xs text-emerald-600 font-bold mt-1">
+                      🟢 เข้างานแล้วเมื่อ {activeAtt?.clockIn ? new Date(activeAtt.clockIn).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : ''} น.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-500 font-bold mt-1">
+                      กรอก PIN 4 หลักเพื่อบันทึกเวลาเข้างาน สาขา {selectedBranch || selectedEmp.branch || 'เฉวง'}
+                    </p>
+                  )}
+                </div>
+
+                {/* 4-digit PIN Indicator */}
+                <div className={`flex items-center justify-center gap-3.5 mb-5 ${empPassError ? 'animate-in shake' : ''}`}>
+                  {Array.from({ length: 4 }).map((_, i) => {
+                    const isFilled = empPasscode.length > i;
+                    return (
+                      <div 
+                        key={i} 
+                        className={`w-12 h-14 rounded-2xl border-2 flex items-center justify-center transition-all duration-200 ${
+                          empPassError 
+                            ? 'border-red-400 bg-red-50 shadow-sm shadow-red-200' 
+                            : isFilled 
+                              ? 'border-teal-500 bg-teal-50 shadow-md shadow-teal-500/20 scale-105' 
+                              : 'border-gray-200 bg-gray-50/80'
+                        }`}
+                      >
+                        {isFilled && (
+                          <span className={`w-4 h-4 rounded-full transition-transform scale-110 ${
+                            empPassError ? 'bg-red-500' : 'bg-gradient-to-br from-teal-500 to-indigo-600'
+                          }`} />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {empPassError && (
+                  <p className="text-center text-xs font-black text-red-500 -mt-2 mb-3 animate-in fade-in">
+                    รหัส PIN ไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง
+                  </p>
+                )}
+
+                {empSuccessMsg && (
+                  <p className="text-center text-xs font-black text-emerald-600 -mt-2 mb-3 animate-in fade-in flex items-center justify-center gap-1">
+                    <CheckCircle size={14} />
+                    <span>{empSuccessMsg}</span>
+                  </p>
+                )}
+
+                {/* PIN Keypad Grid */}
+                <div className="grid grid-cols-3 gap-2.5 max-w-[270px] mx-auto">
+                  {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(k => (
+                    <button 
+                      key={k} 
+                      type="button"
+                      disabled={empIsSubmitting}
+                      onClick={() => pressEmpKey(k)} 
+                      className="h-13 rounded-2xl bg-gray-50 hover:bg-teal-50 border border-gray-150 text-xl font-black text-gray-800 active:scale-95 hover:border-teal-300 transition-all shadow-2xs disabled:opacity-50"
+                    >
+                      {k}
+                    </button>
+                  ))}
+                  <button 
+                    type="button"
+                    disabled={empIsSubmitting}
+                    onClick={() => pressEmpKey('del')} 
+                    className="h-13 rounded-2xl bg-gray-50 hover:bg-red-50 border border-gray-150 flex items-center justify-center text-gray-500 hover:text-red-500 active:scale-95 hover:border-red-200 transition-all disabled:opacity-50"
+                  >
+                    <Delete size={20} />
+                  </button>
+                  <button 
+                    type="button"
+                    disabled={empIsSubmitting}
+                    onClick={() => pressEmpKey('0')} 
+                    className="h-13 rounded-2xl bg-gray-50 hover:bg-teal-50 border border-gray-150 text-xl font-black text-gray-800 active:scale-95 hover:border-teal-300 transition-all shadow-2xs disabled:opacity-50"
+                  >
+                    0
+                  </button>
+                  <button
+                    type="button"
+                    disabled={empPasscode.length < 4 || empIsSubmitting}
+                    onClick={() => handleEmpPinSubmit(empPasscode)}
+                    className={`h-13 rounded-2xl flex items-center justify-center gap-1 text-xs font-black active:scale-95 transition-all shadow-md ${
+                      empPasscode.length < 4 || empIsSubmitting 
+                        ? 'bg-gray-100 text-gray-400 border border-gray-200' 
+                        : 'bg-gradient-to-r from-teal-500 to-indigo-600 text-white shadow-teal-500/25 hover:from-teal-600 hover:to-indigo-700'
+                    }`}
+                  >
+                    {empIsSubmitting ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+                    <span>{empIsSubmitting ? 'ยืนยัน...' : 'ยืนยัน'}</span>
+                  </button>
+                </div>
+
+                <div className="text-center mt-3">
+                  <p className="text-[10px] text-gray-400">
+                    PIN เริ่มต้นคือ <span className="font-mono font-bold text-gray-600">1234</span>
+                  </p>
+                </div>
               </div>
-              {passError && <p className="text-center text-[10px] font-black text-red-500 mt-3">รหัส PIN ไม่ถูกต้อง หรือยังไม่ได้ลงเวลาเข้างาน</p>}
-            </div>
-          )}
+            );
+          })()}
 
           {/* STEP: รหัสผ่านเจ้าของร้าน */}
           {mode === 'owner_passcode' && (

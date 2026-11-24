@@ -700,6 +700,25 @@ export default function EmployeePortal({
                         </div>
                      ) : (
                         <div className="flex flex-col gap-2.5">
+                           {todayAtt?.clockOut && (
+                              <button 
+                                 onClick={async () => {
+                                    try {
+                                       if (!todayAtt?.id) return;
+                                       await updateDoc(doc(db, 'employee_attendance', todayAtt.id), {
+                                          clockOut: null,
+                                          resumedAt: new Date().toISOString()
+                                       });
+                                       alert('บันทึกเวลาเข้างานต่อเรียบร้อยแล้ว ⏱️ สามารถทำงานต่อได้ทันที');
+                                    } catch (err) {
+                                       alert('เกิดข้อผิดพลาด: ' + err.message);
+                                    }
+                                 }} 
+                                 className="w-full py-3.5 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white rounded-2xl font-black text-sm shadow-md transition-transform active:scale-95 flex items-center justify-center gap-2"
+                              >
+                                 <Clock size={18} /> ลงเวลาต่อ / เข้างานต่อ (ชั่วโมงทำงานยังไม่ครบ)
+                              </button>
+                           )}
                            <button
                               onClick={() => { onClose(); if (onGoToPOS) onGoToPOS(); }}
                               className="w-full py-4 md:py-5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-2xl font-black text-base md:text-lg shadow-lg shadow-emerald-900/30 transition-transform active:scale-95 flex items-center justify-center gap-3"

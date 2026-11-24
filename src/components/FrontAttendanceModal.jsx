@@ -378,8 +378,26 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
                          {todayAtt.branch && <span className="text-emerald-600">ที่สาขา: {todayAtt.branch}</span>}
                        </div>
                        {todayAtt.clockOut ? (
-                         <div className="bg-slate-100 text-slate-600 text-xs font-bold py-2 px-3 rounded-xl flex flex-col gap-1">
+                         <div className="bg-slate-100 text-slate-600 text-xs font-bold py-2 px-3 rounded-xl flex flex-col gap-1.5">
                            <span>ออกงาน: {new Date(todayAtt.clockOut).toLocaleTimeString('th-TH')}</span>
+                           <button 
+                             onClick={async (e) => {
+                               e.stopPropagation();
+                               try {
+                                 await updateDoc(doc(db, 'employee_attendance', todayAtt.id), {
+                                   clockOut: null,
+                                   resumedAt: new Date().toISOString()
+                                 });
+                                 alert('บันทึกเวลาเข้างานต่อเรียบร้อยแล้ว ⏱️');
+                                 openEmployeePinGate(emp, 'pos');
+                               } catch (err) {
+                                 alert('เกิดข้อผิดพลาด: ' + err.message);
+                               }
+                             }}
+                             className="w-full py-1.5 bg-gradient-to-r from-teal-500 to-emerald-600 text-white rounded-lg font-bold text-[11px] shadow-xs active:scale-95 transition-transform flex items-center justify-center gap-1 cursor-pointer"
+                           >
+                             <Clock size={12} /> ลงเวลาต่อ (เข้างานต่อ)
+                           </button>
                          </div>
                        ) : (
                          <div className="w-full py-2 bg-indigo-50 text-indigo-700 rounded-xl font-bold text-sm">
