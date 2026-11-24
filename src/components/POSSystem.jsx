@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { AlertTriangle,
   Scissors, Search, Info, ShoppingCart, Package, Layers, User, Trash2, UserPlus,
   Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink,
-  Flame, TrendingUp, Tag
+  Flame, TrendingUp, Tag, Droplet, Zap, Target, Heart
 } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, getDocs, query, where, writeBatch, orderBy, limit, collection, arrayUnion } from 'firebase/firestore';
@@ -30,6 +30,16 @@ import ShopeeImportModal from './ShopeeImportModal';
 import SalesHistoryModal from './SalesHistoryModal';
 import BarcodeScannerModal from './BarcodeScannerModal';
 import { MACHINE_TREATMENT_ADDONS, STANDARD_FACIAL_SERVICES } from '../data/machineAddons';
+
+// 🌟 รายการมาตรฐานที่ได้ค่ามือพนักงาน (DF บริการ)
+const HAND_FEE_PRESETS = [
+  { id: 'facial_massage', name: 'นวดหน้าใส / ทรีทเม้นท์', fee: 50, icon: Sparkles, desc: 'นวดหน้า ผลักวิตามิน หรือทรีตเมนต์' },
+  { id: 'acne_extraction', name: 'กดสิว', fee: 30, icon: Droplet, desc: 'เคลียร์สิวอุดตัน สิวเสี้ยน' },
+  { id: 'body_spa', name: 'สปา / ขัดตัว', fee: 100, icon: Flame, desc: 'สครับผิว ขัดผิวกาย นวดอโรมา' },
+  { id: 'laser_ipl', name: 'IPL / เลเซอร์', fee: 50, icon: Zap, desc: 'ยิงแสง IPL หน้าใส / รักแร้' },
+  { id: 'mole_removal', name: 'จี้ไฝ / กระ / ติ่งเนื้อ', fee: 100, icon: Target, desc: 'กำจัดไฝ กระ ติ่งเนื้อ ขี้แมลงวัน' },
+  { id: 'facial_mask', name: 'พอก / มาร์คหน้า', fee: 30, icon: Heart, desc: 'มาร์คบำรุง พอกฆ่าเชื้อสิว' }
+];
 const CosmeticsIcon = ({ size = 24, className = "" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <rect x="4" y="3" width="4" height="4" rx="1" />
@@ -643,6 +653,50 @@ export default function POSSystem({
   const [isPollingOmise, setIsPollingOmise] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [paymentStaff, setPaymentStaff] = useState('');
+  const [selectedHandFees, setSelectedHandFees] = useState([]);
+  const [showCustomHandFeeInput, setShowCustomHandFeeInput] = useState(false);
+  const [customHandFeeForm, setCustomHandFeeForm] = useState({ name: '', fee: '' });
+
+  const toggleHandFee = (preset) => {
+    setSelectedHandFees(prev => {
+      const idx = prev.findIndex(item => item.id === preset.id);
+      if (idx >= 0) {
+        return prev.filter((_, i) => i !== idx);
+      } else {
+        return [...prev, { id: preset.id, name: preset.name, fee: Number(preset.fee), qty: 1 }];
+      }
+    });
+  };
+
+  const updateHandFeeQty = (id, delta) => {
+    setSelectedHandFees(prev => {
+      return prev.map(item => {
+        if (item.id === id) {
+          const newQty = Math.max(1, (item.qty || 1) + delta);
+          return { ...item, qty: newQty };
+        }
+        return item;
+      }).filter(item => item.qty > 0);
+    });
+  };
+
+  const addCustomHandFee = (e) => {
+    e?.preventDefault();
+    if (!customHandFeeForm.name.trim() || !customHandFeeForm.fee) return;
+    const feeNum = parseNumber(customHandFeeForm.fee);
+    if (feeNum <= 0) return;
+    const newId = `custom_${Date.now()}`;
+    setSelectedHandFees(prev => [
+      ...prev,
+      { id: newId, name: customHandFeeForm.name.trim(), fee: feeNum, qty: 1, isCustom: true }
+    ]);
+    setCustomHandFeeForm({ name: '', fee: '' });
+    setShowCustomHandFeeInput(false);
+  };
+
+  const totalHandFeeFromBill = useMemo(() => {
+    return selectedHandFees.reduce((sum, item) => sum + (Number(item.fee || 0) * Number(item.qty || 1)), 0);
+  }, [selectedHandFees]);
   const [paymentPhotos, setPaymentPhotos] = useState({
     before: [],
     after: []
@@ -865,9 +919,165 @@ export default function POSSystem({
             })
           )}
         </div>
-        {paymentStaff && !isServiceStep && (
+        {/* Hand Fee Selection Block - Vibrant Orange Buttons */}
+        <div className="mt-3 p-3.5 bg-gradient-to-br from-amber-50/70 via-orange-50/60 to-amber-50/70 border border-orange-200/90 rounded-2xl space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <div className="w-5 h-5 rounded-lg bg-orange-500 text-white flex items-center justify-center shadow-xs">
+                <Sparkles size={12} />
+              </div>
+              <label className="text-xs font-black text-slate-800">
+                รายการที่ได้ค่ามือ (DF บริการ)
+              </label>
+              <span className="text-[10px] text-orange-700 bg-orange-100/90 border border-orange-200 px-2 py-0.5 rounded-full font-bold">
+                แตะเลือกเพื่อคำนวณ
+              </span>
+            </div>
+            {totalHandFeeFromBill > 0 && (
+              <span className="text-xs font-black text-orange-700 bg-white px-2.5 py-1 rounded-xl border border-orange-300 shadow-xs flex items-center gap-1">
+                ค่ามือรวม: <strong className="text-orange-600 text-sm">฿{totalHandFeeFromBill.toLocaleString()}</strong>
+              </span>
+            )}
+          </div>
+
+          {/* Quick Selection Orange Buttons */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {HAND_FEE_PRESETS.map((preset) => {
+              const selected = selectedHandFees.find(h => h.id === preset.id);
+              const isSelected = !!selected;
+              const Icon = preset.icon;
+
+              return (
+                <div
+                  key={preset.id}
+                  onClick={() => toggleHandFee(preset)}
+                  className={`p-2.5 rounded-xl border-2 transition-all flex flex-col justify-between text-left relative active:scale-98 cursor-pointer select-none ${
+                    isSelected
+                      ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 border-orange-500 text-white shadow-md shadow-orange-500/25 ring-2 ring-orange-200'
+                      : 'bg-white border-orange-200/90 text-slate-800 hover:border-orange-400 hover:bg-orange-50/60 shadow-xs'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-1 w-full mb-1">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                      isSelected ? 'bg-white/20 text-white' : 'bg-orange-100 text-orange-600'
+                    }`}>
+                      <Icon size={15} />
+                    </div>
+                    <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md ${
+                      isSelected ? 'bg-white text-orange-600' : 'bg-orange-100 text-orange-700'
+                    }`}>
+                      +฿{preset.fee}
+                    </span>
+                  </div>
+
+                  <div className="min-w-0 w-full">
+                    <p className={`text-xs font-black truncate leading-tight ${isSelected ? 'text-white' : 'text-slate-800'}`}>
+                      {preset.name}
+                    </p>
+                    <p className={`text-[9px] truncate mt-0.5 ${isSelected ? 'text-orange-100' : 'text-slate-400'}`}>
+                      {preset.desc}
+                    </p>
+                  </div>
+
+                  {isSelected && (
+                    <div className="mt-2 pt-1.5 border-t border-white/20 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+                      <span className="text-[10px] font-bold text-white flex items-center gap-1">
+                        <Check size={11} strokeWidth={3} /> เลือกแล้ว
+                      </span>
+                      <div className="flex items-center gap-1 bg-white/20 rounded-md px-1 py-0.5">
+                        <button
+                          type="button"
+                          onClick={() => updateHandFeeQty(preset.id, -1)}
+                          className="w-4 h-4 rounded flex items-center justify-center text-white hover:bg-white/30 text-xs font-bold leading-none"
+                          title="ลดจำนวน"
+                        >
+                          -
+                        </button>
+                        <span className="text-xs font-black text-white px-1">
+                          {selected.qty || 1}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => updateHandFeeQty(preset.id, 1)}
+                          className="w-4 h-4 rounded flex items-center justify-center text-white hover:bg-white/30 text-xs font-bold leading-none"
+                          title="เพิ่มจำนวน"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Custom Hand Fee Input / Active items pills */}
+          <div className="pt-1 flex items-center justify-between text-xs">
+            {showCustomHandFeeInput ? (
+              <form onSubmit={addCustomHandFee} className="w-full flex gap-1.5 items-center bg-white p-2 rounded-xl border border-orange-200">
+                <input
+                  type="text"
+                  placeholder="ชื่อบริการ (เช่น ทรีตเมนต์พิเศษ)"
+                  value={customHandFeeForm.name}
+                  onChange={(e) => setCustomHandFeeForm({ ...customHandFeeForm, name: e.target.value })}
+                  className="flex-1 px-2.5 py-1 text-xs border border-slate-200 rounded-lg outline-none focus:border-orange-500"
+                  required
+                />
+                <input
+                  type="number"
+                  placeholder="ค่ามือ (฿)"
+                  value={customHandFeeForm.fee}
+                  onChange={(e) => setCustomHandFeeForm({ ...customHandFeeForm, fee: e.target.value })}
+                  className="w-20 px-2.5 py-1 text-xs border border-slate-200 rounded-lg outline-none focus:border-orange-500 font-bold"
+                  required
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-1 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-bold text-xs shadow-xs"
+                >
+                  เพิ่ม
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomHandFeeInput(false)}
+                  className="px-2 py-1 text-slate-400 hover:text-slate-600 text-xs"
+                >
+                  ✕
+                </button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowCustomHandFeeInput(true)}
+                className="text-[11px] font-bold text-orange-700 hover:text-orange-900 flex items-center gap-1 bg-white/70 hover:bg-white px-2.5 py-1 rounded-lg border border-orange-200 shadow-2xs"
+              >
+                <Plus size={12} /> ระบุค่ามือบริการอื่นๆ
+              </button>
+            )}
+
+            {selectedHandFees.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedHandFees([])}
+                className="text-[11px] font-bold text-rose-500 hover:underline ml-auto"
+              >
+                ล้างค่ามือทั้งหมด
+              </button>
+            )}
+          </div>
+        </div>
+
+        {paymentStaff && (
           <div className="mt-3 p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-2">
-            <p className="text-[11px] text-indigo-800 font-bold">ยอดค่าคอมมิชชั่นโดยประมาณจากบิลนี้ (แยกตามประเภท):</p>
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] text-indigo-900 font-black">ยอดคำนวณสะสมจากบิลนี้ (แยกตามพนักงาน):</p>
+              {totalHandFeeFromBill > 0 && (
+                <span className="text-[10px] font-black text-orange-700 bg-orange-100 px-2.5 py-0.5 rounded-full border border-orange-200">
+                  มีค่ามือบริการรวม ฿{totalHandFeeFromBill.toLocaleString()}
+                </span>
+              )}
+            </div>
             {paymentStaff.split('/').map(s => s.trim()).filter(Boolean).map((staffName, idx, arr) => {
                const emp = employees.find(e => e.name === staffName);
                const courseRate = parseFloat(emp?.commissionRate) || 0;
@@ -886,19 +1096,31 @@ export default function POSSystem({
                const courseComm = (courseGross * (courseRate / 100)) / arr.length;
                const prodComm = (prodGross * (prodRate / 100)) / arr.length;
                const totalComm = courseComm + prodComm;
+               const staffHandFee = Math.round(totalHandFeeFromBill / arr.length);
+               const totalStaffIncome = totalComm + staffHandFee;
 
                return (
-                 <div key={idx} className="flex flex-col gap-1 text-xs text-indigo-700 bg-white px-3 py-2 rounded-lg shadow-sm border border-indigo-50">
+                 <div key={idx} className="flex flex-col gap-1 text-xs text-indigo-700 bg-white px-3 py-2.5 rounded-xl shadow-xs border border-indigo-50">
                    <div className="flex justify-between items-center w-full">
-                     <span className="font-semibold flex items-center gap-1.5">
-                       <div className="w-1.5 h-1.5 rounded-full bg-indigo-400"></div>
+                     <span className="font-bold flex items-center gap-1.5 text-slate-800">
+                       <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
                        {staffName}
                      </span>
-                     <span className="font-black text-emerald-600">฿{totalComm.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</span>
+                     <div className="text-right">
+                       <span className="text-[10px] text-slate-400 mr-1.5">รวมรับจากบิลนี้:</span>
+                       <span className="font-black text-emerald-600 text-sm">
+                         ฿{totalStaffIncome.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+                       </span>
+                     </div>
                    </div>
-                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-3 text-[10px] text-indigo-400 mt-0.5">
-                     <span>คอร์ส/บริการ ({courseRate}%): ฿{courseComm.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
-                     <span>สินค้า ({prodRate}%): ฿{prodComm.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-3 text-[10px] mt-1 pt-1 border-t border-slate-50">
+                     <span className="text-indigo-500">คอร์ส/บริการ ({courseRate}%): ฿{courseComm.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+                     <span className="text-indigo-500">สินค้า ({prodRate}%): ฿{prodComm.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+                     {staffHandFee > 0 && (
+                       <span className="text-orange-600 font-bold bg-orange-50 px-2 py-0.5 rounded-md border border-orange-200">
+                         💆 ค่ามือบริการ: +฿{staffHandFee.toLocaleString()}
+                       </span>
+                     )}
                    </div>
                  </div>
                );
@@ -3183,6 +3405,32 @@ export default function POSSystem({
         });
       }
 
+      // 🌟 บันทึกรายการค่ามือบริการ (DF) ลง service_logs สำหรับพนักงานที่เลือก
+      if (selectedHandFees && selectedHandFees.length > 0) {
+        const staffList = paymentStaff ? paymentStaff.split('/').map(s => s.trim()).filter(Boolean) : [];
+        const targetStaff = staffList.length > 0 
+          ? staffList.map(sName => employees.find(e => e.name === sName)).filter(Boolean)
+          : (activeStaff ? [activeStaff] : []);
+
+        targetStaff.forEach(emp => {
+          selectedHandFees.forEach(srv => {
+            const perStaffFee = Math.round((Number(srv.fee) || 0) * (Number(srv.qty) || 1) / (targetStaff.length || 1));
+            const srvLogRef = doc(getCol('service_logs'));
+            batch.set(srvLogRef, {
+              date: getLocalYYYYMMDD(customDateObj),
+              type: srv.name,
+              amount: perStaffFee,
+              quantity: Number(srv.qty) || 1,
+              note: `POS: ${orderNo}`,
+              employeeId: emp.id,
+              employeeName: emp.name,
+              branch: String(globalBranch || "เฉวง"),
+              createdAt: customDateObj.toISOString()
+            });
+          });
+        });
+      }
+
       await batch.commit();
 
       // 🌟 ปิดบิล Woo อัตโนมัติ: ออเดอร์แอปที่ถูกสร้างบน irisnatures.com (มี wcOrderId บน OD)
@@ -3338,6 +3586,9 @@ export default function POSSystem({
       });
       setCart([]);
       setUsedServices([]);
+      setSelectedHandFees([]);
+      setShowCustomHandFeeInput(false);
+      setCustomHandFeeForm({ name: '', fee: '' });
       setPaymentPhotos({ before: [], after: [] });
       setOmiseChargeData(null);
       setIsPollingOmise(false);
@@ -5846,7 +6097,7 @@ export default function POSSystem({
 
       return (
       <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm print:hidden">
-        <div className={`bg-white rounded-3xl p-6 w-full ${checkoutStep === 1 && hasUsageOrClaim ? 'max-w-3xl' : 'max-w-md'} shadow-2xl flex flex-col max-h-[95vh] overflow-y-auto`}>
+        <div className={`bg-white rounded-3xl p-6 w-full ${checkoutStep === 1 && hasUsageOrClaim ? 'max-w-3xl' : 'max-w-lg'} shadow-2xl flex flex-col max-h-[95vh] overflow-y-auto`}>
           
           {/* Header */}
           <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-4">
