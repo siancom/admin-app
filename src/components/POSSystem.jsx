@@ -57,17 +57,10 @@ const WalkingPersonIcon = ({ size = 18, className = "" }) => (
     width={size} 
     height={size} 
     viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
+    fill="currentColor" 
     className={className}
   >
-    <circle cx="13" cy="4" r="2"/>
-    <path d="m9 20 3-6-3-2V8l4 2 2 4 3 1"/>
-    <path d="m6 17 3-3"/>
-    <path d="m14 14 2 6"/>
+    <path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7" />
   </svg>
 );
 
@@ -4489,11 +4482,13 @@ export default function POSSystem({
               <button 
                 type="button"
                 onClick={handleSelectWalkIn}
-                className="px-2.5 sm:px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-1 transition-all shadow-sm active:scale-95 shrink-0"
+                className="px-2.5 sm:px-3 py-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-700 text-white border border-orange-400/80 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm shadow-orange-500/20 active:scale-95 shrink-0"
                 title="เลือกลูกค้าทั่วไป / วอคอิน (Walk-in)"
               >
-                <WalkingPersonIcon size={18} className="text-emerald-700" />
-                <span className="text-[11px] font-bold hidden sm:inline">วอคอิน</span>
+                <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-white flex items-center justify-center shrink-0 shadow-xs">
+                  <WalkingPersonIcon size={14} className="text-orange-600" />
+                </div>
+                <span className="text-xs sm:text-sm font-bold text-white tracking-wide">วอคอิน</span>
               </button>
 
               {onAddCustomer && (
@@ -5376,8 +5371,8 @@ export default function POSSystem({
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center overflow-hidden shrink-0 border border-indigo-200 shadow-sm">
                     {selectedCustomer.isWalkIn ? (
-                      <div className="w-full h-full bg-emerald-100 text-emerald-700 flex items-center justify-center">
-                        <WalkingPersonIcon size={20} />
+                      <div className="w-full h-full bg-gradient-to-r from-amber-500 to-orange-500 text-white flex items-center justify-center">
+                        <WalkingPersonIcon size={20} className="text-white" />
                       </div>
                     ) : (() => {
                       const picData = getProfilePicData(selectedCustomer, customers);
@@ -5398,8 +5393,8 @@ export default function POSSystem({
                     <div className="font-semibold text-slate-800 flex items-center flex-wrap gap-2">
                         {selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]))}
                         {selectedCustomer.isWalkIn ? (
-                          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                            <WalkingPersonIcon size={12} /> Walk-in
+                          <span className="bg-orange-100 text-orange-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-orange-200">
+                            <WalkingPersonIcon size={12} className="text-orange-600" /> Walk-in
                           </span>
                         ) : (
                           isVipCustomer && <span className="bg-yellow-100 text-yellow-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-yellow-200">VIP</span>
@@ -5582,11 +5577,13 @@ export default function POSSystem({
                 <button 
                   type="button"
                   onClick={handleSelectWalkIn}
-                  className="px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95 shrink-0"
+                  className="px-3 py-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-700 text-white border border-orange-400/80 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm shadow-orange-500/20 active:scale-95 shrink-0"
                   title="เลือกลูกค้าทั่วไป / วอคอิน (Walk-in)"
                 >
-                  <WalkingPersonIcon size={18} className="text-emerald-700" />
-                  <span className="text-xs font-bold hidden xl:inline">วอคอิน</span>
+                  <div className="w-6 h-6 rounded-lg bg-white flex items-center justify-center shrink-0 shadow-xs">
+                    <WalkingPersonIcon size={15} className="text-orange-600" />
+                  </div>
+                  <span className="text-xs sm:text-sm font-bold text-white tracking-wide">วอคอิน</span>
                 </button>
 
                 {onAddCustomer && (
