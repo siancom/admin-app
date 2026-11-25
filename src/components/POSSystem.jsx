@@ -516,6 +516,14 @@ export default function POSSystem({
   const [selectedGroupedCourse, setSelectedGroupedCourse] = useState(null);
   const [groupedCourseFilterTab, setGroupedCourseFilterTab] = useState('all'); // 'all' | 'regular' | 'promo'
   const [posPromoProgramLetter, setPosPromoProgramLetter] = useState('all');
+  const [posPromoGroup, setPosPromoGroup] = useState('all');
+
+  useEffect(() => {
+    if (selectedCourseForPromoModal) {
+      setPosPromoProgramLetter('all');
+      setPosPromoGroup('all');
+    }
+  }, [selectedCourseForPromoModal]);
   const [selectedCourseForUsage, setSelectedCourseForUsage] = useState(null);
   const [isSyncingWoo, setIsSyncingWoo] = useState(false);
   const [isLoadingCompare, setIsLoadingCompare] = useState(false);
@@ -10322,6 +10330,40 @@ export default function POSSystem({
                   </div>
                 );
               })()}
+              {/* 🌟 ตัวกรองหมวดหมู่กลุ่มแพ็กเกจ (เช่น รักษาสิว-ฝ้า / ฟื้นฟูหลุมสิว / ลงเครื่องเพิ่ม) 🌟 */}
+              {Array.isArray(selectedCourseForPromoModal.groups) && selectedCourseForPromoModal.groups.length > 0 && (
+                <div className="mb-3">
+                  <div className="text-xs font-black text-slate-700 mb-1.5 flex items-center justify-between">
+                    <span className="flex items-center gap-1"><Sparkles size={13} className="text-pink-600 fill-pink-400" /> หมวดหมู่แพ็กเกจ:</span>
+                    <span className="text-[10px] text-pink-600 font-bold bg-pink-50 px-2 py-0.5 rounded-full border border-pink-100">
+                      {posPromoGroup === 'all' 
+                        ? `แสดงทั้งหมด (${selectedCourseForPromoModal.promoOptions?.length || 0} รายการ)` 
+                        : (selectedCourseForPromoModal.groups.find(g => g.id === posPromoGroup)?.label || posPromoGroup)}
+                    </span>
+                  </div>
+                  <div className="flex gap-1.5 overflow-x-auto hide-scrollbar pb-1">
+                    {selectedCourseForPromoModal.groups.map(grp => {
+                      const isActive = (posPromoGroup || 'all') === grp.id;
+                      return (
+                        <button
+                          key={grp.id}
+                          type="button"
+                          onClick={() => setPosPromoGroup(grp.id)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all border flex items-center gap-1.5 ${
+                            isActive 
+                              ? 'bg-gradient-to-r from-pink-600 to-rose-600 text-white border-pink-600 shadow-xs' 
+                              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          {grp.icon && <span>{grp.icon}</span>}
+                          <span>{grp.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* 🌟 ตัวกรองโปรแกรม A ถึง J (สำหรับคอร์สรวมทรีทเม้นท์ผิวหน้า) 🌟 */}
               {Array.isArray(selectedCourseForPromoModal.programs) && selectedCourseForPromoModal.programs.length > 0 && (
                 <div className="mb-3">
@@ -10368,8 +10410,13 @@ export default function POSSystem({
 
               {(selectedCourseForPromoModal.promoOptions || [])
                 .filter(opt => {
-                  if (!posPromoProgramLetter || posPromoProgramLetter === 'all') return true;
-                  return opt.programLetter === posPromoProgramLetter || opt.code?.startsWith(`F-${posPromoProgramLetter}`);
+                  if (posPromoGroup && posPromoGroup !== 'all') {
+                    if (opt.groupId && opt.groupId !== posPromoGroup) return false;
+                  }
+                  if (posPromoProgramLetter && posPromoProgramLetter !== 'all') {
+                    return opt.programLetter === posPromoProgramLetter || opt.code?.startsWith(`F-${posPromoProgramLetter}`);
+                  }
+                  return true;
                 })
                 .map((opt, idx) => {
                 const optPrice = parseNumber(opt.price);
@@ -10386,6 +10433,11 @@ export default function POSSystem({
                   >
                     <div className="flex justify-between items-start gap-3">
                       <div className="flex-1 min-w-0">
+                        {opt.groupLabel && (
+                          <div className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-100 w-fit mb-1">
+                            {opt.groupLabel}
+                          </div>
+                        )}
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <span className="font-extrabold text-slate-800 text-sm sm:text-base group-hover:text-pink-600 transition-colors">
                             {opt.name}
@@ -10397,8 +10449,20 @@ export default function POSSystem({
                           )}
                         </div>
 
-                        <div className="inline-block text-[11px] font-bold text-teal-700 bg-teal-50 border border-teal-200/60 px-2 py-0.5 rounded-md mb-1.5">
-                          ✨ จำนวน {optSessions} ครั้ง
+                        <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                          <div className="inline-block text-[11px] font-bold text-teal-700 bg-teal-50 border border-teal-200/60 px-2 py-0.5 rounded-md">
+                            ✨ จำนวน {optSessions} ครั้ง
+                          </div>
+                          {opt.credit && (
+                            <div className="inline-block text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200/60 px-2 py-0.5 rounded-md">
+                              🎁 วงเงินผลิตภัณฑ์ ฿{Number(opt.credit).toLocaleString()}
+                            </div>
+                          )}
+                          {opt.freeMemberCard && (
+                            <div className="inline-block text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-md">
+                              💳 ฟรีบัตรสมาชิก (เมื่อชำระเต็ม)
+                            </div>
+                          )}
                         </div>
 
                         {opt.items && (
@@ -10409,6 +10473,11 @@ export default function POSSystem({
                       </div>
 
                       <div className="text-right shrink-0">
+                        {opt.originalPrice && Number(opt.originalPrice) > optPrice && (
+                          <div className="text-[10px] text-slate-400 line-through">
+                            ปกติ ฿{Number(opt.originalPrice).toLocaleString()}
+                          </div>
+                        )}
                         <div className="text-[10px] text-slate-400 font-bold">จ่ายเพียง</div>
                         <div className="font-black text-xl text-pink-600">
                           ฿{optPrice.toLocaleString()}
