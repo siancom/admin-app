@@ -4452,7 +4452,7 @@ const flexMessage = {
       showToast('กำลังส่งภาพบัตรประชาชนให้ Iris AI อ่านข้อมูล...', 'info');
 
       // Fetch API Key from Firestore app_settings/ai or fallback
-      let apiKey = 'AIzaSyAm-AmxT2TM01XMfsYpkGTf3CWgziAag-Q';
+      let apiKey = 'AIzaSyBwRZHwQ_sIzjYMVVsBDu3wYk8scjXJ5yc';
       try {
         const aiSnap = await getDoc(getDocRef('app_settings', 'ai'));
         if (aiSnap.exists() && aiSnap.data().geminiApiKey) {
@@ -4654,21 +4654,82 @@ const flexMessage = {
       setIsAnalyzingSkin(true);
       showToast('กำลังส่งภาพถ่ายให้ Iris AI วิเคราะห์สภาพผิว...', 'info');
 
-      const response = await fetch('https://asia-southeast1-iris-clinic-app.cloudfunctions.net/aiSkinAnalysis', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: base64Data,
-          mimeType: 'image/jpeg',
-          scanMode: 'skin'
-        })
-      });
+      let data = null;
+      try {
+        const response = await fetch('https://asia-southeast1-iris-clinic-app.cloudfunctions.net/aiSkinAnalysis', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: base64Data,
+            mimeType: 'image/jpeg',
+            scanMode: 'skin'
+          })
+        });
 
-      if (!response.ok) {
-        throw new Error(`AI Server ตอบกลับ status: ${response.status}`);
+        if (response.ok) {
+          data = await response.json();
+        }
+      } catch (cfErr) {
+        console.warn('Cloud Function aiSkinAnalysis fetch failed, falling back to direct Gemini API:', cfErr);
       }
 
-      const data = await response.json();
+      // If Cloud Function failed or returned no scores/summary, fallback directly to Gemini API
+      if (!data || (!data.scores && !data.summary)) {
+        let apiKey = 'AIzaSyBwRZHwQ_sIzjYMVVsBDu3wYk8scjXJ5yc';
+        try {
+          const aiSnap = await getDoc(getDocRef('app_settings', 'ai'));
+          if (aiSnap.exists() && aiSnap.data().geminiApiKey) {
+            apiKey = aiSnap.data().geminiApiKey;
+          }
+        } catch (e) {}
+
+        const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+        const skinPrompt = `คุณคือผู้เชี่ยวชาญด้านผิวพรรณประจำ Iris Clinic (ไอริส คลินิก)
+จงวิเคราะห์ภาพใบหน้านี้อย่างละเอียดในด้านหลักต่อไปนี้ (คะแนน 1-10 โดย 10 คือสมบูรณ์แบบ):
+1. สิวและรอยแดง (acne)
+2. ริ้วรอยและความกระชับ (wrinkles)
+3. ความสว่างกระจ่างใส (brightness)
+4. รูขุมขนและความเรียบเนียน (pores)
+5. ฝ้า กระ จุดด่างดำ (darkSpots)
+6. ความชุ่มชื้นและสมดุลความมัน (moisture)
+7. ระดับความพร้อมผลัดเซลล์ผิว (cellTurnover)
+พร้อมประเมินอายุผิวหน้า (estimatedSkinAge ตัวเลข)
+
+ตอบกลับเป็น JSON เท่านั้น:
+{
+  "greeting": "สวัสดีค่ะคุณลูกค้าจาก Iris Clinic",
+  "estimatedSkinAge": 28,
+  "scores": { "acne": 8, "wrinkles": 7, "brightness": 6, "pores": 7, "darkSpots": 6, "moisture": 8, "cellTurnover": 6 },
+  "hydrationAnalysis": { "isDehydrated": false, "description": "ผิวชุ่มชื้นปานกลาง" },
+  "summary": "สรุปสภาพผิวสั้นๆ",
+  "recommendation": "คำแนะนำการดูแลผิวสั้นๆ"
+}`;
+
+        const reqPayload = {
+          contents: [{
+            parts: [
+              { text: skinPrompt },
+              { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } }
+            ]
+          }],
+          generationConfig: { responseMimeType: 'application/json', temperature: 0.2 }
+        };
+
+        const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reqPayload)
+        });
+
+        if (geminiRes.ok) {
+          const resJson = await geminiRes.json();
+          const raw = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (raw) {
+            data = JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim());
+          }
+        }
+      }
+
       if (data && (data.scores || data.summary || data.greeting)) {
         // Extract concerns
         const detectedIssues = [];
