@@ -33,7 +33,7 @@ import BarcodeScannerModal from './BarcodeScannerModal';
 import { MACHINE_TREATMENT_ADDONS, STANDARD_FACIAL_SERVICES } from '../data/machineAddons';
 import { analyzeSkinIssue } from '../utils/skinAiUtils';
 
-// 🌟 รายการมาตรฐานที่ได้ค่ามือพนักงาน (DF บริการ) - นำพอก/นวดหน้าใสออกตามคำสั่ง
+// 🌟 รายการมาตรฐานที่ได้ค่ามือพนักงาน (DF บริการ) - นำพอก/นวดหน้าใส/สปาขัดตัวออกตามคำสั่ง
 const HAND_FEE_PRESETS = [
   { id: 'acne_extraction', name: 'กดสิว', fee: 10, icon: Droplet, desc: 'เคลียร์สิวอุดตัน สิวเสี้ยน (10 บ.)' },
   { id: 'laser_ipl', name: 'IPL / เลเซอร์', isBillCalculated: true, icon: Zap, desc: 'คำนวณตามบิล (10-20%)' },
@@ -3512,7 +3512,7 @@ export default function POSSystem({
       if (splitPayment.transfer > 0) paymentMethodsStrArr.push(`โอนเงิน: ${splitPayment.transfer}`);
       if (splitPayment.cod > 0) paymentMethodsStrArr.push(`ค้าง/COD: ${splitPayment.cod}`);
       if (splitPayment.credit > 0) paymentMethodsStrArr.push(`ตัดเครดิต: ${splitPayment.credit}`);
-      const paymentMethodStr = paymentMethodsStrArr.join(', ') || 'ฟรี/ส่วนลดเต็มจำนวน';
+      const paymentMethodStr = paymentMethodsStrArr.join(', ') || (hasCourseUsage ? 'ตัดคอร์ส' : (hasCourseClaim ? 'เบิกของแถม' : 'ฟรี/ส่วนลดเต็มจำนวน'));
       const batch = writeBatch(db);
       const delayedHistoryUpdates = [];
       
@@ -7400,9 +7400,14 @@ export default function POSSystem({
                   'ช่องทางการชำระเงิน'
                 )}
               </h2>
-              {!isRequisitionMode && (
+              {!isRequisitionMode && total > 0 && (
                 <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${checkoutStep === 1 ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
                   ขั้นตอน {checkoutStep}/2
+                </span>
+              )}
+              {!isRequisitionMode && total <= 0 && (
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-teal-50 text-teal-700 border border-teal-200 flex items-center gap-1">
+                  <Scissors size={12} /> {hasCourseClaim && !hasCourseUsage ? 'เบิกของแถม' : 'ตัดคอสบริการ'}
                 </span>
               )}
             </div>
@@ -8203,17 +8208,41 @@ export default function POSSystem({
                                return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
                            }
                        }
+                       // 🌟 หากไม่มีค่าใช้จ่าย (฿0) ให้ดำเนินการตัดคอร์ส / บันทึกประวัติได้ทันที
+                       if (total <= 0) {
+                           handleCheckout();
+                           return;
+                       }
                        // If payment not initialized yet, default to transfer or total
                        if (!splitPayment.cash && !splitPayment.transfer && !splitPayment.cod && !splitPayment.credit) {
                            setSplitPayment({ cash: 0, transfer: total, cod: 0, credit: 0 });
                        }
                        setCheckoutStep(2);
                     }}
-                    className="flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200"
+                    disabled={isProcessing}
+                    className={`flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${
+                      isProcessing 
+                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
+                        : (total <= 0 
+                            ? 'bg-teal-600 hover:bg-teal-700 text-white shadow-teal-200' 
+                            : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200')
+                    }`}
                   >
-                    <span>ถัดไป: ไปหน้าชำระเงิน</span>
-                    <span className="bg-white/20 px-2 py-0.5 rounded-lg text-sm font-black">฿{total.toLocaleString()}</span>
-                    <ChevronRight size={20} />
+                    {isProcessing ? (
+                      <><span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span> กำลังประมวลผล...</>
+                    ) : total <= 0 ? (
+                      <>
+                        <Scissors size={20} />
+                        <span>ตัดคอส</span>
+                        <span className="bg-white/20 px-2 py-0.5 rounded-lg text-sm font-black">฿0</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>ถัดไป: ไปหน้าชำระเงิน</span>
+                        <span className="bg-white/20 px-2 py-0.5 rounded-lg text-sm font-black">฿{total.toLocaleString()}</span>
+                        <ChevronRight size={20} />
+                      </>
+                    )}
                   </button>
                 )}
               </>
@@ -8242,7 +8271,7 @@ export default function POSSystem({
                   {isProcessing ? (
                     <><span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span> กำลังประมวลผล...</>
                   ) : (
-                    <><CheckCircle size={20} /> {isRequisitionMode ? 'ยืนยันการเบิกสินค้า' : (hasCourseUsage ? 'ยืนยันตัดคอร์สและชำระเงิน' : (hasCourseClaim ? 'ยืนยันการเบิกสินค้า' : 'ยืนยันการชำระเงิน'))}</>
+                    <>{(hasCourseUsage && total <= 0) ? <Scissors size={20} /> : <CheckCircle size={20} />} {isRequisitionMode ? 'ยืนยันการเบิกสินค้า' : (hasCourseUsage ? (total <= 0 ? 'ตัดคอส' : 'ยืนยันตัดคอร์สและชำระเงิน') : (hasCourseClaim ? 'ยืนยันการเบิกสินค้า' : 'ยืนยันการชำระเงิน'))}</>
                   )}
                 </button>
               </>
