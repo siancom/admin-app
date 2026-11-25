@@ -1867,7 +1867,9 @@ export default function App() {
     };
 
     return allMasterCourses.filter(mc => {
-        const searchStr = `${String(getFuzzyKey(mc, ["รหัสคอส", "col_1"]) || '')} ${String(getFuzzyKey(mc, ["ชื่อคอส", "col_4"]) || '')} ${String(getFuzzyKey(mc, ["ประเภท", "col_2"]) || '')}`.toLowerCase();
+        const code = String(getFuzzyKey(mc, ["รหัสคอส", "col_1"]) || mc.id || '').trim();
+        if (code.startsWith('course') || (mc.id && String(mc.id).startsWith('course'))) return false;
+        const searchStr = `${code} ${String(getFuzzyKey(mc, ["ชื่อคอส", "col_4"]) || '')} ${String(getFuzzyKey(mc, ["ประเภท", "col_2"]) || '')}`.toLowerCase();
         return masterCourseSearch === '' || searchStr.includes(masterCourseSearch.toLowerCase());
     }).sort((a, b) => {
         const tA = getCourseTimestamp(a);

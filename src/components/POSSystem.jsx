@@ -473,6 +473,12 @@ export default function POSSystem({
   const getCourseCategory = (c) => {
     if (!c) return 'other';
     
+    // คอร์สเก่าที่มีรหัส course... ให้ถือเป็น old_courses ทั้งหมด
+    let code = String(getFuzzyKey(c, ["รหัสคอส", "col_1"]) || c.id || '').trim();
+    if (code.startsWith('course') || (c.id && String(c.id).startsWith('course'))) {
+      return 'old_courses';
+    }
+
     const type = String(getFuzzyKey(c, ["ประเภท", "col_2"]) || '').trim();
     if (type === 'โปรโมชั่น' || type === 'โปร') return 'promo';
     if (type === 'ผิวหน้า (A-J)') return 'facial';
@@ -483,9 +489,13 @@ export default function POSSystem({
     if (type === 'IPL กำจัดขน') return 'ipl';
     if (type === 'วอคอิน' || type === 'คอร์สรายครั้ง' || type === 'รายครั้ง' || type === 'single_session' || type === 'service') return 'single_session';
     
-    let code = String(getFuzzyKey(c, ["รหัสคอส", "col_1"]) || '').trim();
     if (!code) return 'other';
     if (code.startsWith('PROMO-') || code.toLowerCase().startsWith('promo')) return 'promo';
+    if (code.startsWith('MACH-') || code.startsWith('MACH')) return 'machine';
+    if (code.startsWith('IPL-')) return 'ipl';
+    if (code.startsWith('CARE-')) return 'nourish';
+    if (code.startsWith('ACNE-') || code.startsWith('ACTIVE-')) return 'acne_sets';
+    if (code.toLowerCase() === 'acmm') return 'acne_clear';
     if (!code.startsWith('F-')) return 'old_courses';
     if (code.startsWith('F-MA') || code.startsWith('F-M')) return 'machine';
     if (code.startsWith('F-S')) return 'acne_sets';
@@ -1926,6 +1936,14 @@ export default function POSSystem({
       if (cat !== 'old_courses') {
         counts.all = (counts.all || 0) + 1;
         counts[cat] = (counts[cat] || 0) + 1;
+        const code = String(getFuzzyKey(c, ["รหัสคอส", "col_1"]) || c.id || '');
+        const name = String(getFuzzyKey(c, ["ชื่อคอส", "col_4"]) || '');
+        if ((code.toLowerCase() === 'acmm' || name.includes('เคลียร์สิว')) && cat !== 'acne_clear') {
+          counts.acne_clear = (counts.acne_clear || 0) + 1;
+        }
+        if ((code.includes('ACNE') || name.includes('สิว/ฝ้า')) && cat !== 'acne_sets') {
+          counts.acne_sets = (counts.acne_sets || 0) + 1;
+        }
       }
     });
     groupedSingleCourses.forEach(g => {
@@ -5603,7 +5621,14 @@ export default function POSSystem({
                   {filteredCourses
                     .filter(c => {
                       const category = getCourseCategory(c);
-                      if (multiCourseTab === 'all') return category !== 'old_courses';
+                      if (category === 'old_courses') return false;
+                      if (multiCourseTab === 'all') return true;
+                      if (multiCourseTab === 'acne_clear') {
+                        return category === 'acne_clear' || c.id === 'acmm' || String(getFuzzyKey(c, ["รหัสคอส", "col_1"])).toLowerCase() === 'acmm' || String(getFuzzyKey(c, ["ชื่อคอส", "col_4"])).includes('เคลียร์สิว');
+                      }
+                      if (multiCourseTab === 'acne_sets') {
+                        return category === 'acne_sets' || c.id === 'PROMO-ACNE-MELASMA' || String(getFuzzyKey(c, ["รหัสคอส", "col_1"])).includes('ACNE') || String(getFuzzyKey(c, ["ชื่อคอส", "col_4"])).includes('สิว/ฝ้า');
+                      }
                       return category === multiCourseTab;
                     })
                     .sort((a, b) => String(getFuzzyKey(a, ["รหัสคอส", "col_1"])).localeCompare(String(getFuzzyKey(b, ["รหัสคอส", "col_1"]))))
