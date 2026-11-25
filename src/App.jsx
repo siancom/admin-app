@@ -1697,15 +1697,30 @@ export default function App() {
 
       const remainingCredit = initialCredit - finalBerqAmount; 
 
-      let pendingAmt = parseNumber(getFuzzyKey(course, ["ยอดค้างชำระ", "pending"]));
-      if (pendingAmt === 0) {
-         const paymentType = String(getFuzzyKey(course, ["ประเภทการชำระ", "col_10"]) || '');
-         if (paymentType.includes('ค้าง') || paymentType.includes('COD')) {
-             const match = paymentType.match(/(?:ค้าง|COD)\s*[:/-]?\s*([\d,.]+)/i);
-             if (match) {
-                 pendingAmt = parseNumber(match[1]);
-             }
-         }
+      const paidAmt = parseNumber(getFuzzyKey(course, ["ยอดชำระแล้วทั้งหมด", "ยอดชำระแล้ว", "paidAmount"]));
+      const rawPending = getFuzzyKey(course, ["ยอดค้างชำระ", "pending", "col_pending"]);
+      let pendingAmt = 0;
+
+      if (rawPending !== undefined && rawPending !== null && String(rawPending).trim() !== '') {
+        // มีการระบุยอดค้างชำระไว้ชัดเจน
+        pendingAmt = parseNumber(rawPending);
+      } else if (coursePrice > 0 && paidAmt > 0) {
+        // หากไม่มีฟิลด์ยอดค้างชำระ แต่มีราคาและยอดชำระแล้ว คำนวณจาก ราคา - ชำระแล้ว
+        pendingAmt = Math.max(0, coursePrice - paidAmt);
+      } else {
+        // เฉพาะใบคอร์สเก่าที่ยังไม่เคยมีบันทึกยอดค้างชำระ
+        const paymentType = String(getFuzzyKey(course, ["ประเภทการชำระ", "col_10", "col_7"]) || '');
+        if (paymentType.includes('ค้าง') || paymentType.includes('COD')) {
+          const match = paymentType.match(/(?:ค้าง|COD)\s*[:/-]?\s*([\d,.]+)/i);
+          if (match) {
+            pendingAmt = parseNumber(match[1]);
+          }
+        }
+      }
+
+      // 🌟 หากชำระครบตามราคาคอร์สแล้ว หรือระบุยอดค้างชำระเป็น 0 ต้องไม่มียอดค้างชำระเด็ดขาด
+      if ((coursePrice > 0 && paidAmt >= coursePrice) || (rawPending !== undefined && parseNumber(rawPending) <= 0)) {
+        pendingAmt = 0;
       }
 
       // 🎁 Automatically exclude items where the claim history was cancelled ("คืนสิทธิ์")

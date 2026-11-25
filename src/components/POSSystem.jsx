@@ -6335,7 +6335,8 @@ export default function POSSystem({
                     </h3>
                     <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
                       {filteredPendingPayments.map(c => {
-                         const pendingAmt = parseNumber(getFuzzyKey(c, ["ยอดค้างชำระ", "pending"]));
+                         const pendingAmt = Number(c.computedPendingAmount ?? parseNumber(getFuzzyKey(c, ["ยอดค้างชำระ", "pending"]))) || 0;
+                         if (pendingAmt <= 0) return null;
                          return (
                            <div 
                              key={`pending_${c.id}`} 
@@ -8061,120 +8062,135 @@ export default function POSSystem({
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm font-semibold mb-2">
-                  <span className="text-slate-700">ระบุยอดเงิน:</span>
-                  {total - totalCovered > 0 && <span className="text-red-500 text-xs font-bold">ขาด ฿{(total - totalCovered).toLocaleString()}</span>}
-                  {totalPaid - (total - appCreditPaidAmount) > 0 && <span className="text-orange-500 text-xs font-bold">เกิน ฿{(totalPaid - (total - appCreditPaidAmount)).toLocaleString()}</span>}
-                  {appCreditPaidAmount > 0 && <span className="text-emerald-600 text-xs font-bold">✓ จ่ายแล้วผ่านแอป ฿{appCreditPaidAmount.toLocaleString()}</span>}
-                </div>
-
-                <button 
-                  type="button"
-                  onClick={() => {
-                    // 🌟 ล็อก "สแกน QR ตัดเครดิต" เมื่อลูกค้าจ่ายเครดิตผ่านแอปไปแล้ว
-                    if (appCreditPaidAmount > 0) {
-                      showToast('ห้ามตัดเครดิตซ้ำ — ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป', 'error');
-                      return;
-                    }
-                    setScannerTarget('creditPayment');
-                    setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: total });
-                  }}
-                  className="w-full bg-[#1a1f2c] text-white rounded-xl py-3 text-sm font-bold flex items-center justify-center gap-2 hover:bg-black active:scale-95 shadow-md mb-2 transition-all"
-                >
-                  <QrCode size={18} className="text-[#12B981]" /> สแกน QR Code เพื่อดึงลูกค้า/ตัดเครดิตจ่าย
-                </button>
-
-                {/* 🌟 แบนเนอร์กันหักเครดิตซ้ำ — ออเดอร์ที่ลูกค้าจ่ายเครดิตไปแล้วในแอป */}
-                {appCreditPaidAmount > 0 && (
-                  <div className="bg-amber-50 border-2 border-amber-300 rounded-xl px-3 py-2.5 mb-2 flex items-start gap-2">
-                    <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5"/>
-                    <div className="flex-1">
-                      <p className="text-xs font-black text-amber-800 leading-snug">
-                        ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป ฿{appCreditPaidAmount.toLocaleString()} — ถือว่าชำระเต็มจำนวนแล้ว
-                      </p>
-                      <p className="text-[10px] font-bold text-amber-600 mt-0.5">🚫 ห้ามเลือก "ใช้เครดิต" ซ้ำ (ระบบบล็อกไว้ — เครดิตจะถูกหักสองครั้ง) กดชำระเงินได้เลย</p>
-                    </div>
+              {total > 0 ? (
+                <div className="space-y-3">
+                  <div className="flex justify-between text-sm font-semibold mb-2">
+                    <span className="text-slate-700">ระบุยอดเงิน:</span>
+                    {total - totalCovered > 0 && <span className="text-red-500 text-xs font-bold">ขาด ฿{(total - totalCovered).toLocaleString()}</span>}
+                    {totalPaid - (total - appCreditPaidAmount) > 0 && <span className="text-orange-500 text-xs font-bold">เกิน ฿{(totalPaid - (total - appCreditPaidAmount)).toLocaleString()}</span>}
+                    {appCreditPaidAmount > 0 && <span className="text-emerald-600 text-xs font-bold">✓ จ่ายแล้วผ่านแอป ฿{appCreditPaidAmount.toLocaleString()}</span>}
                   </div>
-                )}
 
-                {[
-                  { key: 'transfer', label: 'โอนเงิน', icon: Smartphone },
-                  { key: 'cash', label: 'เงินสด', icon: Banknote },
-                  { key: 'cod', label: 'ค้าง/COD', icon: Clock },
-                  ...(customerCreditBalance > 0 || splitPayment.credit > 0 ? [{ key: 'credit', label: 'ใช้เครดิต', icon: CreditCard }] : [])
-                ].map((method) => (
-                  <div key={method.key} className={`flex items-center gap-2 ${method.key === 'credit' && appCreditPaidAmount > 0 ? 'opacity-40 pointer-events-none' : ''}`}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        // 🌟 ล็อกช่องเครดิตเมื่อลูกค้าจ่ายผ่านแอปแล้ว
-                        if (method.key === 'credit' && appCreditPaidAmount > 0) {
-                          showToast('ห้ามใช้เครดิตซ้ำ — ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป', 'error');
-                          return;
-                        }
-                        // ยอดที่ต้องเก็บจริง = ยอดสุทธิ − ที่จ่ายไปแล้วผ่านแอป
-                        const effectiveTotal = Math.max(0, total - (appCreditPaidAmount || 0));
-                        const currentOthersTotal = totalPaid - (splitPayment[method.key] || 0);
-                        if (currentOthersTotal >= effectiveTotal && effectiveTotal > 0) {
-                           const newAmt = effectiveTotal;
-                           setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0, [method.key]: newAmt });
-                        } else {
-                           let fillAmt = Math.max(0, effectiveTotal - currentOthersTotal);
-                           if (method.key === 'credit' && fillAmt > customerCreditBalance) fillAmt = customerCreditBalance;
-                           setSplitPayment(prev => ({ ...prev, [method.key]: fillAmt }));
-                        }
-                      }}
-                      className="flex-1 flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl hover:bg-indigo-50 transition-colors text-slate-600 focus:outline-none"
-                      title="คลิกเพื่อเติมยอดที่เหลือ หรือเปลี่ยนช่องทางชำระ"
-                    >
-                      <method.icon size={18} className="text-indigo-500" />
-                      <span className="text-sm font-medium">{method.label}</span>
-                      {method.key === 'credit' && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-md ml-auto">เหลือ ฿{customerCreditBalance.toLocaleString()}</span>}
-                    </button>
-                    <div className="flex items-center gap-1">
-                      <span className="text-sm text-slate-400">฿</span>
-                      <input 
-                        type="number" 
-                        value={splitPayment[method.key] || ''}
-                        onChange={(e) => {
-                          // 🌟 ห้ามกรอกเครดิตเมื่อลูกค้าจ่ายเครดิตผ่านแอปไปแล้ว
-                          if (method.key === 'credit' && appCreditPaidAmount > 0) return;
-                          let val = parseNumber(e.target.value);
-                          if (method.key === 'credit' && val > customerCreditBalance) val = customerCreditBalance;
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      // 🌟 ล็อก "สแกน QR ตัดเครดิต" เมื่อลูกค้าจ่ายเครดิตผ่านแอปไปแล้ว
+                      if (appCreditPaidAmount > 0) {
+                        showToast('ห้ามตัดเครดิตซ้ำ — ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป', 'error');
+                        return;
+                      }
+                      setScannerTarget('creditPayment');
+                      setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: total });
+                    }}
+                    className="w-full bg-[#1a1f2c] text-white rounded-xl py-3 text-sm font-bold flex items-center justify-center gap-2 hover:bg-black active:scale-95 shadow-md mb-2 transition-all"
+                  >
+                    <QrCode size={18} className="text-[#12B981]" /> สแกน QR Code เพื่อดึงลูกค้า/ตัดเครดิตจ่าย
+                  </button>
 
-                          setSplitPayment(prev => {
-                             const nextState = { ...prev, [method.key]: val };
-                             // ยอดที่ต้องเก็บจริง = ยอดสุทธิ − จ่ายแล้วผ่านแอป
-                             const effectiveTotal = Math.max(0, total - (appCreditPaidAmount || 0));
-                             let sum = (nextState.cash || 0) + (nextState.transfer || 0) + (nextState.cod || 0) + (nextState.credit || 0) + (nextState.omise_promptpay || 0);
+                  {/* 🌟 แบนเนอร์กันหักเครดิตซ้ำ — ออเดอร์ที่ลูกค้าจ่ายเครดิตไปแล้วในแอป */}
+                  {appCreditPaidAmount > 0 && (
+                    <div className="bg-amber-50 border-2 border-amber-300 rounded-xl px-3 py-2.5 mb-2 flex items-start gap-2">
+                      <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5"/>
+                      <div className="flex-1">
+                        <p className="text-xs font-black text-amber-800 leading-snug">
+                          ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป ฿{appCreditPaidAmount.toLocaleString()} — ถือว่าชำระเต็มจำนวนแล้ว
+                        </p>
+                        <p className="text-[10px] font-bold text-amber-600 mt-0.5">🚫 ห้ามเลือก "ใช้เครดิต" ซ้ำ (ระบบบล็อกไว้ — เครดิตจะถูกหักสองครั้ง) กดชำระเงินได้เลย</p>
+                      </div>
+                    </div>
+                  )}
 
-                             if (sum > effectiveTotal) {
-                                 let excess = sum - effectiveTotal;
-                                 const otherKeys = ['cash', 'transfer', 'cod', 'credit']
-                                     .filter(k => k !== method.key)
-                                     .sort((a, b) => (nextState[b] || 0) - (nextState[a] || 0));
-                                     
-                                 for (let key of otherKeys) {
-                                     if (excess <= 0) break;
-                                     let currentVal = nextState[key] || 0;
-                                     if (currentVal > 0) {
-                                         let deduct = Math.min(currentVal, excess);
-                                         nextState[key] = currentVal - deduct;
-                                         excess -= deduct;
-                                     }
-                                 }
-                             }
-                             return nextState;
-                          });
+                  {[
+                    { key: 'transfer', label: 'โอนเงิน', icon: Smartphone },
+                    { key: 'cash', label: 'เงินสด', icon: Banknote },
+                    { key: 'cod', label: 'ค้าง/COD', icon: Clock },
+                    ...(customerCreditBalance > 0 || splitPayment.credit > 0 ? [{ key: 'credit', label: 'ใช้เครดิต', icon: CreditCard }] : [])
+                  ].map((method) => (
+                    <div key={method.key} className={`flex items-center gap-2 ${method.key === 'credit' && appCreditPaidAmount > 0 ? 'opacity-40 pointer-events-none' : ''}`}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // 🌟 ล็อกช่องเครดิตเมื่อลูกค้าจ่ายผ่านแอปแล้ว
+                          if (method.key === 'credit' && appCreditPaidAmount > 0) {
+                            showToast('ห้ามใช้เครดิตซ้ำ — ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป', 'error');
+                            return;
+                          }
+                          // ยอดที่ต้องเก็บจริง = ยอดสุทธิ − ที่จ่ายไปแล้วผ่านแอป
+                          const effectiveTotal = Math.max(0, total - (appCreditPaidAmount || 0));
+                          const currentOthersTotal = totalPaid - (splitPayment[method.key] || 0);
+                          if (currentOthersTotal >= effectiveTotal && effectiveTotal > 0) {
+                             const newAmt = effectiveTotal;
+                             setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0, [method.key]: newAmt });
+                          } else {
+                             let fillAmt = Math.max(0, effectiveTotal - currentOthersTotal);
+                             if (method.key === 'credit' && fillAmt > customerCreditBalance) fillAmt = customerCreditBalance;
+                             setSplitPayment(prev => ({ ...prev, [method.key]: fillAmt }));
+                          }
                         }}
-                        placeholder="0"
-                        className={`w-28 text-right bg-slate-50 border rounded-xl px-3 py-2 text-base font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 ${splitPayment[method.key] > 0 ? 'border-indigo-300 text-indigo-700 bg-indigo-50/30' : 'border-slate-200 text-slate-800'}`}
-                      />
+                        className="flex-1 flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl hover:bg-indigo-50 transition-colors text-slate-600 focus:outline-none"
+                        title="คลิกเพื่อเติมยอดที่เหลือ หรือเปลี่ยนช่องทางชำระ"
+                      >
+                        <method.icon size={18} className="text-indigo-500" />
+                        <span className="text-sm font-medium">{method.label}</span>
+                        {method.key === 'credit' && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-md ml-auto">เหลือ ฿{customerCreditBalance.toLocaleString()}</span>}
+                      </button>
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm text-slate-400">฿</span>
+                        <input 
+                          type="number" 
+                          value={splitPayment[method.key] || ''}
+                          onChange={(e) => {
+                            // 🌟 ห้ามกรอกเครดิตเมื่อลูกค้าจ่ายเครดิตผ่านแอปไปแล้ว
+                            if (method.key === 'credit' && appCreditPaidAmount > 0) return;
+                            let val = parseNumber(e.target.value);
+                            if (method.key === 'credit' && val > customerCreditBalance) val = customerCreditBalance;
+
+                            setSplitPayment(prev => {
+                               const nextState = { ...prev, [method.key]: val };
+                               // ยอดที่ต้องเก็บจริง = ยอดสุทธิ − จ่ายแล้วผ่านแอป
+                               const effectiveTotal = Math.max(0, total - (appCreditPaidAmount || 0));
+                               let sum = (nextState.cash || 0) + (nextState.transfer || 0) + (nextState.cod || 0) + (nextState.credit || 0) + (nextState.omise_promptpay || 0);
+
+                               if (sum > effectiveTotal) {
+                                   let excess = sum - effectiveTotal;
+                                   const otherKeys = ['cash', 'transfer', 'cod', 'credit']
+                                       .filter(k => k !== method.key)
+                                       .sort((a, b) => (nextState[b] || 0) - (nextState[a] || 0));
+                                       
+                                   for (let key of otherKeys) {
+                                       if (excess <= 0) break;
+                                       let currentVal = nextState[key] || 0;
+                                       if (currentVal > 0) {
+                                           let deduct = Math.min(currentVal, excess);
+                                           nextState[key] = currentVal - deduct;
+                                           excess -= deduct;
+                                       }
+                                   }
+                               }
+                               return nextState;
+                            });
+                          }}
+                          placeholder="0"
+                          className={`w-28 text-right bg-slate-50 border rounded-xl px-3 py-2 text-base font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 ${splitPayment[method.key] > 0 ? 'border-indigo-300 text-indigo-700 bg-indigo-50/30' : 'border-slate-200 text-slate-800'}`}
+                        />
+                      </div>
                     </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-5 bg-teal-50/80 border border-teal-200 rounded-2xl text-center space-y-2.5">
+                  <div className="w-12 h-12 bg-teal-100 text-teal-600 rounded-2xl flex items-center justify-center mx-auto shadow-xs">
+                    <Scissors size={24} />
                   </div>
-                ))}
-              </div>
+                  <div className="font-black text-teal-900 text-base">
+                    {hasCourseClaim && !hasCourseUsage ? 'ยืนยันการเบิกสินค้าจากคอร์ส' : 'ยืนยันการตัดคอสบริการ'}
+                  </div>
+                  <p className="text-xs text-teal-700 font-medium leading-relaxed">
+                    ไม่มีค่าใช้จ่ายเพิ่มเติม (฿0) ข้อมูลบริการและลายเซ็นบันทึกเรียบร้อยแล้ว<br />
+                    กดปุ่ม <strong>"ตัดคอส"</strong> ด้านล่างเพื่อยืนยันรายการและบันทึกประวัติ
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -8208,11 +8224,6 @@ export default function POSSystem({
                                return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
                            }
                        }
-                       // 🌟 หากไม่มีค่าใช้จ่าย (฿0) ให้ดำเนินการตัดคอร์ส / บันทึกประวัติได้ทันที
-                       if (total <= 0) {
-                           handleCheckout();
-                           return;
-                       }
                        // If payment not initialized yet, default to transfer or total
                        if (!splitPayment.cash && !splitPayment.transfer && !splitPayment.cod && !splitPayment.credit) {
                            setSplitPayment({ cash: 0, transfer: total, cod: 0, credit: 0 });
@@ -8220,29 +8231,11 @@ export default function POSSystem({
                        setCheckoutStep(2);
                     }}
                     disabled={isProcessing}
-                    className={`flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${
-                      isProcessing 
-                        ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
-                        : (total <= 0 
-                            ? 'bg-teal-600 hover:bg-teal-700 text-white shadow-teal-200' 
-                            : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200')
-                    }`}
+                    className="flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200"
                   >
-                    {isProcessing ? (
-                      <><span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span> กำลังประมวลผล...</>
-                    ) : total <= 0 ? (
-                      <>
-                        <Scissors size={20} />
-                        <span>ตัดคอส</span>
-                        <span className="bg-white/20 px-2 py-0.5 rounded-lg text-sm font-black">฿0</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>ถัดไป: ไปหน้าชำระเงิน</span>
-                        <span className="bg-white/20 px-2 py-0.5 rounded-lg text-sm font-black">฿{total.toLocaleString()}</span>
-                        <ChevronRight size={20} />
-                      </>
-                    )}
+                    <span>{total <= 0 ? 'ถัดไป: ไปหน้าตัดคอส' : 'ถัดไป: ไปหน้าชำระเงิน'}</span>
+                    <span className="bg-white/20 px-2 py-0.5 rounded-lg text-sm font-black">฿{total.toLocaleString()}</span>
+                    <ChevronRight size={20} />
                   </button>
                 )}
               </>
@@ -8265,13 +8258,27 @@ export default function POSSystem({
                           handleCheckout();
                       }
                   }}
-                  disabled={isProcessing || (!isRequisitionMode && totalCovered !== total)}
-                  className={`flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${(isProcessing || (!isRequisitionMode && totalCovered !== total)) ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : (isRequisitionMode ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' : (hasCourseUsage ? 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200' : (hasCourseClaim ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-200' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200')))}`}
+                  disabled={isProcessing || (!isRequisitionMode && total > 0 && totalCovered !== total)}
+                  className={`flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${
+                    isProcessing 
+                      ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
+                      : (total <= 0 
+                          ? 'bg-teal-600 hover:bg-teal-700 text-white shadow-teal-200' 
+                          : (isRequisitionMode 
+                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' 
+                              : (hasCourseUsage ? 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200' : (hasCourseClaim ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-200' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200'))))
+                  }`}
                 >
                   {isProcessing ? (
                     <><span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span> กำลังประมวลผล...</>
+                  ) : total <= 0 ? (
+                    <>
+                      <Scissors size={20} />
+                      <span>ตัดคอส</span>
+                      <span className="bg-white/20 px-2 py-0.5 rounded-lg text-sm font-black">฿0</span>
+                    </>
                   ) : (
-                    <>{(hasCourseUsage && total <= 0) ? <Scissors size={20} /> : <CheckCircle size={20} />} {isRequisitionMode ? 'ยืนยันการเบิกสินค้า' : (hasCourseUsage ? (total <= 0 ? 'ตัดคอส' : 'ยืนยันตัดคอร์สและชำระเงิน') : (hasCourseClaim ? 'ยืนยันการเบิกสินค้า' : 'ยืนยันการชำระเงิน'))}</>
+                    <><CheckCircle size={20} /> {isRequisitionMode ? 'ยืนยันการเบิกสินค้า' : (hasCourseUsage ? 'ยืนยันตัดคอร์สและชำระเงิน' : (hasCourseClaim ? 'ยืนยันการเบิกสินค้า' : 'ยืนยันการชำระเงิน'))}</>
                   )}
                 </button>
               </>
