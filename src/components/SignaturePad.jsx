@@ -3,7 +3,7 @@
  */
 import React, { useState, useEffect, useRef } from 'react';
 
-export default function SignaturePad({ label, onSigned, canvasRef: propCanvasRef }) {
+export default function SignaturePad({ label, onSigned, canvasRef: propCanvasRef, height = 110 }) {
   const fallbackRef = useRef(null);
   const canvasRef = propCanvasRef || fallbackRef;
   const [isDrawing, setIsDrawing] = useState(false);
@@ -19,15 +19,22 @@ export default function SignaturePad({ label, onSigned, canvasRef: propCanvasRef
 
   const getCoordinates = (e) => {
     const canvas = canvasRef.current;
+    if (!canvas) return { offsetX: 0, offsetY: 0 };
     const rect = canvas.getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    return { offsetX: clientX - rect.left, offsetY: clientY - rect.top };
+    const scaleX = rect.width ? (canvas.width / rect.width) : 1;
+    const scaleY = rect.height ? (canvas.height / rect.height) : 1;
+    return { 
+      offsetX: (clientX - rect.left) * scaleX, 
+      offsetY: (clientY - rect.top) * scaleY 
+    };
   };
 
   const startDrawing = (e) => {
     const { offsetX, offsetY } = getCoordinates(e);
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     ctx.beginPath();
     ctx.moveTo(offsetX, offsetY);
@@ -39,7 +46,9 @@ export default function SignaturePad({ label, onSigned, canvasRef: propCanvasRef
     if (!isDrawing) return;
     e.preventDefault();
     const { offsetX, offsetY } = getCoordinates(e);
-    const ctx = canvasRef.current.getContext('2d');
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
     ctx.lineTo(offsetX, offsetY);
     ctx.stroke();
   };
@@ -47,13 +56,14 @@ export default function SignaturePad({ label, onSigned, canvasRef: propCanvasRef
   const stopDrawing = () => {
     if (isDrawing) {
       setIsDrawing(false);
-      if (onSigned) onSigned(canvasRef.current.toDataURL('image/png'));
+      if (onSigned && canvasRef.current) onSigned(canvasRef.current.toDataURL('image/png'));
     }
   };
 
   const clear = (e) => {
     e.preventDefault();
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     delete canvas.dataset.isSigned;
@@ -61,13 +71,14 @@ export default function SignaturePad({ label, onSigned, canvasRef: propCanvasRef
   };
 
   return (
-    <div className="relative border-2 border-gray-200 rounded-xl overflow-hidden bg-white shadow-inner touch-none">
-      <div className="absolute top-2 left-3 text-[10px] font-bold text-gray-300 pointer-events-none">{label}</div>
+    <div className="relative border border-slate-200 rounded-xl overflow-hidden bg-white shadow-inner touch-none">
+      <div className="absolute top-1.5 left-2.5 text-[10px] font-bold text-slate-400 pointer-events-none select-none">{label}</div>
       <canvas
         ref={canvasRef}
         width={500}
-        height={150}
-        className="w-full h-[150px] cursor-crosshair touch-none"
+        height={height}
+        style={{ height: `${height}px` }}
+        className="w-full cursor-crosshair touch-none block"
         onMouseDown={startDrawing}
         onMouseMove={draw}
         onMouseUp={stopDrawing}
@@ -79,7 +90,7 @@ export default function SignaturePad({ label, onSigned, canvasRef: propCanvasRef
       <button
         type="button"
         onClick={clear}
-        className="absolute bottom-2 right-2 text-[10px] bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1 rounded-lg font-bold shadow-sm transition-colors z-10"
+        className="absolute bottom-1.5 right-1.5 text-[9px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md font-bold shadow-2xs transition-colors z-10"
       >
         เซ็นใหม่
       </button>

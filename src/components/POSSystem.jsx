@@ -1547,18 +1547,18 @@ export default function POSSystem({
 
   const renderStaffSelection = (isServiceStep = false) => {
     return (
-      <div className="mb-4 bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
-        <div className="flex items-center justify-between mb-2">
+      <div className="mb-3 bg-slate-50 border border-slate-200/80 p-2.5 sm:p-3 rounded-2xl">
+        <div className="flex items-center justify-between mb-1.5">
           <label className="block text-xs font-bold text-slate-700">
             {isServiceStep ? 'พนักงานผู้ให้บริการ' : 'พนักงานที่ให้บริการ / ขายคอร์ส (เลือกได้หลายคนเพื่อแบ่งคอม)'} <span className="text-red-500">*</span>
           </label>
           {paymentStaff && (
-            <span className="text-[11px] font-bold text-indigo-700 bg-indigo-100 px-2.5 py-0.5 rounded-full border border-indigo-200">
+            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full border border-indigo-200">
               เลือก: {paymentStaff}
             </span>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {availableStaffList.length === 0 ? (
             <p className="text-xs text-rose-500 font-medium">ไม่พบรายชื่อพนักงานในระบบ กรุณาตรวจสอบเมนูพนักงาน</p>
           ) : (
@@ -1577,13 +1577,13 @@ export default function POSSystem({
                     }
                     setPaymentStaff(currentStaffList.join(' / '));
                   }}
-                  className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-bold border-2 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 ${
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-1 shadow-2xs active:scale-95 ${
                     isSelected 
                       ? 'bg-indigo-600 border-indigo-600 text-white shadow-indigo-200' 
                       : 'bg-white border-slate-200 text-slate-700 hover:border-indigo-300 hover:bg-slate-50'
                   }`}
                 >
-                  {isSelected ? <CheckCircle size={14} className="text-white" /> : <User size={14} className="text-slate-400" />}
+                  {isSelected ? <CheckCircle size={13} className="text-white" /> : <User size={13} className="text-slate-400" />}
                   {emp.name}
                 </button>
               );
@@ -1591,28 +1591,28 @@ export default function POSSystem({
           )}
         </div>
         {/* Hand Fee Selection Block - Vibrant Orange Buttons */}
-        <div className="mt-3 p-3.5 bg-gradient-to-br from-amber-50/70 via-orange-50/60 to-amber-50/70 border border-orange-200/90 rounded-2xl space-y-2.5">
+        <div className="mt-2.5 p-2.5 bg-gradient-to-br from-amber-50/70 via-orange-50/60 to-amber-50/70 border border-orange-200/90 rounded-xl space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
-              <div className="w-5 h-5 rounded-lg bg-orange-500 text-white flex items-center justify-center shadow-xs">
-                <Sparkles size={12} />
+              <div className="w-4 h-4 rounded-md bg-orange-500 text-white flex items-center justify-center shadow-xs">
+                <Sparkles size={10} />
               </div>
               <label className="text-xs font-black text-slate-800">
                 รายการที่ได้ค่ามือ (DF บริการ)
               </label>
-              <span className="text-[10px] text-orange-700 bg-orange-100/90 border border-orange-200 px-2 py-0.5 rounded-full font-bold">
+              <span className="text-[9px] text-orange-700 bg-orange-100/90 border border-orange-200 px-1.5 py-0.2 rounded-full font-bold">
                 แตะเลือกเพื่อคำนวณ
               </span>
             </div>
             {totalHandFeeFromBill > 0 && (
-              <span className="text-xs font-black text-orange-700 bg-white px-2.5 py-1 rounded-xl border border-orange-300 shadow-xs flex items-center gap-1">
-                ค่ามือรวม: <strong className="text-orange-600 text-sm">฿{totalHandFeeFromBill.toLocaleString()}</strong>
+              <span className="text-xs font-black text-orange-700 bg-white px-2 py-0.5 rounded-lg border border-orange-300 shadow-2xs flex items-center gap-1">
+                ค่ามือรวม: <strong className="text-orange-600 text-xs">฿{totalHandFeeFromBill.toLocaleString()}</strong>
               </span>
             )}
           </div>
 
           {/* Quick Selection Orange Buttons */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-1.5">
             {HAND_FEE_PRESETS.map((preset) => {
               const selected = selectedHandFees.find(h => h.id === preset.id);
               const isSelected = !!selected;
@@ -1623,55 +1623,53 @@ export default function POSSystem({
                 <div
                   key={preset.id}
                   onClick={() => toggleHandFee(preset)}
-                  className={`p-2.5 rounded-xl border-2 transition-all flex flex-col justify-between text-left relative active:scale-98 cursor-pointer select-none ${
+                  className={`p-1.5 sm:p-2 rounded-xl border transition-all flex flex-col justify-between text-left relative active:scale-98 cursor-pointer select-none ${
                     isSelected
-                      ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 border-orange-500 text-white shadow-md shadow-orange-500/25 ring-2 ring-orange-200'
-                      : 'bg-white border-orange-200/90 text-slate-800 hover:border-orange-400 hover:bg-orange-50/60 shadow-xs'
+                      ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 border-orange-500 text-white shadow-sm ring-1 ring-orange-300'
+                      : 'bg-white border-orange-200 text-slate-800 hover:border-orange-400 hover:bg-orange-50/50 shadow-2xs'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-1 w-full mb-1">
-                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                  <div className="flex items-center justify-between gap-1 w-full mb-1">
+                    <div className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
                       isSelected ? 'bg-white/20 text-white' : 'bg-orange-100 text-orange-600'
                     }`}>
-                      <Icon size={15} />
+                      <Icon size={12} />
                     </div>
-                    <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md ${
+                    <span className={`text-[10px] font-black px-1.5 py-0.5 rounded whitespace-nowrap shrink-0 ${
                       isSelected ? 'bg-white text-orange-600' : 'bg-orange-100 text-orange-700'
                     }`}>
-                      {preset.isBillCalculated ? `+฿${currentFee} (ตามบิล)` : `+฿${preset.fee}`}
+                      {preset.isBillCalculated ? `+฿${currentFee}` : `+฿${preset.fee}`}
+                      {preset.isBillCalculated && <span className="text-[8px] font-normal opacity-85 ml-0.5">(บิล)</span>}
                     </span>
                   </div>
 
                   <div className="min-w-0 w-full">
-                    <p className={`text-xs font-black truncate leading-tight ${isSelected ? 'text-white' : 'text-slate-800'}`}>
+                    <p className={`text-[11px] font-bold truncate leading-tight ${isSelected ? 'text-white' : 'text-slate-800'}`}>
                       {preset.name}
-                    </p>
-                    <p className={`text-[9px] truncate mt-0.5 ${isSelected ? 'text-orange-100' : 'text-slate-400'}`}>
-                      {preset.isBillCalculated ? 'คิด 10-20% ตามยอดบิล' : preset.desc}
                     </p>
                   </div>
 
                   {isSelected && (
-                    <div className="mt-2 pt-1.5 border-t border-white/20 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
-                      <span className="text-[10px] font-bold text-white flex items-center gap-1">
-                        <Check size={11} strokeWidth={3} /> เลือกแล้ว
+                    <div className="mt-1 pt-1 border-t border-white/20 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+                      <span className="text-[9px] font-bold text-white flex items-center gap-0.5">
+                        <Check size={10} strokeWidth={3} /> เลือก
                       </span>
-                      <div className="flex items-center gap-1 bg-white/20 rounded-md px-1 py-0.5">
+                      <div className="flex items-center gap-0.5 bg-white/25 rounded px-1 py-0.5">
                         <button
                           type="button"
                           onClick={() => updateHandFeeQty(preset.id, -1)}
-                          className="w-4 h-4 rounded flex items-center justify-center text-white hover:bg-white/30 text-xs font-bold leading-none"
+                          className="w-3.5 h-3.5 rounded flex items-center justify-center text-white hover:bg-white/30 text-[10px] font-bold leading-none"
                           title="ลดจำนวน"
                         >
                           -
                         </button>
-                        <span className="text-xs font-black text-white px-1">
+                        <span className="text-[10px] font-black text-white px-0.5">
                           {selected.qty || 1}
                         </span>
                         <button
                           type="button"
                           onClick={() => updateHandFeeQty(preset.id, 1)}
-                          className="w-4 h-4 rounded flex items-center justify-center text-white hover:bg-white/30 text-xs font-bold leading-none"
+                          className="w-3.5 h-3.5 rounded flex items-center justify-center text-white hover:bg-white/30 text-[10px] font-bold leading-none"
                           title="เพิ่มจำนวน"
                         >
                           +
@@ -1685,7 +1683,7 @@ export default function POSSystem({
           </div>
 
           {/* Custom Hand Fee Input / Active items pills */}
-          <div className="pt-1 flex items-center justify-between text-xs">
+          <div className="pt-0.5 flex items-center justify-between text-xs">
             {showCustomHandFeeInput ? (
               <form onSubmit={addCustomHandFee} className="w-full flex gap-1.5 items-center bg-white p-2 rounded-xl border border-orange-200">
                 <input
@@ -1722,9 +1720,9 @@ export default function POSSystem({
               <button
                 type="button"
                 onClick={() => setShowCustomHandFeeInput(true)}
-                className="text-[11px] font-bold text-orange-700 hover:text-orange-900 flex items-center gap-1 bg-white/70 hover:bg-white px-2.5 py-1 rounded-lg border border-orange-200 shadow-2xs"
+                className="text-[10px] font-bold text-orange-700 hover:text-orange-900 flex items-center gap-1 bg-white/70 hover:bg-white px-2 py-0.5 rounded-lg border border-orange-200 shadow-2xs"
               >
-                <Plus size={12} /> ระบุค่ามือบริการอื่นๆ
+                <Plus size={11} /> ระบุค่ามือบริการอื่นๆ
               </button>
             )}
 
@@ -1732,7 +1730,7 @@ export default function POSSystem({
               <button
                 type="button"
                 onClick={() => setSelectedHandFees([])}
-                className="text-[11px] font-bold text-rose-500 hover:underline ml-auto"
+                className="text-[10px] font-bold text-rose-500 hover:underline ml-auto"
               >
                 ล้างค่ามือทั้งหมด
               </button>
@@ -1740,79 +1738,69 @@ export default function POSSystem({
           </div>
         </div>
 
-        {paymentStaff && (
-          <div className="mt-3 p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] text-indigo-900 font-black">ยอดคำนวณสะสมจากบิลนี้ (แยกตามพนักงาน):</p>
-              {totalHandFeeFromBill > 0 && (
-                <span className="text-[10px] font-black text-orange-700 bg-orange-100 px-2.5 py-0.5 rounded-full border border-orange-200">
-                  มีค่ามือบริการรวม ฿{totalHandFeeFromBill.toLocaleString()}
-                </span>
-              )}
+        {paymentStaff && (() => {
+          const staffNames = paymentStaff.split('/').map(s => s.trim()).filter(Boolean);
+          const staffIncomes = staffNames.map(staffName => {
+             const emp = employees.find(e => e.name === staffName);
+             const courseRate = parseFloat(emp?.commissionRate) || 0;
+             const prodRate = parseFloat(emp?.productCommissionRate) || 0;
+             
+             let prodGross = 0;
+             let courseGross = 0;
+             cart.forEach(item => {
+               if (item.type === 'usage' || item.type === 'claim_item' || item.isUsage || item.actionType === 'usage' || item.noCourseCommission) {
+                 return;
+               }
+               if (item.type === 'product') {
+                 prodGross += (Number(item.price) || 0) * (Number(item.qty) || 1);
+               } else if (item.type === 'service' || item.isService || item.id?.startsWith('srv_mole') || item.name?.includes('จี้')) {
+                 return;
+               } else if (item.type === 'course' || item.type === 'single_course') {
+                 if (isServiceStep && (Number(item.price) <= 0 || item.isUsage)) return;
+                 if (Number(item.price) > 0) {
+                   courseGross += (Number(item.price) || 0) * (Number(item.qty) || 1);
+                 }
+               }
+             });
+
+             const courseComm = (courseGross * (courseRate / 100)) / staffNames.length;
+             const prodComm = (prodGross * (prodRate / 100)) / staffNames.length;
+             const totalComm = courseComm + prodComm;
+             const staffHandFee = Math.round(totalHandFeeFromBill / staffNames.length);
+             const totalStaffIncome = totalComm + staffHandFee;
+             return { staffName, courseRate, prodRate, courseComm, prodComm, totalComm, staffHandFee, totalStaffIncome };
+          });
+
+          // 🌟 HIDE completely if no income is earned (0 Baht bill with no DF)!
+          const hasAnyIncome = staffIncomes.some(s => s.totalStaffIncome > 0);
+          if (!hasAnyIncome) return null;
+
+          return (
+            <div className="mt-2.5 p-2.5 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-1.5">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] text-indigo-900 font-black">ยอดคำนวณสะสมจากบิลนี้ (แยกตามพนักงาน):</p>
+                {totalHandFeeFromBill > 0 && (
+                  <span className="text-[9px] font-black text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200">
+                    มีค่ามือบริการรวม ฿{totalHandFeeFromBill.toLocaleString()}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {staffIncomes.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between gap-2 text-xs text-indigo-700 bg-white px-2.5 py-1.5 rounded-lg shadow-2xs border border-indigo-50 flex-1 min-w-[130px]">
+                    <span className="font-bold flex items-center gap-1 text-slate-800 text-[11px]">
+                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
+                      {item.staffName}
+                    </span>
+                    <span className="font-black text-emerald-600 text-xs">
+                      ฿{item.totalStaffIncome.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-            {paymentStaff.split('/').map(s => s.trim()).filter(Boolean).map((staffName, idx, arr) => {
-               const emp = employees.find(e => e.name === staffName);
-               const courseRate = parseFloat(emp?.commissionRate) || 0;
-               const prodRate = parseFloat(emp?.productCommissionRate) || 0;
-               
-               let prodGross = 0;
-               let courseGross = 0;
-               cart.forEach(item => {
-                 // 🌟 1. ตัดคอร์ส / รับบริการ / เบิกของแถม: ไม่ใช่การซื้อคอร์สหรือซื้อเพิ่ม พนักงานต้องไม่ได้ค่าขายคอร์ส (0 บ.)
-                 if (item.type === 'usage' || item.type === 'claim_item' || item.isUsage || item.actionType === 'usage' || item.noCourseCommission) {
-                   return;
-                 }
-                 // 🌟 2. สินค้าขาย
-                 if (item.type === 'product') {
-                   prodGross += (Number(item.price) || 0) * (Number(item.qty) || 1);
-                 }
-                 // 🌟 3. รายการจี้ / หัตถการรายครั้ง: ไม่คำนวณเป็นค่าคอมคอร์ส (คิดเป็นค่ามือ DF ตามบิล)
-                 else if (item.type === 'service' || item.isService || item.id?.startsWith('srv_mole') || item.name?.includes('จี้')) {
-                   return;
-                 }
-                 // 🌟 4. ซื้อคอร์สใหม่ หรือ ซื้อเพิ่ม (ต้องไม่ใช่ขั้นตอนรับบริการตัดคอร์ส และต้องมีราคาขายจริง)
-                 else if (item.type === 'course' || item.type === 'single_course') {
-                   if (isServiceStep && (Number(item.price) <= 0 || item.isUsage)) return;
-                   if (Number(item.price) > 0) {
-                     courseGross += (Number(item.price) || 0) * (Number(item.qty) || 1);
-                   }
-                 }
-               });
-
-               const courseComm = (courseGross * (courseRate / 100)) / arr.length;
-               const prodComm = (prodGross * (prodRate / 100)) / arr.length;
-               const totalComm = courseComm + prodComm;
-               const staffHandFee = Math.round(totalHandFeeFromBill / arr.length);
-               const totalStaffIncome = totalComm + staffHandFee;
-
-               return (
-                 <div key={idx} className="flex flex-col gap-1 text-xs text-indigo-700 bg-white px-3 py-2.5 rounded-xl shadow-xs border border-indigo-50">
-                   <div className="flex justify-between items-center w-full">
-                     <span className="font-bold flex items-center gap-1.5 text-slate-800">
-                       <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
-                       {staffName}
-                     </span>
-                     <div className="text-right">
-                       <span className="text-[10px] text-slate-400 mr-1.5">รวมรับจากบิลนี้:</span>
-                       <span className="font-black text-emerald-600 text-sm">
-                         ฿{totalStaffIncome.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}
-                       </span>
-                     </div>
-                   </div>
-                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-3 text-[10px] mt-1 pt-1 border-t border-slate-50">
-                     <span className="text-indigo-500">คอร์ส/บริการ ({courseRate}%): ฿{courseComm.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
-                     <span className="text-indigo-500">สินค้า ({prodRate}%): ฿{prodComm.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
-                     {staffHandFee > 0 && (
-                       <span className="text-orange-600 font-bold bg-orange-50 px-2 py-0.5 rounded-md border border-orange-200">
-                         💆 ค่ามือบริการ: +฿{staffHandFee.toLocaleString()}
-                       </span>
-                     )}
-                   </div>
-                 </div>
-               );
-            })}
-          </div>
-        )}
+          );
+        })()}
       </div>
     );
   };
@@ -8620,27 +8608,8 @@ export default function POSSystem({
                                           }}
                                           className="px-2 py-1 rounded-lg text-[10px] font-bold bg-indigo-50 hover:bg-indigo-600 hover:text-white text-indigo-700 border border-indigo-200 shrink-0 shadow-2xs"
                                         >
-                                          + {hasOptions ? 'เลือกโปร' : 'ซื้อคอร์ส'}
+                                          + ซื้อคอร์ส
                                         </button>
-                                      </div>
-                                    );
-                                  })}
-
-                                  {/* Basic services in search */}
-                                  {matchedBasic.map(srv => {
-                                    const isSelected = isServiceSelected(srv.name);
-                                    return (
-                                      <div 
-                                        key={srv.id} 
-                                        onClick={() => toggleServiceName(srv.name, srv)}
-                                        className={`p-2 rounded-xl border cursor-pointer transition-all flex items-center gap-2 ${
-                                          isSelected ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 bg-white text-slate-700'
-                                        }`}
-                                      >
-                                        <div className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 ${isSelected ? 'bg-indigo-600 text-white' : 'border border-slate-300'}`}>
-                                          {isSelected && <Check size={10} strokeWidth={3} />}
-                                        </div>
-                                        <span className="text-xs truncate">💆 {srv.name}</span>
                                       </div>
                                     );
                                   })}
@@ -9102,39 +9071,67 @@ export default function POSSystem({
 
           {/* STEP 2: Payment Screen */}
           {checkoutStep === 2 && !isRequisitionMode && (
-            <div className="space-y-4">
-              <div className={`text-center bg-gradient-to-b ${total <= 0 ? 'from-orange-50/70 via-amber-50/40 to-slate-50 border-orange-200/80' : 'from-pink-50/70 via-rose-50/40 to-slate-50 border-pink-200/80'} p-4 rounded-2xl border`}>
-                <div className="text-xs font-semibold text-slate-500 mb-0.5">ยอดสุทธิที่ต้องชำระ</div>
-                <div className={`text-3xl font-extrabold ${total <= 0 ? 'text-orange-600' : 'text-pink-600'} tracking-tight`}>฿{total.toLocaleString()}</div>
-                <div className="mt-2 flex items-center justify-center gap-2 flex-wrap text-xs">
-                  <span className="px-2.5 py-0.5 bg-white border border-slate-200 rounded-full text-slate-600 font-bold">
-                    ช่องทาง: {orderChannel === 'instore' ? 'หน้าร้าน' : orderChannel === 'shopee' ? 'Shopee' : orderChannel === 'chat' ? 'ทางแชท' : 'ทางเว็บ'}
-                  </span>
-                  {paymentStaff && (
-                    <span className="px-2.5 py-0.5 bg-white border border-slate-200 rounded-full text-slate-700 font-bold truncate max-w-[200px]">
-                      ผู้ทำรายการ: {paymentStaff}
-                    </span>
-                  )}
+            <div className="space-y-3">
+              {/* Top Summary Banner */}
+              {hasUsageOrClaim && total <= 0 ? (
+                <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 text-white p-2.5 sm:p-3 rounded-2xl flex items-center justify-between shadow-xs">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0 shadow-inner">
+                      <Scissors size={18} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-black">
+                          {hasCourseClaim && !hasCourseUsage ? 'ยืนยันเบิกสินค้าจากคอร์ส' : 'ยืนยันการตัดคอสบริการ'}
+                        </span>
+                        <span className="bg-white/25 px-1.5 py-0.2 rounded-full text-[9px] font-bold">
+                          {cart.filter(i => i.type === 'usage' || i.type === 'claim_item').length} รายการ
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-orange-100">
+                        {paymentStaff ? `ผู้ให้บริการ: ${paymentStaff}` : 'ไม่มีค่าใช้จ่ายเพิ่มเติม (฿0)'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-[10px] text-orange-200 block font-bold leading-none">ยอดชำระ</span>
+                    <span className="text-lg font-black">฿0</span>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className={`text-center bg-gradient-to-b ${total <= 0 ? 'from-orange-50/70 via-amber-50/40 to-slate-50 border-orange-200/80' : 'from-pink-50/70 via-rose-50/40 to-slate-50 border-pink-200/80'} p-3 rounded-2xl border`}>
+                  <div className="text-[11px] font-semibold text-slate-500 mb-0.5">ยอดสุทธิที่ต้องชำระ</div>
+                  <div className={`text-2xl font-extrabold ${total <= 0 ? 'text-orange-600' : 'text-pink-600'} tracking-tight`}>฿{total.toLocaleString()}</div>
+                  <div className="mt-1 flex items-center justify-center gap-2 flex-wrap text-xs">
+                    <span className="px-2 py-0.5 bg-white border border-slate-200 rounded-full text-slate-600 font-bold text-[10px]">
+                      ช่องทาง: {orderChannel === 'instore' ? 'หน้าร้าน' : orderChannel === 'shopee' ? 'Shopee' : orderChannel === 'chat' ? 'ทางแชท' : 'ทางเว็บ'}
+                    </span>
+                    {paymentStaff && (
+                      <span className="px-2 py-0.5 bg-white border border-slate-200 rounded-full text-slate-700 font-bold truncate max-w-[200px] text-[10px]">
+                        ผู้ทำรายการ: {paymentStaff}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
 
-              {/* 🌟 เมื่อเป็นคอร์ส/บริการ ย้ายช่องทางสั่งซื้อ และพนักงาน/ค่ามือ มาไว้ที่หน้าสองนี้เพื่อลดความแน่นของหน้าแรก */}
-              {hasUsageOrClaim && (
-                <div className="space-y-4">
+              {/* Order Channel Selector (Shown ONLY when total > 0) */}
+              {hasUsageOrClaim && total > 0 && (
+                <div className="space-y-3">
                   <div>
-                    <div className="text-sm font-semibold text-slate-700 mb-2">ช่องทางการสั่งซื้อ</div>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => { setOrderChannel('instore'); setSplitPayment(prev => ({ ...prev, transfer: total - prev.cash - prev.cod - prev.credit })); }} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${orderChannel === 'instore' ? (total <= 0 ? 'bg-orange-500 text-white shadow-md' : 'bg-pink-600 text-white shadow-md') : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>หน้าร้าน</button>
-                      <button type="button" onClick={() => { setOrderChannel('shopee'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${orderChannel === 'shopee' ? 'bg-orange-500 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ช้อปปี้</button>
-                      <button type="button" onClick={() => { setOrderChannel('chat'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${orderChannel === 'chat' ? 'bg-emerald-500 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ทางแชท</button>
-                      <button type="button" onClick={() => { setOrderChannel('web'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${orderChannel === 'web' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ทางเว็บ</button>
+                    <div className="text-xs font-semibold text-slate-700 mb-1.5">ช่องทางการสั่งซื้อ</div>
+                    <div className="flex gap-1.5">
+                      <button type="button" onClick={() => { setOrderChannel('instore'); setSplitPayment(prev => ({ ...prev, transfer: total - prev.cash - prev.cod - prev.credit })); }} className={`flex-1 py-1.5 rounded-lg font-bold text-xs transition-all ${orderChannel === 'instore' ? (total <= 0 ? 'bg-orange-500 text-white shadow-md' : 'bg-pink-600 text-white shadow-md') : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>หน้าร้าน</button>
+                      <button type="button" onClick={() => { setOrderChannel('shopee'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-1.5 rounded-lg font-bold text-xs transition-all ${orderChannel === 'shopee' ? 'bg-orange-500 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ช้อปปี้</button>
+                      <button type="button" onClick={() => { setOrderChannel('chat'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-1.5 rounded-lg font-bold text-xs transition-all ${orderChannel === 'chat' ? 'bg-emerald-500 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ทางแชท</button>
+                      <button type="button" onClick={() => { setOrderChannel('web'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-1.5 rounded-lg font-bold text-xs transition-all ${orderChannel === 'web' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ทางเว็บ</button>
                     </div>
                   </div>
 
                   {orderChannel !== 'instore' && (
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       <div>
-                        <div className="text-sm font-semibold text-slate-700 mb-2 flex justify-between">
+                        <div className="text-xs font-semibold text-slate-700 mb-1 flex justify-between">
                           <span>หมายเลขคำสั่งซื้อ / รหัสอ้างอิง</span>
                         </div>
                         <div className="flex gap-2">
@@ -9143,14 +9140,14 @@ export default function POSSystem({
                             value={activeWcOrderId || ''}
                             onChange={(e) => setActiveWcOrderId(e.target.value)}
                             placeholder="เช่น 240822ABCD..." 
-                            className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="flex-1 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
                           />
                           <button 
                             type="button"
                             onClick={() => setScannerTarget('wcOrder')}
-                            className="bg-indigo-100 text-indigo-600 px-3 py-2 rounded-lg font-bold hover:bg-indigo-200 transition-colors flex items-center justify-center shrink-0"
+                            className="bg-indigo-100 text-indigo-600 px-2.5 py-1.5 rounded-lg font-bold hover:bg-indigo-200 transition-colors flex items-center justify-center shrink-0"
                           >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
                           </button>
                         </div>
                       </div>
@@ -9166,24 +9163,24 @@ export default function POSSystem({
                                   value={posTrackingNo}
                                   onChange={(e) => setPosTrackingNo(e.target.value)}
                                   placeholder="สแกนหรือพิมพ์เลขพัสดุ"
-                                  className="flex-1 min-w-0 border border-slate-200 rounded-xl p-2.5 text-sm font-mono font-bold tracking-wide focus:outline-none focus:border-sky-500 w-full"
+                                  className="flex-1 min-w-0 border border-slate-200 rounded-xl p-2 text-xs font-mono font-bold tracking-wide focus:outline-none focus:border-sky-500 w-full"
                                 />
                                 <div className="flex gap-1.5 shrink-0">
                                    <button
                                      type="button"
                                      onClick={() => setScannerTarget('trackingNo')}
                                      title="เปิดกล้องสแกนเลขพัสดุ"
-                                     className="px-3 bg-sky-500 hover:bg-sky-600 text-white rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-sm active:scale-95 transition-all"
+                                     className="px-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-lg flex items-center gap-1 font-bold text-xs shadow-sm active:scale-95 transition-all"
                                    >
-                                     <QrCode size={16}/> สแกน
+                                     <QrCode size={14}/> สแกน
                                    </button>
                                    <button
                                      type="button"
                                      onClick={() => setIshipModal({ isOpen: true })}
                                      title="จัดการที่อยู่ / เรียก iShip"
-                                     className="px-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-sm active:scale-95 transition-all"
+                                     className="px-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center gap-1 font-bold text-xs shadow-sm active:scale-95 transition-all"
                                    >
-                                     <Truck size={16}/> iShip
+                                     <Truck size={14}/> iShip
                                    </button>
                                 </div>
                               </div>
@@ -9201,11 +9198,11 @@ export default function POSSystem({
                       </div>
                     </div>
                   )}
-
-                  {/* Staff Selection & Hand Fee */}
-                  {renderStaffSelection(true)}
                 </div>
               )}
+
+              {/* Staff Selection & Hand Fee */}
+              {hasUsageOrClaim && renderStaffSelection(true)}
 
               {total > 0 ? (
                 <div className="space-y-3">
@@ -9322,61 +9319,111 @@ export default function POSSystem({
                     </div>
                   ))}
                 </div>
-              ) : (
-                <div className="p-4 bg-orange-50/80 border border-orange-200 rounded-2xl text-center space-y-2.5">
-                  <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center mx-auto shadow-xs">
-                    <Scissors size={24} />
-                  </div>
-                  <div className="font-black text-orange-950 text-base">
-                    {hasCourseClaim && !hasCourseUsage ? 'ยืนยันการเบิกสินค้าจากคอร์ส' : 'ยืนยันการตัดคอสบริการ'}
-                  </div>
-                  <p className="text-xs text-orange-800 font-medium leading-relaxed">
-                    ไม่มีค่าใช้จ่ายเพิ่มเติม (฿0) กรุณาตรวจสอบรูปภาพและเซ็นชื่อด้านล่าง<br />
-                    จากนั้นกดปุ่ม <strong>"ตัดคอส"</strong> เพื่อยืนยันรายการและบันทึกประวัติ
-                  </p>
-                </div>
-              )}
+              ) : null}
 
-              {/* Service Photos Review & Signatures in Step 2 */}
+              {/* Service Photos Capture & Signatures Unified in Step 2 */}
               {(hasUsageOrClaim || cart.some(i => i.type === 'service')) && (
-                <div className="space-y-3 pt-2">
-                  {/* Photo Review Thumbnail Strip */}
-                  {(paymentPhotos.before.length > 0 || paymentPhotos.after.length > 0) && (
-                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl">
-                      <div className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
-                        <span className="flex items-center gap-1.5">
-                          <Camera size={14} className="text-indigo-600" />
-                          <span>รูปภาพหลักฐาน ({paymentPhotos.before.length} ก่อนทำ / {paymentPhotos.after.length} หลังทำ)</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setCheckoutStep(1)}
-                          className="text-[10px] text-indigo-600 hover:underline font-bold"
+                <div className="space-y-2.5 pt-1 border-t border-slate-200/80">
+                  {/* Photo Capture & Review Strip */}
+                  <div className="p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <Camera size={14} className="text-indigo-600" />
+                        <span>รูปถ่ายหลักฐานการให้บริการ (ก่อน / หลังทำ)</span>
+                      </label>
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        {paymentPhotos.before.length} ก่อนทำ • {paymentPhotos.after.length} หลังทำ
+                      </span>
+                    </div>
+
+                    {/* Camera Upload Buttons */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          multiple
+                          className="hidden"
+                          id="step2-upload-before"
+                          onChange={handleUploadBeforePhoto}
+                        />
+                        <label
+                          htmlFor="step2-upload-before"
+                          className={`w-full py-2 px-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs border transition-all active:scale-95 ${
+                            paymentPhotos.before.length > 0
+                              ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                              : 'bg-white border-dashed border-indigo-300 text-indigo-600 hover:bg-indigo-50/50'
+                          }`}
                         >
-                          แก้ไขรูปภาพ
-                        </button>
+                          <Camera size={13} />
+                          <span>{paymentPhotos.before.length > 0 ? `+ Before (${paymentPhotos.before.length})` : 'ถ่ายรูปก่อนทำ (Before)'}</span>
+                        </label>
                       </div>
-                      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+
+                      <div>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          multiple
+                          className="hidden"
+                          id="step2-upload-after"
+                          onChange={handleUploadAfterPhoto}
+                        />
+                        <label
+                          htmlFor="step2-upload-after"
+                          className={`w-full py-2 px-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs border transition-all active:scale-95 ${
+                            paymentPhotos.after.length > 0
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                              : 'bg-white border-dashed border-emerald-300 text-emerald-600 hover:bg-emerald-50/50'
+                          }`}
+                        >
+                          <Camera size={13} />
+                          <span>{paymentPhotos.after.length > 0 ? `+ After (${paymentPhotos.after.length})` : 'ถ่ายรูปหลังทำ (After)'}</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Thumbnails with delete option */}
+                    {(paymentPhotos.before.length > 0 || paymentPhotos.after.length > 0) && (
+                      <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5 pb-0.5">
                         {paymentPhotos.before.map((img, idx) => (
-                          <div key={`s2-b-${idx}`} className="relative shrink-0">
-                            <img src={img} alt="Before" className="w-14 h-14 object-cover rounded-xl border border-indigo-300 shadow-2xs" />
-                            <span className="absolute bottom-0 inset-x-0 bg-indigo-900/80 text-[8px] text-center text-white font-bold py-0.5 rounded-b-xl">Before</span>
+                          <div key={`s2-b-${idx}`} className="relative shrink-0 group">
+                            <img src={img} alt="Before" className="w-11 h-11 object-cover rounded-lg border border-indigo-300 shadow-2xs" />
+                            <span className="absolute bottom-0 inset-x-0 bg-indigo-900/85 text-[8px] text-center text-white font-bold py-0.5 rounded-b-lg">Before</span>
+                            <button
+                              type="button"
+                              onClick={() => setPaymentPhotos(p => ({ ...p, before: p.before.filter((_, i) => i !== idx) }))}
+                              className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-xs hover:bg-rose-600"
+                              title="ลบรูป"
+                            >
+                              ×
+                            </button>
                           </div>
                         ))}
                         {paymentPhotos.after.map((img, idx) => (
-                          <div key={`s2-a-${idx}`} className="relative shrink-0">
-                            <img src={img} alt="After" className="w-14 h-14 object-cover rounded-xl border border-emerald-300 shadow-2xs" />
-                            <span className="absolute bottom-0 inset-x-0 bg-emerald-900/80 text-[8px] text-center text-white font-bold py-0.5 rounded-b-xl">After</span>
+                          <div key={`s2-a-${idx}`} className="relative shrink-0 group">
+                            <img src={img} alt="After" className="w-11 h-11 object-cover rounded-lg border border-emerald-300 shadow-2xs" />
+                            <span className="absolute bottom-0 inset-x-0 bg-emerald-900/85 text-[8px] text-center text-white font-bold py-0.5 rounded-b-lg">After</span>
+                            <button
+                              type="button"
+                              onClick={() => setPaymentPhotos(p => ({ ...p, after: p.after.filter((_, i) => i !== idx) }))}
+                              className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-xs hover:bg-rose-600"
+                              title="ลบรูป"
+                            >
+                              ×
+                            </button>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
-                  {/* Signatures */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <SignaturePad canvasRef={custSigRef} label="ลายเซ็นลูกค้า" />
-                    <SignaturePad canvasRef={staffSigRef} label={`ลายเซ็นพนักงาน${paymentStaff ? ` (${paymentStaff})` : ''}`} />
+                  {/* Signatures: Customer & Staff side-by-side or stacked on mobile */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <SignaturePad canvasRef={custSigRef} label="ลายเซ็นลูกค้า" height={90} />
+                    <SignaturePad canvasRef={staffSigRef} label={`ลายเซ็นพนักงาน${paymentStaff ? ` (${paymentStaff})` : ''}`} height={90} />
                   </div>
                 </div>
               )}
