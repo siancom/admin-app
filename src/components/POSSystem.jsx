@@ -1317,15 +1317,6 @@ export default function POSSystem({
     }
   };
 
-  const otherAvailableCustomerCourses = useMemo(() => {
-    const currentUsageIds = new Set(cart.filter(i => i.type === 'usage').map(i => i.id));
-    return (filteredMyCourses || []).filter(c => 
-      !currentUsageIds.has(c.id) && 
-      Number(c.computedRemainQty || 0) > 0 &&
-      c.computedStatus !== 'ใช้ครบแล้ว'
-    );
-  }, [filteredMyCourses, cart]);
-
   const handleUploadBeforePhoto = async (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -2333,6 +2324,16 @@ export default function POSSystem({
       return searchTerm === '' || searchStr.includes(searchTerm.toLowerCase());
     });
   }, [courses, selectedCustomer, searchTerm]);
+
+  // คอร์สที่เหลืออยู่ของลูกค้า (ที่ไม่รวมคอร์สที่กำลังตัดยอดอยู่ในตะกร้า)
+  const otherAvailableCustomerCourses = useMemo(() => {
+    const currentUsageIds = new Set(cart.filter(i => i.type === 'usage').map(i => i.id));
+    return (filteredMyCourses || []).filter(c => 
+      !currentUsageIds.has(c.id) && 
+      Number(c.computedRemainQty || 0) > 0 &&
+      c.computedStatus !== 'ใช้ครบแล้ว'
+    );
+  }, [filteredMyCourses, cart]);
 
   // 🌟 ประวัติคอร์สทั้งหมดของลูกค้า (สำหรับฟังก์ชัน "ต่อคอสเดิม" ในหน้าให้บริการ/ตัดคอร์ส)
   const customerAllCourses = useMemo(() => {
@@ -8627,139 +8628,6 @@ export default function POSSystem({
                                 </>
                               );
                             })()}
-                          </div>
-                        </div>
-                      ) : singleCourseTabModal === 'course' && courseSpecificItems.length > 0 ? (
-                        <div className="p-3 bg-gradient-to-r from-teal-50 to-emerald-50 rounded-xl border border-teal-200/80">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-bold text-teal-800 flex items-center gap-1.5">
-                              <Sparkles size={14} className="text-teal-600" /> รายการขั้นตอนในคอร์สของลูกค้า:
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                courseSpecificItems.forEach(item => {
-                                  if (!isServiceSelected(item)) {
-                                    toggleServiceName(item);
-                                  }
-                                });
-                              }}
-                              className="text-[10px] font-bold text-white bg-teal-600 hover:bg-teal-700 px-2 py-0.5 rounded-md shadow-xs active:scale-95"
-                            >
-                              + เลือกทั้งหมด
-                            </button>
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {courseSpecificItems.map((item, idx) => {
-                              const isSelected = isServiceSelected(item);
-                              return (
-                                <button
-                                  key={idx}
-                                  type="button"
-                                  onClick={() => toggleServiceName(item)}
-                                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all border ${
-                                    isSelected ? 'bg-teal-600 text-white border-teal-600 shadow-xs' : 'bg-white text-teal-800 border-teal-200 hover:bg-teal-100'
-                                  }`}
-                                >
-                                  {isSelected ? `✓ ${item}` : `+ ${item}`}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ) : singleCourseTabModal === 'machine' ? (
-                        <div className="p-3 bg-gradient-to-r from-pink-500/10 via-rose-500/10 to-purple-500/10 rounded-2xl border border-pink-200 space-y-2.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                              <Sparkles size={14} className="text-pink-600" /> ลงเครื่องรายครั้ง (12 เครื่อง):
-                            </span>
-                            <span className="text-[10px] text-pink-700 font-bold bg-white px-2 py-0.5 rounded-full border border-pink-200 shadow-2xs">
-                              แตะชื่อเพื่อติ๊กบริการ หรือแตะปุ่มรถเข็น 🛒 ซื้อเพิ่ม
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                            {MACHINE_TREATMENT_ADDONS.map((addon) => {
-                              const isSelected = isServiceSelected(addon.name);
-                              const cartPaidItem = cart.find(i => (i.id === `addon_${addon.id}` || i.id === addon.id) && i.type === 'service');
-                              const priceNum = Number(addon.price) || 0;
-
-                              return (
-                                <div
-                                  key={addon.id}
-                                  className={`p-2.5 rounded-2xl border transition-all flex flex-col justify-between gap-2 ${
-                                    isSelected 
-                                      ? 'bg-pink-50/90 border-pink-400 shadow-2xs' 
-                                      : 'bg-white text-slate-700 border-pink-100 hover:border-pink-300'
-                                  }`}
-                                >
-                                  <div 
-                                    className="flex items-start gap-2 cursor-pointer select-none"
-                                    onClick={() => toggleServiceName(addon.name, addon)}
-                                    title="แตะเพื่อเลือก/ยกเลิกเครื่องที่ทำ"
-                                  >
-                                    <div className={`mt-0.5 shrink-0 w-4 h-4 rounded-md flex items-center justify-center transition-all ${
-                                      isSelected ? 'bg-pink-600 text-white shadow-2xs' : 'border border-slate-300 bg-white'
-                                    }`}>
-                                      {isSelected && <Check size={10} strokeWidth={3} />}
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                      <div className={`text-xs font-bold leading-tight ${isSelected ? 'text-pink-900' : 'text-slate-800'}`}>
-                                        {addon.name}
-                                      </div>
-                                      <div className="text-[10px] text-slate-400 mt-0.5">ราคาปกติ ฿{priceNum.toLocaleString()}</div>
-                                    </div>
-                                  </div>
-
-                                  {/* Quick Add as Paid Service Button with Shopping Cart */}
-                                  <div className="pt-1.5 border-t border-pink-100/70 flex items-center justify-between gap-1">
-                                    {cartPaidItem ? (
-                                      <div className="flex items-center justify-between w-full bg-pink-100/90 border border-pink-200 rounded-xl px-2 py-1 text-pink-900 shadow-2xs">
-                                        <span className="text-[10px] font-black flex items-center gap-1">
-                                          <ShoppingCart size={11} className="text-pink-600" />
-                                          <span>ในบิล ฿{(priceNum * cartPaidItem.qty).toLocaleString()}</span>
-                                        </span>
-                                        <div className="flex items-center gap-1">
-                                          <button
-                                            type="button"
-                                            onClick={() => updateCartQty(cartPaidItem.id, 'service', -1)}
-                                            className="w-5 h-5 flex items-center justify-center bg-white rounded-lg text-pink-700 font-black hover:bg-pink-200 active:scale-90 text-xs shadow-2xs cursor-pointer"
-                                          >
-                                            -
-                                          </button>
-                                          <span className="w-4 text-center font-black text-xs">{cartPaidItem.qty}</span>
-                                          <button
-                                            type="button"
-                                            onClick={() => updateCartQty(cartPaidItem.id, 'service', 1)}
-                                            className="w-5 h-5 flex items-center justify-center bg-white rounded-lg text-pink-700 font-black hover:bg-pink-200 active:scale-90 text-xs shadow-2xs cursor-pointer"
-                                          >
-                                            +
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          addToCart({ 
-                                            id: `addon_${addon.id}`, 
-                                            name: addon.name, 
-                                            price: priceNum, 
-                                            originalPrice: priceNum 
-                                          }, 'service');
-                                          if (!isSelected) toggleServiceName(addon.name, addon);
-                                          showToast(`เพิ่ม "${addon.name}" (+฿${priceNum.toLocaleString()}) ลงในบิลแล้ว`, 'success');
-                                        }}
-                                        className="w-full py-1.5 px-2 rounded-xl text-[10px] font-bold text-pink-700 bg-pink-50/90 hover:bg-pink-600 hover:text-white border border-pink-200 transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-2xs cursor-pointer group"
-                                        title="ซื้อลงเครื่องเพิ่มลงบิล"
-                                      >
-                                        <ShoppingCart size={12} className="text-pink-600 group-hover:text-white transition-colors" />
-                                        <span>ซื้อเพิ่ม ฿{priceNum.toLocaleString()}</span>
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
                           </div>
                         </div>
                       ) : singleCourseTabModal === 'renew' ? (
