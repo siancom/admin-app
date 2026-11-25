@@ -651,6 +651,9 @@ export default function POSSystem({
   
   const [cart, setCart] = useState([]);
   const totalCartQty = useMemo(() => cart.reduce((sum, item) => sum + (Number(item.qty) || 1), 0), [cart]);
+  const hasCourseUsage = useMemo(() => cart.some(i => i.type === 'usage'), [cart]);
+  const hasCourseClaim = useMemo(() => cart.some(i => i.type === 'claim_item'), [cart]);
+  const hasUsageOrClaim = hasCourseUsage || hasCourseClaim;
   const [activeCustomerAppOrderIds, setActiveCustomerAppOrderIds] = useState([]);
   // 🌟 ยอดที่ลูกค้า "จ่ายเครดิตไปแล้วในแอป" ของออเดอร์ที่โหลดเข้าตะกร้า — ใช้กัน POS ตัดเครดิตซ้ำ 2 ครั้ง
   const [appCreditPaidAmount, setAppCreditPaidAmount] = useState(0);
@@ -3760,7 +3763,9 @@ export default function POSSystem({
       if (splitPayment.transfer > 0) paymentMethodsStrArr.push(`โอนเงิน: ${splitPayment.transfer}`);
       if (splitPayment.cod > 0) paymentMethodsStrArr.push(`ค้าง/COD: ${splitPayment.cod}`);
       if (splitPayment.credit > 0) paymentMethodsStrArr.push(`ตัดเครดิต: ${splitPayment.credit}`);
-      const paymentMethodStr = paymentMethodsStrArr.join(', ') || (hasCourseUsage ? 'ตัดคอร์ส' : (hasCourseClaim ? 'เบิกของแถม' : 'ฟรี/ส่วนลดเต็มจำนวน'));
+      const isUsageBill = hasCourseUsage || cart.some(i => i.type === 'usage');
+      const isClaimBill = hasCourseClaim || cart.some(i => i.type === 'claim_item');
+      const paymentMethodStr = paymentMethodsStrArr.join(', ') || (isUsageBill ? 'ตัดคอร์ส' : (isClaimBill ? 'เบิกของแถม' : 'ฟรี/ส่วนลดเต็มจำนวน'));
       const batch = writeBatch(db);
       const delayedHistoryUpdates = [];
       
