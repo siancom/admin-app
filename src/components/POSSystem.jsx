@@ -1236,6 +1236,180 @@ export default function POSSystem({
   const staffSigRef = React.useRef(null);
   const fileInputRef = React.useRef(null);
 
+  // 🕒 Active Course In-Service State (tracks courses that have started service via before photo)
+  // { [courseId]: { status: 'กำลังให้บริการ' | 'เรียบร้อย', startTime: timestamp, beforePhoto: url } }
+  const [activeServiceCourses, setActiveServiceCourses] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('pos_active_services');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [serviceTimerNow, setServiceTimerNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setServiceTimerNow(Date.now());
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const saveActiveServiceCourses = (newMap) => {
+    setActiveServiceCourses(newMap);
+    try {
+      sessionStorage.setItem('pos_active_services', JSON.stringify(newMap));
+    } catch {}
+  };
+
+  const getServiceElapsedStr = (startTime) => {
+    if (!startTime) return '';
+    const diffMs = Math.max(0, serviceTimerNow - Number(startTime));
+    const mins = Math.floor(diffMs / 60000);
+    const startTimeFormatted = new Date(startTime).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    if (mins === 0) {
+      return `${startTimeFormatted} • เริ่ม < 1 นาที`;
+    }
+    return `${startTimeFormatted} • ${mins} นาที`;
+  };
+
+  // Helper to add course into deduction cart (supports multiple courses)
+  const addCourseToDeduction = (c, qty = 1) => {
+    const maxQty = Number(c.computedRemainQty || 1);
+    const cName = String(getFuzzyKey(c, ["ชื่อคอส", "col_8"]) || c.name || '');
+    const cNo = String(getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"]) || '');
+    const nameStr = `เบิกใช้: ${cName} (${cNo})`;
+
+    setCart(prev => {
+      const existing = prev.find(i => i.id === c.id && i.type === 'usage');
+      if (existing) {
+        return prev.map(i => i.id === c.id && i.type === 'usage' 
+          ? { ...i, qty: Math.min(maxQty, i.qty + qty) } 
+          : i
+        );
+      }
+      return [
+        ...prev,
+        {
+          id: c.id,
+          name: nameStr,
+          price: 0,
+          qty: Math.min(maxQty, qty),
+          type: 'usage',
+          actionType: 'usage',
+          isUsage: true,
+          noCourseCommission: true,
+          maxQty,
+          originalItem: c
+        }
+      ];
+    });
+    showToast(`เพิ่มคอร์ส "${cName}" ในรายการตัดยอดแล้ว`, 'success');
+  };
+
+  const toggleCourseDeduction = (c) => {
+    const inCart = cart.some(i => i.id === c.id && i.type === 'usage');
+    if (inCart) {
+      removeFromCart(c.id, 'usage');
+      showToast(`นำคอร์สออกจากการตัดยอดแล้ว`, 'info');
+    } else {
+      addCourseToDeduction(c, 1);
+    }
+  };
+
+  const otherAvailableCustomerCourses = useMemo(() => {
+    const currentUsageIds = new Set(cart.filter(i => i.type === 'usage').map(i => i.id));
+    return (filteredMyCourses || []).filter(c => 
+      !currentUsageIds.has(c.id) && 
+      Number(c.computedRemainQty || 0) > 0 &&
+      c.computedStatus !== 'ใช้ครบแล้ว'
+    );
+  }, [filteredMyCourses, cart]);
+
+  const handleUploadBeforePhoto = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    try {
+      const results = await Promise.all(files.map(async file => {
+        try {
+          const options = { maxSizeMB: 0.2, maxWidthOrHeight: 1024, useWebWorker: true };
+          const comp = await imageCompression(file, options);
+          return new Promise(res => {
+            const reader = new FileReader();
+            reader.onload = ev => res(ev.target.result);
+            reader.readAsDataURL(comp);
+          });
+        } catch {
+          return new Promise(res => {
+            const reader = new FileReader();
+            reader.onload = ev => res(ev.target.result);
+            reader.readAsDataURL(file);
+          });
+        }
+      }));
+
+      const startTime = Date.now();
+      setPaymentPhotos(prev => ({
+        ...prev,
+        before: [...prev.before, ...results]
+      }));
+
+      // Mark all usage courses currently in cart as "กำลังให้บริการ"
+      const usageCourses = cart.filter(i => i.type === 'usage');
+      const updated = { ...activeServiceCourses };
+      usageCourses.forEach(ci => {
+        updated[ci.id] = {
+          status: 'กำลังให้บริการ',
+          startTime: startTime,
+          beforePhoto: results[0],
+          courseName: ci.name
+        };
+      });
+      saveActiveServiceCourses(updated);
+      showToast('📸 ถ่ายรูปแรกสำเร็จ! เริ่มจับเวลาให้บริการและสถานะการ์ดกระพริบแล้ว ✨', 'success');
+    } catch (err) {
+      console.error('Before photo error:', err);
+      showToast('ไม่สามารถอัปโหลดรูปภาพได้', 'error');
+    } finally {
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleUploadAfterPhoto = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    try {
+      const results = await Promise.all(files.map(async file => {
+        try {
+          const options = { maxSizeMB: 0.2, maxWidthOrHeight: 1024, useWebWorker: true };
+          const comp = await imageCompression(file, options);
+          return new Promise(res => {
+            const reader = new FileReader();
+            reader.onload = ev => res(ev.target.result);
+            reader.readAsDataURL(comp);
+          });
+        } catch {
+          return new Promise(res => {
+            const reader = new FileReader();
+            reader.onload = ev => res(ev.target.result);
+            reader.readAsDataURL(file);
+          });
+        }
+      }));
+
+      setPaymentPhotos(prev => ({
+        ...prev,
+        after: [...prev.after, ...results]
+      }));
+      showToast('📸 บันทึกรูปหลังทำ (After) สำเร็จ!', 'success');
+    } catch (err) {
+      console.error('After photo error:', err);
+      showToast('ไม่สามารถอัปโหลดรูปภาพได้', 'error');
+    } finally {
+      if (e.target) e.target.value = '';
+    }
+  };
+
   // Web Orders Fetching Logic
   const fetchWebOrdersManual = async () => {
     if (isFetchingWebOrders) return;
@@ -4313,6 +4487,20 @@ export default function POSSystem({
 
       showToast('ชำระเงินสำเร็จ!', 'success');
       
+      // 🌟 อัปเดตสถานะคอร์สที่กำลังให้บริการ ให้เปลี่ยนเป็น "เรียบร้อย" เมื่อจ่ายเงินครบ 🌟
+      try {
+        const updatedServices = { ...activeServiceCourses };
+        usageItemsInCart.forEach(ci => {
+          updatedServices[ci.id] = {
+            status: 'เรียบร้อย',
+            completedAt: Date.now()
+          };
+        });
+        saveActiveServiceCourses(updatedServices);
+      } catch (err) {
+        console.warn('Error updating completed active service state:', err);
+      }
+
       setShowPaymentModal(false);
       setSelectedBed('');
 
@@ -6429,17 +6617,41 @@ export default function POSSystem({
                 
                 {filteredMyCourses.length > 0 && (
                   <div className="col-span-full mb-2">
-                    <h3 className="font-bold text-teal-700 mb-2">รายการคอร์สที่เบิกใช้งานได้ ({filteredMyCourses.length})</h3>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="font-bold text-teal-700 flex items-center gap-1.5">
+                        <Scissors size={16} /> รายการคอร์สที่เบิกใช้งานได้ ({filteredMyCourses.length})
+                      </h3>
+                      {cart.some(i => i.type === 'usage') && (
+                        <span className="text-[11px] font-black text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">
+                          เลือกตัดยอดแล้ว {cart.filter(i => i.type === 'usage').length} คอร์ส
+                        </span>
+                      )}
+                    </div>
                     <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-3">
-                      {filteredMyCourses.map(c => (
+                      {filteredMyCourses.map(c => {
+                        const isDeductSelected = cart.some(i => i.id === c.id && i.type === 'usage');
+                        const cartUsageItem = cart.find(i => i.id === c.id && i.type === 'usage');
+                        const activeSession = activeServiceCourses[c.id];
+                        const isInService = activeSession && activeSession.status === 'กำลังให้บริการ';
+                        const isCompletedService = activeSession && activeSession.status === 'เรียบร้อย';
+
+                        return (
                         <div 
                           key={c.id} 
                           onClick={() => {
                             setSelectedCourseForUsage(c);
                           }}
-                          className="bg-white p-3 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-md border border-teal-100 cursor-pointer transition-all active:scale-95 flex flex-row items-center relative overflow-hidden group"
+                          className={`bg-white p-3 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-md border cursor-pointer transition-all active:scale-[0.99] flex flex-row items-center relative overflow-hidden group ${
+                            isInService 
+                              ? 'border-purple-400 ring-2 ring-purple-300 shadow-purple-100 bg-purple-50/20' 
+                              : isDeductSelected 
+                                ? 'border-teal-400 ring-2 ring-teal-300 shadow-teal-100 bg-teal-50/25' 
+                                : 'border-teal-100'
+                          }`}
                         >
-                          <div className={`absolute top-0 left-0 w-1.5 h-full ${c.computedStatus === 'ยังคงเหลือ' ? 'bg-teal-400' : 'bg-gray-300'}`}></div>
+                          <div className={`absolute top-0 left-0 w-1.5 h-full ${
+                            isInService ? 'bg-purple-600 animate-pulse' : isDeductSelected ? 'bg-teal-500' : c.computedStatus === 'ยังคงเหลือ' ? 'bg-teal-400' : 'bg-gray-300'
+                          }`}></div>
                           
                           <div className="flex-1 pl-2 pr-3 min-w-0 flex flex-col justify-center">
                             <div className="mb-1.5 flex flex-col items-start gap-0.5">
@@ -6499,13 +6711,28 @@ export default function POSSystem({
                                     ค้างชำระ ฿{c.computedPendingAmount.toLocaleString()}
                                   </span>
                                 )}
-
                             </div>
                           </div>
 
-                          <div className="flex flex-col items-end shrink-0 gap-3 border-l border-gray-100 pl-3 h-full justify-center">
+                          <div className="flex flex-col items-end shrink-0 gap-2.5 border-l border-gray-100 pl-3 h-full justify-between">
                             <div className="flex items-center gap-1.5">
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600">{c.computedStatus || 'ยังคงเหลือ'}</span>
+                                {isInService ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-purple-100 text-purple-800 border border-purple-300 flex items-center gap-1 shadow-2xs animate-pulse">
+                                    <span className="relative flex h-2 w-2">
+                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-600"></span>
+                                    </span>
+                                    <span>กำลังให้บริการ ({getServiceElapsedStr(activeSession.startTime)})</span>
+                                  </span>
+                                ) : isCompletedService ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shadow-2xs">
+                                    <CheckCircle size={10} className="text-emerald-600" />
+                                    <span>เรียบร้อย</span>
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600">{c.computedStatus || 'ยังคงเหลือ'}</span>
+                                )}
+
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); setCourseQRModalData(c); }}
                                     className="text-teal-600 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 p-1.5 rounded-lg transition-colors shadow-sm border border-teal-100"
@@ -6514,13 +6741,53 @@ export default function POSSystem({
                                     <QrCode size={14} />
                                 </button>
                             </div>
+
                             <div className="text-right">
                                 <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5">ใช้ไป {c.computedUsedQty || 0}/{c.computedTotalQty || 1}</p>
                                 <p className="text-base sm:text-xl font-black text-teal-600 leading-none">เหลือ {c.computedRemainQty}</p>
                             </div>
+
+                            {/* ปุ่มเลือกตัดยอดคอร์สนี้ทันที (รองรับเลือกตัดพร้อมกันหลายคอร์ส) */}
+                            <div className="pt-1">
+                              {isDeductSelected ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeFromCart(c.id, 'usage');
+                                    showToast(`ยกเลิกเลือกตัดคอร์ส "${c.name || ''}" แล้ว`, 'info');
+                                  }}
+                                  className="px-2 py-1 rounded-lg text-[10px] font-black bg-teal-600 hover:bg-rose-500 text-white flex items-center gap-1 shadow-2xs active:scale-95 transition-all cursor-pointer group/btn"
+                                  title="แตะเพื่อยกเลิกการตัดคอร์สนี้"
+                                >
+                                  <Check size={11} strokeWidth={3} className="group-hover/btn:hidden" />
+                                  <X size={11} className="hidden group-hover/btn:inline" />
+                                  <span className="group-hover/btn:hidden">ในรายการตัดยอด ({cartUsageItem?.qty || 1})</span>
+                                  <span className="hidden group-hover/btn:inline">ยกเลิก</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    addCourseToDeduction(c, 1);
+                                  }}
+                                  disabled={c.computedStatus === 'ใช้ครบแล้ว' || Number(c.computedRemainQty || 0) <= 0}
+                                  className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs active:scale-95 transition-all cursor-pointer ${
+                                    c.computedStatus === 'ใช้ครบแล้ว' || Number(c.computedRemainQty || 0) <= 0
+                                      ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                                      : 'bg-orange-50 hover:bg-orange-500 hover:text-white text-orange-700 border border-orange-200'
+                                  }`}
+                                >
+                                  <Scissors size={11} />
+                                  <span>+ ตัดคอร์สนี้</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -6547,6 +6814,39 @@ export default function POSSystem({
                 <div className="flex items-center gap-2"><CheckCircle size={24} /> ยืนยันปรับสต๊อก</div>
                 <div className={`${stockAdjustments.length > 0 ? 'bg-white text-rose-600' : 'bg-slate-200 text-slate-400'} px-3 py-1 rounded-xl text-sm`}>{stockAdjustments.length} รายการ</div>
              </button>
+          </div>
+        )}
+
+        {/* 🌟 Floating Bottom Action Bar สำหรับการตัดยอดหลายคอร์สพร้อมกัน 🌟 */}
+        {cart.some(i => i.type === 'usage') && !showPaymentModal && (
+          <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] bg-slate-900/95 text-white backdrop-blur-md px-4 sm:px-6 py-3 rounded-2xl shadow-2xl flex items-center justify-between gap-3 sm:gap-6 border border-slate-700 animate-in slide-in-from-bottom-5 max-w-[95vw]">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-orange-500 flex items-center justify-center text-white font-black shadow-sm shrink-0">
+                <Scissors size={18} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5 flex-wrap">
+                  <span>เลือกตัดยอด {cart.filter(i => i.type === 'usage').length} คอร์ส</span>
+                  <span className="text-[10px] bg-teal-500 text-white font-black px-1.5 py-0.2 rounded-full">
+                    รวม {cart.filter(i => i.type === 'usage').reduce((s, i) => s + (Number(i.qty) || 1), 0)} ครั้ง
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-300 truncate max-w-[200px] sm:max-w-xs">
+                  {cart.filter(i => i.type === 'usage').map(i => i.name.replace(/เบิกใช้:\s*/g, '').split('(')[0]).join(', ')}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setCheckoutStep(1);
+                setShowPaymentModal(true);
+              }}
+              className="px-4 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black text-xs sm:text-sm rounded-xl shadow-md active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+            >
+              <span>ดำเนินการตัดยอด</span>
+              <ChevronRight size={16} />
+            </button>
           </div>
         )}
       </div>
@@ -7735,65 +8035,116 @@ export default function POSSystem({
               {/* Service Details & Signatures (For usage, claim, or service items) */}
               {(hasUsageOrClaim || cart.some(i => i.type === 'service')) && (
                 <div className="space-y-4 pt-2">
-                  {/* Photo Upload */}
-                  <div>
-                     <span className="block text-xs font-bold text-slate-500 mb-2">อัปโหลดรูปภาพ (ก่อนทำ / หลังทำ หรือหลักฐานส่งมอบ)</span>
-                     <div className="grid grid-cols-2 gap-4">
-                        {[
-                          { key: 'before', label: 'ก่อนทำ (Before)' },
-                          { key: 'after', label: 'หลังทำ (After)' }
-                        ].map(photo => (
-                          <div key={photo.key}>
-                             <input type="file" accept="image/*" multiple className="hidden" id={`upload-${photo.key}`} onChange={(e) => {
-                                const files = Array.from(e.target.files);
-                                if (files.length > 0) {
-                                    Promise.all(files.map(async file => {
-                                        try {
-                                            const options = { maxSizeMB: 0.2, maxWidthOrHeight: 1024, useWebWorker: true };
-                                            const compressed = await imageCompression(file, options);
-                                            return new Promise((resolve) => {
-                                                const reader = new FileReader();
-                                                reader.onload = (ev) => resolve(ev.target.result);
-                                                reader.readAsDataURL(compressed);
-                                            });
-                                        } catch (err) {
-                                            console.error("Compression failed", err);
-                                            return new Promise((resolve) => {
-                                                const reader = new FileReader();
-                                                reader.onload = (ev) => resolve(ev.target.result);
-                                                reader.readAsDataURL(file);
-                                            });
-                                        }
-                                    })).then(results => {
-                                        setPaymentPhotos(prev => ({ ...prev, [photo.key]: results }));
-                                    });
-                                }
-                             }} />
-                             <label htmlFor={`upload-${photo.key}`} className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-indigo-200 rounded-xl bg-indigo-50/50 hover:bg-indigo-50 cursor-pointer transition-all relative overflow-hidden group">
-                                {paymentPhotos[photo.key] && paymentPhotos[photo.key].length > 0 ? (
-                                  <>
-                                    <div className="absolute inset-0 w-full h-full p-1.5 flex gap-1.5 overflow-x-auto snap-x">
-                                      {paymentPhotos[photo.key].map((img, idx) => (
-                                         <img key={idx} src={img} className="h-full w-auto min-w-[40%] object-cover rounded shadow-sm snap-center opacity-90 group-hover:opacity-40 transition-opacity" alt="Preview" />
-                                      ))}
-                                    </div>
-                                    <div className="z-10 hidden group-hover:flex flex-col items-center p-2 bg-white/90 rounded-lg shadow-sm backdrop-blur-sm pointer-events-none">
-                                      <Camera size={16} className="text-indigo-600 mb-0.5" />
-                                      <span className="text-[10px] font-bold text-indigo-700">เลือกรูปใหม่</span>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <>
-                                    <div className="w-10 h-10 bg-indigo-100 text-indigo-500 rounded-full flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-                                      <Camera size={20} />
-                                    </div>
-                                    <span className="text-xs font-bold text-indigo-600 text-center px-1">{photo.label}</span>
-                                  </>
-                                )}
-                             </label>
+                  {/* 🌟 SERVICE STATUS & PHOTO BANNER (แบนเนอร์เริ่มให้บริการ / แตะถ่ายรูปแรก Before เพื่อเริ่มจับเวลา) 🌟 */}
+                  <div className="bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 rounded-2xl p-4 text-white shadow-md relative overflow-hidden">
+                    <div className="absolute right-0 top-0 w-36 h-36 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none" />
+                    
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative z-10">
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 border border-white/30 text-white shadow-inner">
+                          <Camera size={22} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-black tracking-wide">
+                              {paymentPhotos.before.length > 0 ? '🟢 เริ่มให้บริการแล้ว (กำลังทำทรีตเมนต์)' : '📸 เริ่มต้นการให้บริการ (แตะถ่ายรูปแรก Before)'}
+                            </span>
+                            {paymentPhotos.before.length > 0 && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-400 text-emerald-950 shadow-xs animate-pulse">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-950 animate-ping" />
+                                {(() => {
+                                  const firstUsage = cart.find(i => i.type === 'usage');
+                                  const cInfo = firstUsage ? activeServiceCourses[firstUsage.id] : null;
+                                  return cInfo?.startTime ? getServiceElapsedStr(cInfo.startTime) : 'กำลังให้บริการ';
+                                })()}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-white/80 mt-0.5 leading-snug">
+                            {paymentPhotos.before.length > 0 
+                              ? `บันทึกรูปก่อนทำแล้ว (${paymentPhotos.before.length} รูป) • การ์ดคอร์สจะกระพริบแสดงสถานะกำลังให้บริการพร้อมเวลา`
+                              : 'แตะถ่ายรูปแรก เพื่อเริ่มบันทึกเวลาและเปลี่ยนสถานะการ์ดเป็น "กำลังให้บริการ"'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons: ถ่ายรูป Before / After */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          capture="environment" 
+                          multiple 
+                          className="hidden" 
+                          id="banner-upload-before" 
+                          onChange={handleUploadBeforePhoto} 
+                        />
+                        <label 
+                          htmlFor="banner-upload-before" 
+                          className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all ${
+                            paymentPhotos.before.length > 0 
+                              ? 'bg-white/20 hover:bg-white/30 text-white border border-white/30' 
+                              : 'bg-white text-indigo-700 hover:bg-indigo-50 shadow-md ring-2 ring-white/50'
+                          }`}
+                        >
+                          <Camera size={15} />
+                          <span>{paymentPhotos.before.length > 0 ? `+ Before (${paymentPhotos.before.length})` : 'แตะถ่ายรูปแรก (Before)'}</span>
+                        </label>
+
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          capture="environment" 
+                          multiple 
+                          className="hidden" 
+                          id="banner-upload-after" 
+                          onChange={handleUploadAfterPhoto} 
+                        />
+                        <label 
+                          htmlFor="banner-upload-after" 
+                          className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all ${
+                            paymentPhotos.after.length > 0 
+                              ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md' 
+                              : 'bg-white/15 hover:bg-white/25 text-white/90 border border-white/20'
+                          }`}
+                        >
+                          <Camera size={15} />
+                          <span>{paymentPhotos.after.length > 0 ? `+ After (${paymentPhotos.after.length})` : 'ถ่ายรูปหลังทำ (After)'}</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Previews */}
+                    {(paymentPhotos.before.length > 0 || paymentPhotos.after.length > 0) && (
+                      <div className="mt-3 pt-2.5 border-t border-white/20 flex items-center gap-2 overflow-x-auto pb-1">
+                        {paymentPhotos.before.map((img, idx) => (
+                          <div key={`b-${idx}`} className="relative shrink-0 group">
+                            <img src={img} alt="Before" className="w-12 h-12 object-cover rounded-xl border-2 border-white/60 shadow-xs" />
+                            <span className="absolute bottom-0 inset-x-0 bg-indigo-950/80 text-[8px] text-center text-white font-bold py-0.5 rounded-b-xl">Before</span>
+                            <button 
+                              type="button" 
+                              onClick={() => setPaymentPhotos(p => ({ ...p, before: p.before.filter((_, i) => i !== idx) }))}
+                              className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-xs hover:bg-red-600"
+                            >
+                              ×
+                            </button>
                           </div>
                         ))}
-                     </div>
+                        {paymentPhotos.after.map((img, idx) => (
+                          <div key={`a-${idx}`} className="relative shrink-0 group">
+                            <img src={img} alt="After" className="w-12 h-12 object-cover rounded-xl border-2 border-emerald-400 shadow-xs" />
+                            <span className="absolute bottom-0 inset-x-0 bg-emerald-950/80 text-[8px] text-center text-white font-bold py-0.5 rounded-b-xl">After</span>
+                            <button 
+                              type="button" 
+                              onClick={() => setPaymentPhotos(p => ({ ...p, after: p.after.filter((_, i) => i !== idx) }))}
+                              className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-xs hover:bg-red-600"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Service Selection (Only for usage) */}
@@ -7853,7 +8204,7 @@ export default function POSSystem({
 
                     return (
                     <div className="space-y-3">
-                      <div className="bg-teal-50/70 border border-teal-200/80 rounded-2xl p-3 space-y-2">
+                      <div className="bg-teal-50/70 border border-teal-200/80 rounded-2xl p-3 space-y-2.5">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-black text-teal-900 flex items-center gap-1.5">
                             <Layers size={14} className="text-teal-600" /> คอร์สที่กำลังตัดยอด:
@@ -7897,12 +8248,46 @@ export default function POSSystem({
                                       +
                                     </button>
                                   </div>
-                                  <span className="text-xs font-bold text-teal-700">ครั้ง</span>
+                                  <span className="text-xs font-bold text-teal-700 mr-1">ครั้ง</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeFromCart(ci.id, 'usage')}
+                                    title="นำคอร์สนี้ออกจากการตัดยอด"
+                                    className="w-6 h-6 rounded-md bg-slate-100 hover:bg-rose-100 text-slate-400 hover:text-rose-600 flex items-center justify-center transition-colors cursor-pointer"
+                                  >
+                                    <X size={13} />
+                                  </button>
                                 </div>
                               </div>
                             );
                           })}
                         </div>
+
+                        {/* + เพิ่มคอร์สอื่นของลูกค้านี้เพื่อตัดพร้อมกัน */}
+                        {otherAvailableCustomerCourses.length > 0 && (
+                          <div className="pt-2 border-t border-teal-200/60">
+                            <div className="text-[11px] font-bold text-teal-800 mb-1.5 flex items-center gap-1">
+                              <Plus size={13} className="text-teal-600" /> เพิ่มคอร์สอื่นของลูกค้านี้เพื่อตัดพร้อมกัน ({otherAvailableCustomerCourses.length} คอร์สที่เหลือ):
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {otherAvailableCustomerCourses.map(oc => {
+                                const ocName = String(getFuzzyKey(oc, ["ชื่อคอส", "col_8"]) || oc.name || '').replace(/เบิกใช้:\s*/g, '');
+                                const ocRemain = Number(oc.computedRemainQty || 1);
+                                return (
+                                  <button
+                                    key={oc.id}
+                                    type="button"
+                                    onClick={() => addCourseToDeduction(oc, 1)}
+                                    className="px-2.5 py-1 bg-white hover:bg-teal-100 border border-teal-200 text-teal-800 rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-2xs active:scale-95 transition-all cursor-pointer"
+                                  >
+                                    <span>+ {ocName}</span>
+                                    <span className="text-[10px] text-teal-600 bg-teal-50 px-1 py-0.2 rounded border border-teal-200/60 font-black">เหลือ {ocRemain}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center justify-between">
@@ -8811,11 +9196,6 @@ export default function POSSystem({
                     </div>
                     );
                   })()}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     <SignaturePad canvasRef={custSigRef} label="ลายเซ็นลูกค้า" />
-                     <SignaturePad canvasRef={staffSigRef} label={`ลายเซ็นพนักงาน${paymentStaff ? ` (${paymentStaff})` : ''}`} />
-                  </div>
                 </div>
               )}
 
@@ -9064,9 +9444,53 @@ export default function POSSystem({
                     {hasCourseClaim && !hasCourseUsage ? 'ยืนยันการเบิกสินค้าจากคอร์ส' : 'ยืนยันการตัดคอสบริการ'}
                   </div>
                   <p className="text-xs text-orange-800 font-medium leading-relaxed">
-                    ไม่มีค่าใช้จ่ายเพิ่มเติม (฿0) ข้อมูลบริการและลายเซ็นบันทึกเรียบร้อยแล้ว<br />
-                    กดปุ่ม <strong>"ตัดคอส"</strong> ด้านล่างเพื่อยืนยันรายการและบันทึกประวัติ
+                    ไม่มีค่าใช้จ่ายเพิ่มเติม (฿0) กรุณาตรวจสอบรูปภาพและเซ็นชื่อด้านล่าง<br />
+                    จากนั้นกดปุ่ม <strong>"ตัดคอส"</strong> เพื่อยืนยันรายการและบันทึกประวัติ
                   </p>
+                </div>
+              )}
+
+              {/* Service Photos Review & Signatures in Step 2 */}
+              {(hasUsageOrClaim || cart.some(i => i.type === 'service')) && (
+                <div className="space-y-3 pt-2">
+                  {/* Photo Review Thumbnail Strip */}
+                  {(paymentPhotos.before.length > 0 || paymentPhotos.after.length > 0) && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl">
+                      <div className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <Camera size={14} className="text-indigo-600" />
+                          <span>รูปภาพหลักฐาน ({paymentPhotos.before.length} ก่อนทำ / {paymentPhotos.after.length} หลังทำ)</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setCheckoutStep(1)}
+                          className="text-[10px] text-indigo-600 hover:underline font-bold"
+                        >
+                          แก้ไขรูปภาพ
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                        {paymentPhotos.before.map((img, idx) => (
+                          <div key={`s2-b-${idx}`} className="relative shrink-0">
+                            <img src={img} alt="Before" className="w-14 h-14 object-cover rounded-xl border border-indigo-300 shadow-2xs" />
+                            <span className="absolute bottom-0 inset-x-0 bg-indigo-900/80 text-[8px] text-center text-white font-bold py-0.5 rounded-b-xl">Before</span>
+                          </div>
+                        ))}
+                        {paymentPhotos.after.map((img, idx) => (
+                          <div key={`s2-a-${idx}`} className="relative shrink-0">
+                            <img src={img} alt="After" className="w-14 h-14 object-cover rounded-xl border border-emerald-300 shadow-2xs" />
+                            <span className="absolute bottom-0 inset-x-0 bg-emerald-900/80 text-[8px] text-center text-white font-bold py-0.5 rounded-b-xl">After</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Signatures */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <SignaturePad canvasRef={custSigRef} label="ลายเซ็นลูกค้า" />
+                    <SignaturePad canvasRef={staffSigRef} label={`ลายเซ็นพนักงาน${paymentStaff ? ` (${paymentStaff})` : ''}`} />
+                  </div>
                 </div>
               )}
             </div>
@@ -9096,13 +9520,8 @@ export default function POSSystem({
                   <button 
                     type="button"
                     onClick={() => {
-                       if (hasUsageOrClaim) {
-                           if (custSigRef.current?.dataset?.isSigned !== "true" || staffSigRef.current?.dataset?.isSigned !== "true") {
-                               return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนถัดไป', 'error');
-                           }
-                       }
-                       if (!hasUsageOrClaim && !paymentStaff) {
-                           return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ขายคอร์ส', 'error');
+                       if (!paymentStaff) {
+                           return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ให้บริการ', 'error');
                        }
                        // If payment not initialized yet, default to transfer or total
                        const currentCovered = (Number(splitPayment.cash) || 0) + (Number(splitPayment.transfer) || 0) + (Number(splitPayment.cod) || 0) + (Number(splitPayment.credit) || 0);
@@ -9140,6 +9559,11 @@ export default function POSSystem({
                   id="btn-confirm-checkout"
                   onClick={() => {
                       if (!paymentStaff) return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ให้บริการ', 'error');
+                      if (hasUsageOrClaim) {
+                          if (custSigRef.current?.dataset?.isSigned !== "true" || staffSigRef.current?.dataset?.isSigned !== "true") {
+                              return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
+                          }
+                      }
                       if (splitPayment.transfer > 0 && !omiseChargeData) {
                           setShowTransferChoiceModal(true);
                       } else {
@@ -12055,33 +12479,32 @@ export default function POSSystem({
                        <div className="font-black text-teal-600">{selectedCourseForUsage.computedStatus === 'ใช้ครบแล้ว' ? 0 : (selectedCourseForUsage.computedTotalQty > 0 ? selectedCourseForUsage.computedTotalQty - selectedCourseForUsage.computedUsedQty : 'ไม่จำกัด')}</div>
                     </div>
                  </div>
-                 <button 
-                   onClick={() => {
-                      const maxQty = selectedCourseForUsage.computedRemainQty || 1;
-                      const nameStr = `เบิกใช้: ${String(getFuzzyKey(selectedCourseForUsage, ["ชื่อคอส", "col_8"]))} (${String(getFuzzyKey(selectedCourseForUsage, ["เลขที่ใบคอส", "col_2"]))})`;
-                      // 🌟 ล้างตะกร้าเดิมออก ให้มีเฉพาะรายการตัดคอร์ส เพื่อไม่ให้มีรายการคอร์สซื้อเดิมหลงเหลือมาคิดค่าคอม
-                      setCart([{
-                        id: selectedCourseForUsage.id,
-                        name: nameStr,
-                        price: 0,
-                        qty: 1,
-                        type: 'usage',
-                        actionType: 'usage',
-                        isUsage: true,
-                        noCourseCommission: true,
-                        maxQty,
-                        originalItem: selectedCourseForUsage
-                      }]);
-                      setUsedServices([]);
-                      setCheckoutStep(1);
-                      setShowPaymentModal(true);
-                      setSelectedCourseForUsage(null);
-                   }}
-                   disabled={selectedCourseForUsage.computedStatus === 'ใช้ครบแล้ว'}
-                   className={`w-full py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition-all ${selectedCourseForUsage.computedStatus === 'ใช้ครบแล้ว' ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600 text-white shadow-md shadow-orange-200'}`}
-                 >
-                   <Scissors size={18} /> ตัดคอร์สทำหน้า
-                 </button>
+                 <div className="flex gap-2">
+                   <button 
+                     onClick={() => {
+                        addCourseToDeduction(selectedCourseForUsage, 1);
+                        setCheckoutStep(1);
+                        setShowPaymentModal(true);
+                        setSelectedCourseForUsage(null);
+                     }}
+                     disabled={selectedCourseForUsage.computedStatus === 'ใช้ครบแล้ว'}
+                     className={`flex-1 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${selectedCourseForUsage.computedStatus === 'ใช้ครบแล้ว' ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600 text-white shadow-md shadow-orange-200 active:scale-95'}`}
+                   >
+                     <Scissors size={18} /> ตัดคอร์สนี้ทันที
+                   </button>
+                   <button 
+                     type="button"
+                     onClick={() => {
+                        addCourseToDeduction(selectedCourseForUsage, 1);
+                        setSelectedCourseForUsage(null);
+                     }}
+                     disabled={selectedCourseForUsage.computedStatus === 'ใช้ครบแล้ว'}
+                     className={`px-3 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1 border transition-all cursor-pointer ${selectedCourseForUsage.computedStatus === 'ใช้ครบแล้ว' ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed' : 'bg-white hover:bg-teal-50 text-teal-700 border-teal-300 shadow-2xs active:scale-95'}`}
+                     title="เพิ่มคอร์สนี้ลงในรายการตัดยอด แล้วเลือกคอร์สอื่นต่อ"
+                   >
+                     <Plus size={16} /> + เลือกเพิ่ม
+                   </button>
+                 </div>
               </div>
 
               {/* Action 2: Claim Items */}
