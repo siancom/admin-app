@@ -5346,12 +5346,29 @@ export default function POSSystem({
         <div className="block lg:hidden mb-2 relative z-50">
            {selectedCustomer ? (
               <>
-              <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-indigo-200 shadow-2xs hover:shadow-xs transition-all">
+              <div className={`p-2.5 sm:p-3 rounded-2xl border-2 transition-all relative overflow-hidden ${
+                isVipCustomer 
+                  ? 'bg-gradient-to-br from-emerald-50 via-teal-50/50 to-amber-50/70 border-emerald-300 shadow-sm ring-1 ring-emerald-200/50' 
+                  : selectedCustomer.isWalkIn 
+                    ? 'bg-gradient-to-br from-orange-50 via-amber-50/40 to-white border-orange-200 shadow-2xs' 
+                    : 'bg-gradient-to-br from-slate-50 via-indigo-50/30 to-white border-slate-200 shadow-2xs'
+              }`}>
+                {/* Subtle Glow for VIP */}
+                {isVipCustomer && (
+                  <div className="absolute right-0 top-0 w-32 h-32 bg-emerald-300/15 rounded-full blur-2xl pointer-events-none -mr-8 -mt-8" />
+                )}
+
                 {/* Line 1: Avatar + Name + Badges + Actions */}
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-2 relative z-10">
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    {/* Avatar (compact 34px) */}
-                    <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full overflow-hidden shrink-0 bg-indigo-50 border border-indigo-200 flex items-center justify-center shadow-2xs">
+                    {/* Avatar with member-themed border */}
+                    <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full overflow-hidden shrink-0 bg-white flex items-center justify-center shadow-2xs ${
+                      isVipCustomer 
+                        ? 'border-2 border-emerald-400 ring-2 ring-emerald-100' 
+                        : selectedCustomer.isWalkIn 
+                          ? 'border-2 border-orange-300 ring-2 ring-orange-100' 
+                          : 'border-2 border-indigo-200'
+                    }`}>
                       {selectedCustomer.isWalkIn ? (
                         <div className={`w-full h-full ${isVipCustomer ? 'bg-gradient-to-r from-amber-500 to-yellow-500' : 'bg-gradient-to-r from-amber-500 to-orange-500'} text-white flex items-center justify-center`}>
                           <WalkingPersonIcon size={16} className="text-white" />
@@ -5384,8 +5401,8 @@ export default function POSSystem({
                             Walk-in
                           </span>
                         ) : isVipCustomer ? (
-                          <span className="bg-gradient-to-r from-amber-500 to-yellow-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full shadow-2xs shrink-0 flex items-center gap-0.5">
-                            <Award size={9} className="text-yellow-200" /> สมาชิก
+                          <span className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-2xs shrink-0 flex items-center gap-1 border border-emerald-300/40">
+                            <Award size={9} className="text-yellow-300" /> สมาชิก VIP
                           </span>
                         ) : null}
 
@@ -5415,19 +5432,31 @@ export default function POSSystem({
                     </div>
                   </div>
 
-                  {/* Right actions: ดูประวัติ + Clear */}
-                  <div className="flex items-center gap-1 shrink-0">
+                  {/* Right actions: VIP Form + ดูประวัติ + Clear */}
+                  <div className="flex items-center gap-1 shrink-0 relative z-10">
+                    {(selectedCustomer.isApproved || vipStats.isVip || isVipCustomer) && (
+                      <button 
+                        type="button"
+                        onClick={() => onOpenVipForm(selectedCustomer)}
+                        className="text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg border border-amber-200/80 transition-all cursor-pointer shadow-2xs flex items-center gap-0.5"
+                        title="ดู/สร้างใบสมัคร VIP"
+                      >
+                        <Award size={10} className="text-amber-600" />
+                        <span>ใบสมัคร VIP</span>
+                      </button>
+                    )}
+
                     {onViewCustomerProfile && !selectedCustomer.isWalkIn && (
                       <button 
                         type="button"
                         onClick={() => {
                           onViewCustomerProfile(selectedCustomer);
                         }}
-                        className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 font-bold border border-indigo-100 cursor-pointer shadow-2xs"
+                        className="text-[10px] bg-white hover:bg-indigo-50 text-indigo-700 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 font-bold border border-indigo-200 cursor-pointer shadow-2xs"
                         title="ดูประวัติลูกค้า"
                       >
                         <User size={10} />
-                        <span className="hidden xs:inline">ดูประวัติ</span>
+                        <span>ดูประวัติ</span>
                       </button>
                     )}
 
@@ -5442,10 +5471,10 @@ export default function POSSystem({
                   </div>
                 </div>
 
-                {/* Line 2: Member Toggle Pill + Credit / Pending Badges + Accumulated */}
-                <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between gap-1.5 flex-wrap text-xs">
+                {/* Line 2: Member Toggle Pill + Credit / Pending Badges */}
+                <div className="mt-2 pt-1.5 border-t border-slate-200/60 flex items-center justify-between gap-1.5 flex-wrap text-xs relative z-10">
                   {/* Member Toggle Pill (Compact & stylish) */}
-                  <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200/80 shrink-0">
+                  <div className="inline-flex items-center p-0.5 bg-slate-200/70 rounded-lg shrink-0">
                     <button
                       type="button"
                       onClick={() => {
@@ -5460,7 +5489,7 @@ export default function POSSystem({
                       className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
                         !isVipCustomer
                           ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-2xs font-black'
-                          : 'text-slate-500 hover:text-slate-700'
+                          : 'text-slate-600 hover:text-slate-800'
                       }`}
                     >
                       <WalkingPersonIcon size={10} className={!isVipCustomer ? "text-white" : "text-orange-500"} />
@@ -5481,7 +5510,7 @@ export default function POSSystem({
                       className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
                         isVipCustomer
                           ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-2xs font-black'
-                          : 'text-slate-500 hover:text-slate-700'
+                          : 'text-slate-600 hover:text-slate-800'
                       }`}
                     >
                       <Award size={10} className={isVipCustomer ? "text-yellow-200" : "text-emerald-600"} />
@@ -5489,16 +5518,10 @@ export default function POSSystem({
                     </button>
                   </div>
 
-                  {/* Financial / VIP Badges: ยอดสะสม • เครดิต • ค้างชำระ */}
+                  {/* Financial / VIP Badges: เครดิต • ค้างชำระ */}
                   <div className="flex items-center gap-1.5 flex-wrap ml-auto">
-                    {!selectedCustomer.isWalkIn && (
-                      <span className="text-[10px] text-slate-500 font-medium">
-                        สะสม: <strong className="text-slate-700 font-bold">฿{vipStats.amount.toLocaleString()}</strong>
-                      </span>
-                    )}
-
                     {customerCreditBalance > 0 && (
-                      <span className="inline-flex items-center gap-1 bg-amber-50 text-indigo-700 border border-amber-200/80 px-2 py-0.5 rounded-full text-[10px] font-black shadow-2xs">
+                      <span className="inline-flex items-center gap-1 bg-amber-50 text-indigo-700 border border-amber-200 px-2 py-0.5 rounded-full text-[10px] font-black shadow-2xs">
                         เครดิต ฿{customerCreditBalance.toLocaleString()}
                       </span>
                     )}
@@ -5511,9 +5534,56 @@ export default function POSSystem({
                   </div>
                 </div>
 
+                {/* 🌟 Line 3: แถบสถานะการสะสมยอดสวยๆ (VIP Progress Bar) */}
+                {!selectedCustomer.isWalkIn && (
+                  <div className="mt-2 pt-1.5 border-t border-slate-200/60 relative z-10">
+                    <div className="flex items-center justify-between text-[10px] mb-1 font-bold">
+                      <span className="flex items-center gap-1">
+                        {isVipCustomer ? (
+                          <span className="text-emerald-800 flex items-center gap-1 font-black">
+                            <Award size={11} className="text-emerald-600" />
+                            สมาชิก VIP Iris Clinic (ครบสิทธิ์แล้ว)
+                          </span>
+                        ) : (
+                          <span className="text-slate-600 flex items-center gap-1">
+                            <Award size={11} className="text-amber-500" />
+                            สะสมยอดสู่สมาชิก VIP (เป้า ฿5,000)
+                          </span>
+                        )}
+                      </span>
+
+                      {isVipCustomer ? (
+                        <span className="text-emerald-800 font-black bg-emerald-100/90 px-2 py-0.2 rounded-full border border-emerald-300/80 text-[10px]">
+                          ยอดสะสม ฿{vipStats.amount.toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="text-slate-600 text-[10px]">
+                          สะสม <strong className="text-indigo-600 font-black">฿{vipStats.amount.toLocaleString()}</strong> • ขาดอีก <strong className="text-amber-600 font-black">฿{Math.max(0, 5000 - vipStats.amount).toLocaleString()}</strong>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Visual Progress Track */}
+                    <div className="w-full bg-slate-200/90 rounded-full h-2 p-0.5 overflow-hidden shadow-inner flex items-center">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-700 relative shadow-xs ${
+                          isVipCustomer 
+                            ? 'bg-gradient-to-r from-emerald-500 via-teal-400 to-amber-400 w-full' 
+                            : 'bg-gradient-to-r from-amber-400 via-orange-500 to-emerald-500'
+                        }`}
+                        style={{ width: isVipCustomer ? '100%' : `${Math.min(100, Math.max(5, (vipStats.amount / 5000) * 100))}%` }}
+                      >
+                        {isVipCustomer && (
+                          <div className="absolute inset-0 bg-white/30 animate-pulse rounded-full" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* AI Skin Issue hint (if available, compact inline) */}
                 {(selectedCustomer.computedIssue || selectedCustomer.issue) && (
-                  <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center justify-between gap-1 text-[10px] text-slate-600">
+                  <div className="mt-1.5 pt-1.5 border-t border-slate-200/60 flex items-center justify-between gap-1 text-[10px] text-slate-600 relative z-10">
                     <div className="min-w-0 flex items-center gap-1 truncate">
                       <Sparkles size={11} className="text-indigo-600 shrink-0" />
                       <span className="truncate">
@@ -5531,7 +5601,7 @@ export default function POSSystem({
                             setActiveTab('courses');
                             setCourseSearch(topCourse.searchKey || '');
                           }}
-                          className="text-[9px] font-black text-indigo-700 hover:text-indigo-900 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0 flex items-center gap-0.5"
+                          className="text-[9px] font-black text-indigo-700 hover:text-indigo-900 bg-white px-1.5 py-0.5 rounded border border-indigo-200 shadow-2xs shrink-0 flex items-center gap-0.5"
                         >
                           <span>AI: {topCourse.shortName}</span>
                           <ChevronRight size={10} />
@@ -6974,12 +7044,29 @@ export default function POSSystem({
           <div className="relative">
             {selectedCustomer ? (
               <>
-              <div className="bg-white p-3 rounded-2xl border border-indigo-200 shadow-2xs hover:shadow-xs transition-all">
+              <div className={`p-3 rounded-2xl border-2 transition-all relative overflow-hidden ${
+                isVipCustomer 
+                  ? 'bg-gradient-to-br from-emerald-50 via-teal-50/50 to-amber-50/70 border-emerald-300 shadow-sm ring-1 ring-emerald-200/50' 
+                  : selectedCustomer.isWalkIn 
+                    ? 'bg-gradient-to-br from-orange-50 via-amber-50/40 to-white border-orange-200 shadow-2xs' 
+                    : 'bg-gradient-to-br from-slate-50 via-indigo-50/30 to-white border-slate-200 shadow-2xs'
+              }`}>
+                {/* Subtle Glow for VIP */}
+                {isVipCustomer && (
+                  <div className="absolute right-0 top-0 w-32 h-32 bg-emerald-300/15 rounded-full blur-2xl pointer-events-none -mr-8 -mt-8" />
+                )}
+
                 {/* Line 1: Avatar + Name + Badges + Actions */}
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-2 relative z-10">
                   <div className="flex items-center gap-2.5 min-w-0 flex-1">
                     {/* Avatar (compact 34px) */}
-                    <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 bg-indigo-50 border border-indigo-200 flex items-center justify-center shadow-2xs">
+                    <div className={`w-9 h-9 rounded-full overflow-hidden shrink-0 bg-white flex items-center justify-center shadow-2xs ${
+                      isVipCustomer 
+                        ? 'border-2 border-emerald-400 ring-2 ring-emerald-100' 
+                        : selectedCustomer.isWalkIn 
+                          ? 'border-2 border-orange-300 ring-2 ring-orange-100' 
+                          : 'border-2 border-indigo-200'
+                    }`}>
                       {selectedCustomer.isWalkIn ? (
                         <div className={`w-full h-full ${isVipCustomer ? 'bg-gradient-to-r from-amber-500 to-yellow-500' : 'bg-gradient-to-r from-amber-500 to-orange-500'} text-white flex items-center justify-center`}>
                           <WalkingPersonIcon size={16} className="text-white" />
@@ -7012,8 +7099,8 @@ export default function POSSystem({
                             Walk-in
                           </span>
                         ) : isVipCustomer ? (
-                          <span className="bg-gradient-to-r from-amber-500 to-yellow-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full shadow-2xs shrink-0 flex items-center gap-0.5">
-                            <Award size={9} className="text-yellow-200" /> สมาชิก
+                          <span className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-2xs shrink-0 flex items-center gap-1 border border-emerald-300/40">
+                            <Award size={9} className="text-yellow-300" /> สมาชิก VIP
                           </span>
                         ) : null}
 
@@ -7044,15 +7131,16 @@ export default function POSSystem({
                   </div>
 
                   {/* Right actions: VIP Form + ดูประวัติ + Clear */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    {(selectedCustomer.isApproved || vipStats.isVip) && (
+                  <div className="flex items-center gap-1 shrink-0 relative z-10">
+                    {(selectedCustomer.isApproved || vipStats.isVip || isVipCustomer) && (
                       <button 
                         type="button"
                         onClick={() => onOpenVipForm(selectedCustomer)}
-                        className="text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg border border-amber-200/80 transition-all cursor-pointer shadow-2xs"
+                        className="text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg border border-amber-200/80 transition-all cursor-pointer shadow-2xs flex items-center gap-0.5"
                         title="ดู/สร้างใบสมัคร VIP"
                       >
-                        VIP
+                        <Award size={10} className="text-amber-600" />
+                        <span>ใบสมัคร VIP</span>
                       </button>
                     )}
 
@@ -7063,7 +7151,7 @@ export default function POSSystem({
                           onViewCustomerProfile(selectedCustomer);
                           setIsMobileCartOpen(false);
                         }}
-                        className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 font-bold border border-indigo-100 cursor-pointer shadow-2xs"
+                        className="text-[10px] bg-white hover:bg-indigo-50 text-indigo-700 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 font-bold border border-indigo-200 cursor-pointer shadow-2xs"
                         title="ดูประวัติลูกค้า"
                       >
                         <User size={10} />
@@ -7082,10 +7170,10 @@ export default function POSSystem({
                   </div>
                 </div>
 
-                {/* Line 2: Member Toggle Pill + Credit / Pending Badges + Accumulated */}
-                <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between gap-1.5 flex-wrap text-xs">
+                {/* Line 2: Member Toggle Pill + Credit / Pending Badges */}
+                <div className="mt-2 pt-1.5 border-t border-slate-200/60 flex items-center justify-between gap-1.5 flex-wrap text-xs relative z-10">
                   {/* Member Toggle Pill (Compact & stylish) */}
-                  <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200/80 shrink-0">
+                  <div className="inline-flex items-center p-0.5 bg-slate-200/70 rounded-lg shrink-0">
                     <button
                       type="button"
                       onClick={() => {
@@ -7100,7 +7188,7 @@ export default function POSSystem({
                       className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
                         !isVipCustomer
                           ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-2xs font-black'
-                          : 'text-slate-500 hover:text-slate-700'
+                          : 'text-slate-600 hover:text-slate-800'
                       }`}
                     >
                       <WalkingPersonIcon size={10} className={!isVipCustomer ? "text-white" : "text-orange-500"} />
@@ -7121,7 +7209,7 @@ export default function POSSystem({
                       className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
                         isVipCustomer
                           ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-2xs font-black'
-                          : 'text-slate-500 hover:text-slate-700'
+                          : 'text-slate-600 hover:text-slate-800'
                       }`}
                     >
                       <Award size={10} className={isVipCustomer ? "text-yellow-200" : "text-emerald-600"} />
@@ -7129,16 +7217,10 @@ export default function POSSystem({
                     </button>
                   </div>
 
-                  {/* Financial / VIP Badges: ยอดสะสม • เครดิต • ค้างชำระ */}
+                  {/* Financial / VIP Badges: เครดิต • ค้างชำระ */}
                   <div className="flex items-center gap-1.5 flex-wrap ml-auto">
-                    {!selectedCustomer.isWalkIn && (
-                      <span className="text-[10px] text-slate-500 font-medium">
-                        สะสม: <strong className="text-slate-700 font-bold">฿{vipStats.amount.toLocaleString()}</strong>
-                      </span>
-                    )}
-
                     {customerCreditBalance > 0 && (
-                      <span className="inline-flex items-center gap-1 bg-amber-50 text-indigo-700 border border-amber-200/80 px-2 py-0.5 rounded-full text-[10px] font-black shadow-2xs">
+                      <span className="inline-flex items-center gap-1 bg-amber-50 text-indigo-700 border border-amber-200 px-2 py-0.5 rounded-full text-[10px] font-black shadow-2xs">
                         เครดิต ฿{customerCreditBalance.toLocaleString()}
                       </span>
                     )}
@@ -7151,9 +7233,56 @@ export default function POSSystem({
                   </div>
                 </div>
 
+                {/* 🌟 Line 3: แถบสถานะการสะสมยอดสวยๆ (VIP Progress Bar) */}
+                {!selectedCustomer.isWalkIn && (
+                  <div className="mt-2 pt-1.5 border-t border-slate-200/60 relative z-10">
+                    <div className="flex items-center justify-between text-[10px] mb-1 font-bold">
+                      <span className="flex items-center gap-1">
+                        {isVipCustomer ? (
+                          <span className="text-emerald-800 flex items-center gap-1 font-black">
+                            <Award size={11} className="text-emerald-600" />
+                            สมาชิก VIP Iris Clinic (ครบสิทธิ์แล้ว)
+                          </span>
+                        ) : (
+                          <span className="text-slate-600 flex items-center gap-1">
+                            <Award size={11} className="text-amber-500" />
+                            สะสมยอดเพื่อรับสิทธิ์สมาชิก VIP (เป้า ฿5,000)
+                          </span>
+                        )}
+                      </span>
+
+                      {isVipCustomer ? (
+                        <span className="text-emerald-800 font-black bg-emerald-100/90 px-2 py-0.2 rounded-full border border-emerald-300/80 text-[10px]">
+                          ยอดสะสม ฿{vipStats.amount.toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="text-slate-600 text-[10px]">
+                          สะสม <strong className="text-indigo-600 font-black">฿{vipStats.amount.toLocaleString()}</strong> • ขาดอีก <strong className="text-amber-600 font-black">฿{Math.max(0, 5000 - vipStats.amount).toLocaleString()}</strong>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Visual Progress Track */}
+                    <div className="w-full bg-slate-200/90 rounded-full h-2 p-0.5 overflow-hidden shadow-inner flex items-center">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-700 relative shadow-xs ${
+                          isVipCustomer 
+                            ? 'bg-gradient-to-r from-emerald-500 via-teal-400 to-amber-400 w-full' 
+                            : 'bg-gradient-to-r from-amber-400 via-orange-500 to-emerald-500'
+                        }`}
+                        style={{ width: isVipCustomer ? '100%' : `${Math.min(100, Math.max(5, (vipStats.amount / 5000) * 100))}%` }}
+                      >
+                        {isVipCustomer && (
+                          <div className="absolute inset-0 bg-white/30 animate-pulse rounded-full" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* AI Skin Issue hint (if available, compact inline) */}
                 {(selectedCustomer.computedIssue || selectedCustomer.issue) && (
-                  <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center justify-between gap-1 text-[10px] text-slate-600">
+                  <div className="mt-1.5 pt-1.5 border-t border-slate-200/60 flex items-center justify-between gap-1 text-[10px] text-slate-600 relative z-10">
                     <div className="min-w-0 flex items-center gap-1 truncate">
                       <Sparkles size={11} className="text-indigo-600 shrink-0" />
                       <span className="truncate">
@@ -7171,7 +7300,7 @@ export default function POSSystem({
                             setActiveTab('courses');
                             setCourseSearch(topCourse.searchKey || '');
                           }}
-                          className="text-[9px] font-black text-indigo-700 hover:text-indigo-900 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0 flex items-center gap-0.5"
+                          className="text-[9px] font-black text-indigo-700 hover:text-indigo-900 bg-white px-1.5 py-0.5 rounded border border-indigo-200 shadow-2xs shrink-0 flex items-center gap-0.5"
                         >
                           <span>AI: {topCourse.shortName}</span>
                           <ChevronRight size={10} />
