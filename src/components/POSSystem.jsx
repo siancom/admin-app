@@ -1113,6 +1113,7 @@ export default function POSSystem({
   const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [customerSignature, setCustomerSignature] = useState(null);
   const [staffSignature, setStaffSignature] = useState(null);
+  const [showServiceProofModal, setShowServiceProofModal] = useState(false);
   const [splitPayment, setSplitPayment] = useState({ cash: 0, transfer: 0, cod: 0, credit: 0, omise_promptpay: 0 });
   const [showOmiseQrModal, setShowOmiseQrModal] = useState(false);
   const [showTransferChoiceModal, setShowTransferChoiceModal] = useState(false);
@@ -8087,164 +8088,51 @@ export default function POSSystem({
               {/* Service Details & Signatures (For usage, claim, or service items) */}
               {(hasUsageOrClaim || cart.some(i => i.type === 'service')) && (
                 <div className="space-y-4 pt-2">
-                  {/* 🌟 SERVICE STATUS & PHOTO BANNER (แบนเนอร์เริ่มให้บริการ / แตะถ่ายรูปแรก Before เพื่อเริ่มจับเวลา) 🌟 */}
-                  <div className="bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 rounded-2xl p-4 text-white shadow-md relative overflow-hidden">
-                    <div className="absolute right-0 top-0 w-36 h-36 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none" />
-                    
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative z-10">
-                      <div className="flex items-center gap-3">
-                        <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 border border-white/30 text-white shadow-inner">
-                          <Camera size={22} />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-black tracking-wide">
-                              {paymentPhotos.before.length > 0 ? '🟢 เริ่มให้บริการแล้ว (กำลังทำทรีตเมนต์)' : '📸 เริ่มต้นการให้บริการ (แตะถ่ายรูปแรก Before)'}
+                  {/* 📸 หลักฐานการให้บริการ (รูปถ่าย & ลายเซ็น) - แตะเพื่อเปิดโมดัลจัดการรูปและลายเซ็น */}
+                  <div className="bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 rounded-2xl p-3.5 text-white shadow-md relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 border border-white/30 text-white shadow-inner">
+                        <Camera size={20} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs sm:text-sm font-black tracking-wide">
+                            {paymentPhotos.before.length > 0 ? '🟢 เริ่มให้บริการแล้ว' : '📸 รูปถ่าย & ลายเซ็นรับบริการ'}
+                          </span>
+                          {paymentPhotos.before.length > 0 && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-400 text-emerald-950 shadow-xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-950 animate-ping" />
+                              {(() => {
+                                const firstUsage = cart.find(i => i.type === 'usage');
+                                const cInfo = firstUsage ? activeServiceCourses[firstUsage.id] : null;
+                                return cInfo?.startTime ? getServiceElapsedStr(cInfo.startTime) : 'กำลังให้บริการ';
+                              })()}
                             </span>
-                            {paymentPhotos.before.length > 0 && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-400 text-emerald-950 shadow-xs animate-pulse">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-950 animate-ping" />
-                                {(() => {
-                                  const firstUsage = cart.find(i => i.type === 'usage');
-                                  const cInfo = firstUsage ? activeServiceCourses[firstUsage.id] : null;
-                                  return cInfo?.startTime ? getServiceElapsedStr(cInfo.startTime) : 'กำลังให้บริการ';
-                                })()}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-white/80 mt-0.5 leading-snug">
-                            {paymentPhotos.before.length > 0 
-                              ? `บันทึกรูปก่อนทำแล้ว (${paymentPhotos.before.length} รูป) • การ์ดคอร์สจะกระพริบแสดงสถานะกำลังให้บริการพร้อมเวลา`
-                              : 'แตะถ่ายรูปแรก เพื่อเริ่มบันทึกเวลาและเปลี่ยนสถานะการ์ดเป็น "กำลังให้บริการ"'}
-                          </p>
+                          )}
+                          {(custSigRef.current?.dataset?.isSigned === "true" || !!customerSignature) && (staffSigRef.current?.dataset?.isSigned === "true" || !!staffSignature) ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white border border-white/30">
+                              ✓ เซ็นชื่อครบแล้ว
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-400 text-amber-950">
+                              ✍️ ยังไม่ได้เซ็น
+                            </span>
+                          )}
                         </div>
-                      </div>
-
-                      {/* Action Buttons: ถ่ายรูป Before / After */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          capture="environment" 
-                          multiple 
-                          className="hidden" 
-                          id="banner-upload-before" 
-                          onChange={handleUploadBeforePhoto} 
-                        />
-                        <label 
-                          htmlFor="banner-upload-before" 
-                          className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all ${
-                            paymentPhotos.before.length > 0 
-                              ? 'bg-white/20 hover:bg-white/30 text-white border border-white/30' 
-                              : 'bg-white text-indigo-700 hover:bg-indigo-50 shadow-md ring-2 ring-white/50'
-                          }`}
-                        >
-                          <Camera size={15} />
-                          <span>{paymentPhotos.before.length > 0 ? `+ Before (${paymentPhotos.before.length})` : 'แตะถ่ายรูปแรก (Before)'}</span>
-                        </label>
-
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          capture="environment" 
-                          multiple 
-                          className="hidden" 
-                          id="banner-upload-after" 
-                          onChange={handleUploadAfterPhoto} 
-                        />
-                        <label 
-                          htmlFor="banner-upload-after" 
-                          className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all ${
-                            paymentPhotos.after.length > 0 
-                              ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md' 
-                              : 'bg-white/15 hover:bg-white/25 text-white/90 border border-white/20'
-                          }`}
-                        >
-                          <Camera size={15} />
-                          <span>{paymentPhotos.after.length > 0 ? `+ After (${paymentPhotos.after.length})` : 'ถ่ายรูปหลังทำ (After)'}</span>
-                        </label>
+                        <p className="text-[11px] text-white/80 mt-0.5 leading-snug truncate">
+                          Before: {paymentPhotos.before.length} รูป • After: {paymentPhotos.after.length} รูป • แตะปุ่มเพื่อถ่ายรูปและเซ็นชื่อ
+                        </p>
                       </div>
                     </div>
 
-                    {/* Previews */}
-                    {(paymentPhotos.before.length > 0 || paymentPhotos.after.length > 0) && (
-                      <div className="mt-3 pt-2.5 border-t border-white/20 flex items-center gap-2 overflow-x-auto pb-1">
-                        {paymentPhotos.before.map((img, idx) => (
-                          <div key={`b-${idx}`} className="relative shrink-0 group">
-                            <img src={img} alt="Before" className="w-12 h-12 object-cover rounded-xl border-2 border-white/60 shadow-xs" />
-                            <span className="absolute bottom-0 inset-x-0 bg-indigo-950/80 text-[8px] text-center text-white font-bold py-0.5 rounded-b-xl">Before</span>
-                            <button 
-                              type="button" 
-                              onClick={() => setPaymentPhotos(p => ({ ...p, before: p.before.filter((_, i) => i !== idx) }))}
-                              className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-xs hover:bg-red-600"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                        {paymentPhotos.after.map((img, idx) => (
-                          <div key={`a-${idx}`} className="relative shrink-0 group">
-                            <img src={img} alt="After" className="w-12 h-12 object-cover rounded-xl border-2 border-emerald-400 shadow-xs" />
-                            <span className="absolute bottom-0 inset-x-0 bg-emerald-950/80 text-[8px] text-center text-white font-bold py-0.5 rounded-b-xl">After</span>
-                            <button 
-                              type="button" 
-                              onClick={() => setPaymentPhotos(p => ({ ...p, after: p.after.filter((_, i) => i !== idx) }))}
-                              className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-xs hover:bg-red-600"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* ✍️ ลายเซ็นลูกค้า & ลายเซ็นพนักงาน (จัดการรูปและลายเซ็นที่เดียวในจุดนี้) */}
-                    <div className="mt-3 pt-3 border-t border-white/20 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-white flex items-center gap-1.5">
-                          <PenTool size={13} className="text-amber-300" />
-                          <span>ลายเซ็นยืนยันรับบริการ & ผู้ให้บริการ:</span>
-                        </span>
-                        <span className="text-[10px] text-white/75 font-medium">เซ็นชื่อเพื่อยืนยันการรับบริการ</span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <div className="bg-white rounded-xl p-1.5 shadow-sm text-slate-800">
-                          <SignaturePad 
-                            canvasRef={custSigRef} 
-                            label="✍️ ลายเซ็นลูกค้า (ผู้รับบริการ)" 
-                            height={85}
-                            onSigned={(dataUrl) => setCustomerSignature(dataUrl)}
-                          />
-                        </div>
-                        <div className="bg-white rounded-xl p-1.5 shadow-sm text-slate-800">
-                          <SignaturePad 
-                            canvasRef={staffSigRef} 
-                            label={`✍️ ลายเซ็นพนักงาน${paymentStaff ? ` (${paymentStaff})` : ''}`} 
-                            height={85}
-                            onSigned={(dataUrl) => setStaffSignature(dataUrl)}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Quick check-in action: just checked in and want to close modal to treat customer */}
-                    {paymentPhotos.before.length > 0 && (
-                      <div className="mt-2.5 pt-2 border-t border-white/15 flex items-center justify-between gap-2 flex-wrap">
-                        <span className="text-[11px] text-white/90 font-medium">
-                          ✓ เริ่มจับเวลาแล้ว สามารถปิดหน้าต่างนี้ไปทำบริการได้ทันที
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowPaymentModal(false);
-                            showToast('เช็คอินเริ่มบริการเรียบร้อย! การ์ดจะกระพริบจับเวลา สามารถกลับมาตัดยอดและเลือกพนักงานเมื่อทำเสร็จ', 'info');
-                          }}
-                          className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-[11px] font-bold border border-white/30 backdrop-blur-sm active:scale-95 transition-all cursor-pointer shrink-0"
-                        >
-                          ปิดหน้าต่างไปทำบริการก่อน
-                        </button>
-                      </div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowServiceProofModal(true)}
+                      className="px-3.5 py-2 rounded-xl text-xs font-black bg-white text-indigo-700 hover:bg-indigo-50 shadow-md active:scale-95 transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                    >
+                      <PenTool size={14} />
+                      <span>{paymentPhotos.before.length > 0 || customerSignature ? 'จัดการรูป / ลายเซ็น' : 'แตะถ่ายรูป & เซ็นชื่อ'}</span>
+                    </button>
                   </div>
 
                   {/* Staff Selection & Hand Fee in Step 1 for Course Usage */}
@@ -8641,37 +8529,6 @@ export default function POSSystem({
                                               showToast(`เพิ่ม "${addon.name}" (+฿${priceNum}) ลงในบิลแล้ว`, 'success');
                                             }}
                                             className="px-2 py-1 rounded-lg text-[10px] font-bold bg-pink-50 hover:bg-pink-600 hover:text-white text-pink-700 border border-pink-200 shrink-0 shadow-2xs"
-                                          >
-                                            + ซื้อเพิ่ม ฿{priceNum}
-                                          </button>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-
-                                  {/* Products in search */}
-                                  {matchedProds.slice(0, 10).map(prod => {
-                                    const pName = String(getFuzzyKey(prod, ["ชื่อสินค้า", "col_2"]) || prod.name || '');
-                                    const pPrice = computeFinalPrice(prod, isVipCustomer);
-                                    const cartProd = cart.find(i => i.id === prod.id && i.type === 'product');
-                                    return (
-                                      <div key={prod.id} className="p-2 rounded-xl border border-emerald-200 bg-white shadow-2xs flex items-center justify-between gap-2">
-                                        <div className="truncate flex-1 min-w-0">
-                                          <div className="text-xs font-bold text-slate-800 truncate">🛍️ {pName}</div>
-                                          <div className="text-[10px] text-emerald-700 font-bold">฿{pPrice.toLocaleString()}</div>
-                                        </div>
-                                        {cartProd ? (
-                                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">
-                                            ในบิล x{cartProd.qty}
-                                          </span>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              addToCart(prod, 'product');
-                                              showToast(`เพิ่ม "${pName}" ลงในบิลแล้ว`, 'success');
-                                            }}
-                                            className="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-700 border border-emerald-200 shrink-0 shadow-2xs"
                                           >
                                             + ซื้อสินค้า
                                           </button>
@@ -9417,20 +9274,29 @@ export default function POSSystem({
               {/* Service Proof Summary in Step 2 */}
               {(hasUsageOrClaim || cart.some(i => i.type === 'service')) && (
                 <div className="p-3 bg-violet-50/70 border border-violet-200 rounded-2xl flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-violet-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-violet-600 text-white flex items-center justify-center font-bold text-xs shadow-xs shrink-0">
                       <Camera size={14} />
                     </div>
-                    <div>
-                      <span className="font-bold text-violet-950 block">บันทึกรูปและลายเซ็นเรียบร้อยแล้ว</span>
-                      <span className="text-[10px] text-violet-600 font-medium">
-                        Before: {paymentPhotos.before.length} รูป • After: {paymentPhotos.after.length} รูป • มีลายเซ็นรับบริการครบถ้วน
+                    <div className="min-w-0">
+                      <span className="font-bold text-violet-950 block truncate">หลักฐานรูปถ่ายและลายเซ็น</span>
+                      <span className="text-[10px] text-violet-600 font-medium truncate block">
+                        Before: {paymentPhotos.before.length} รูป • After: {paymentPhotos.after.length} รูป • {
+                          (custSigRef.current?.dataset?.isSigned === "true" || !!customerSignature) && (staffSigRef.current?.dataset?.isSigned === "true" || !!staffSignature)
+                            ? 'เซ็นชื่อครบแล้ว'
+                            : 'ยังไม่ได้เซ็น'
+                        }
                       </span>
                     </div>
                   </div>
-                  <span className="text-[11px] font-bold text-emerald-700 bg-white border border-emerald-200 px-2.5 py-0.5 rounded-lg shadow-2xs">
-                    ✓ พร้อมตัดยอด
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowServiceProofModal(true)}
+                    className="text-[11px] font-bold text-violet-700 bg-white hover:bg-violet-50 border border-violet-300 px-2.5 py-1 rounded-lg shadow-2xs active:scale-95 transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                  >
+                    <PenTool size={12} />
+                    <span>จัดการรูป / ลายเซ็น</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -9463,7 +9329,8 @@ export default function POSSystem({
                       const isCustSigned = custSigRef.current?.dataset?.isSigned === "true" || !!customerSignature;
                       const isStaffSigned = staffSigRef.current?.dataset?.isSigned === "true" || !!staffSignature;
                       if (!isCustSigned || !isStaffSigned) {
-                        return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
+                        setShowServiceProofModal(true);
+                        return showToast('กรุณาบันทึกรูปและให้ลูกค้ากับพนักงานเซ็นชื่อก่อนตัดยอด', 'warning');
                       }
                       handleCheckout();
                     }}
@@ -9524,7 +9391,8 @@ export default function POSSystem({
                           const isCustSigned = custSigRef.current?.dataset?.isSigned === "true" || !!customerSignature;
                           const isStaffSigned = staffSigRef.current?.dataset?.isSigned === "true" || !!staffSignature;
                           if (!isCustSigned || !isStaffSigned) {
-                              return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
+                              setShowServiceProofModal(true);
+                              return showToast('กรุณาบันทึกรูปและให้ลูกค้ากับพนักงานเซ็นชื่อก่อนตัดยอด', 'warning');
                           }
                       }
                       if (splitPayment.transfer > 0 && !omiseChargeData) {
@@ -9561,6 +9429,218 @@ export default function POSSystem({
       </div>
       );
     })()}
+
+    {/* 📸 Dedicated Modal: จัดการรูปถ่ายและลายเซ็นรับบริการ (แยกออกมาอีกโมดัล) */}
+    <div className={`fixed inset-0 z-[80] items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden ${showServiceProofModal ? 'flex' : 'hidden'}`}>
+      <div className="bg-white rounded-3xl p-5 sm:p-6 w-full max-w-xl shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+        {/* Modal Header */}
+        <div className="flex justify-between items-center pb-3 border-b border-slate-100 mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white flex items-center justify-center shadow-md shrink-0">
+              <Camera size={20} />
+            </div>
+            <div>
+              <h3 className="text-base sm:text-lg font-black text-slate-800">
+                จัดการรูปถ่ายและลายเซ็นรับบริการ
+              </h3>
+              <p className="text-[11px] text-slate-500 font-medium">
+                บันทึกหลักฐานภาพถ่าย Before/After และลายเซ็นลูกค้า & พนักงาน
+              </p>
+            </div>
+          </div>
+          <button 
+            type="button" 
+            onClick={() => setShowServiceProofModal(false)}
+            className="text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-full transition-colors cursor-pointer"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="space-y-4">
+          {/* Status & Timer Card */}
+          <div className="bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 rounded-2xl p-4 text-white shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative overflow-hidden">
+            <div className="absolute right-0 top-0 w-32 h-32 bg-white/10 rounded-full blur-xl -mr-8 -mt-8 pointer-events-none" />
+            <div className="min-w-0 relative z-10">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs sm:text-sm font-black tracking-wide">
+                  {paymentPhotos.before.length > 0 ? '🟢 เริ่มให้บริการแล้ว (กำลังทำทรีตเมนต์)' : '📸 ถ่ายรูปแรก Before เพื่อเริ่มจับเวลา'}
+                </span>
+                {paymentPhotos.before.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-400 text-emerald-950 shadow-xs animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-950 animate-ping" />
+                    {(() => {
+                      const firstUsage = cart.find(i => i.type === 'usage');
+                      const cInfo = firstUsage ? activeServiceCourses[firstUsage.id] : null;
+                      return cInfo?.startTime ? getServiceElapsedStr(cInfo.startTime) : 'กำลังให้บริการ';
+                    })()}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-white/80 mt-0.5 leading-snug">
+                {paymentPhotos.before.length > 0
+                  ? `บันทึกรูปก่อนทำแล้ว (${paymentPhotos.before.length} รูป) • สามารถถ่ายรูป After เพิ่มได้เมื่อทำเสร็จ`
+                  : 'แตะปุ่มด้านขวาเพื่อเปิดกล้องถ่ายรูป Before'}
+              </p>
+            </div>
+
+            {/* Photo Upload Buttons */}
+            <div className="flex items-center gap-2 shrink-0 relative z-10">
+              <input 
+                type="file" 
+                accept="image/*" 
+                capture="environment" 
+                multiple 
+                className="hidden" 
+                id="modal-upload-before" 
+                onChange={handleUploadBeforePhoto} 
+              />
+              <label 
+                htmlFor="modal-upload-before" 
+                className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all ${
+                  paymentPhotos.before.length > 0 
+                    ? 'bg-white/20 hover:bg-white/30 text-white border border-white/30' 
+                    : 'bg-white text-indigo-700 hover:bg-indigo-50 shadow-md ring-2 ring-white/50'
+                }`}
+              >
+                <Camera size={14} />
+                <span>{paymentPhotos.before.length > 0 ? `+ Before (${paymentPhotos.before.length})` : 'ถ่ายรูปก่อนทำ (Before)'}</span>
+              </label>
+
+              <input 
+                type="file" 
+                accept="image/*" 
+                capture="environment" 
+                multiple 
+                className="hidden" 
+                id="modal-upload-after" 
+                onChange={handleUploadAfterPhoto} 
+              />
+              <label 
+                htmlFor="modal-upload-after" 
+                className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all ${
+                  paymentPhotos.after.length > 0 
+                    ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md' 
+                    : 'bg-white/15 hover:bg-white/25 text-white/90 border border-white/20'
+                }`}
+              >
+                <Camera size={14} />
+                <span>{paymentPhotos.after.length > 0 ? `+ After (${paymentPhotos.after.length})` : 'ถ่ายรูปหลังทำ (After)'}</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Photo Preview Strip */}
+          {(paymentPhotos.before.length > 0 || paymentPhotos.after.length > 0) && (
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl">
+              <div className="text-[11px] font-bold text-slate-600 mb-2 flex items-center justify-between">
+                <span>รูปถ่ายหลักฐาน ({paymentPhotos.before.length + paymentPhotos.after.length} รูป):</span>
+                <span className="text-[10px] text-slate-400">Before: {paymentPhotos.before.length} • After: {paymentPhotos.after.length}</span>
+              </div>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {paymentPhotos.before.map((img, idx) => (
+                  <div key={`modal-b-${idx}`} className="relative shrink-0 group">
+                    <img src={img} alt="Before" className="w-16 h-16 object-cover rounded-xl border-2 border-indigo-400 shadow-xs" />
+                    <span className="absolute bottom-0 inset-x-0 bg-indigo-950/85 text-[8px] text-center text-white font-bold py-0.5 rounded-b-xl">Before</span>
+                    <button 
+                      type="button" 
+                      onClick={() => setPaymentPhotos(p => ({ ...p, before: p.before.filter((_, i) => i !== idx) }))}
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold shadow-xs hover:bg-red-600 cursor-pointer"
+                      title="ลบรูป"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {paymentPhotos.after.map((img, idx) => (
+                  <div key={`modal-a-${idx}`} className="relative shrink-0 group">
+                    <img src={img} alt="After" className="w-16 h-16 object-cover rounded-xl border-2 border-emerald-400 shadow-xs" />
+                    <span className="absolute bottom-0 inset-x-0 bg-emerald-950/85 text-[8px] text-center text-white font-bold py-0.5 rounded-b-xl">After</span>
+                    <button 
+                      type="button" 
+                      onClick={() => setPaymentPhotos(p => ({ ...p, after: p.after.filter((_, i) => i !== idx) }))}
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold shadow-xs hover:bg-red-600 cursor-pointer"
+                      title="ลบรูป"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Signature Pads */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                <PenTool size={14} className="text-violet-600" />
+                <span>ลายเซ็นยืนยันรับบริการ & ผู้ให้บริการ:</span>
+              </span>
+              <span className="text-[10px] text-slate-400">กรุณาเซ็นชื่อเพื่อยืนยันการรับบริการ</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-2.5">
+                <SignaturePad 
+                  canvasRef={custSigRef} 
+                  label="✍️ ลายเซ็นลูกค้า (ผู้รับบริการ)" 
+                  height={110}
+                  onSigned={(dataUrl) => setCustomerSignature(dataUrl)}
+                />
+              </div>
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-2.5">
+                <SignaturePad 
+                  canvasRef={staffSigRef} 
+                  label={`✍️ ลายเซ็นพนักงาน${paymentStaff ? ` (${paymentStaff})` : ''}`} 
+                  height={110}
+                  onSigned={(dataUrl) => setStaffSignature(dataUrl)}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+          {paymentPhotos.before.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowServiceProofModal(false);
+                setShowPaymentModal(false);
+                showToast('เช็คอินเริ่มบริการเรียบร้อย! การ์ดจะกระพริบจับเวลา สามารถกลับมาตัดยอดและเลือกพนักงานเมื่อทำเสร็จ', 'info');
+              }}
+              className="px-3.5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold border border-indigo-200 active:scale-95 transition-all cursor-pointer"
+            >
+              ✓ เริ่มจับเวลาแล้ว ปิดไปทำบริการก่อน
+            </button>
+          )}
+
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              type="button"
+              onClick={() => setShowServiceProofModal(false)}
+              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+            >
+              ปิด
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowServiceProofModal(false);
+                showToast('บันทึกรูปและลายเซ็นเรียบร้อย', 'success');
+              }}
+              className="px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-black shadow-md active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <CheckCircle size={15} />
+              <span>เสร็จสิ้น / บันทึก</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     {/* Transfer Choice Modal */}
     {showTransferChoiceModal && (
