@@ -140,12 +140,31 @@ export default function ClockOutSummaryModal({
         const price = parseNumber(getFuzzyKey(h, ['ราคา', 'price', 'จำนวนเงิน', 'ยอดเงิน']) || 0);
         const typeStr = String(getFuzzyKey(h, ['ประเภท', 'col_4']) || '');
         const itemStr = String(getFuzzyKey(h, ['สินค้า', 'รายการ', 'col_18']) || '');
+        const actionType = String(h.actionType || '');
         const shareCount = staffNames.length || 1;
-        if (typeStr.includes('ซื้อสินค้า')) {
+
+        // 🌟 ตัดคอร์ส / รับบริการ / เบิกของแถม: ไม่ใช่การซื้อคอร์สหรือซื้อเพิ่ม พนักงานต้องไม่ได้ค่าขายคอร์ส (0 บ.)
+        const isCourseDeduction = 
+          typeStr.includes('ใช้คอส') ||
+          typeStr.includes('ใช้คอร์ส') ||
+          typeStr.includes('ตัดคอส') ||
+          typeStr.includes('ตัดคอร์ส') ||
+          typeStr.includes('รับบริการ') ||
+          typeStr.includes('เบิก') ||
+          typeStr.includes('เคลม') ||
+          actionType === 'usage' ||
+          actionType === 'claim_item' ||
+          h.isUsage ||
+          h.noCourseCommission;
+
+        if (isCourseDeduction) {
+          // 🌟 ตัดคอร์ส / รับบริการ / เบิกของแถม: พนักงานไม่ได้ค่าขายคอร์ส (คิดเฉพาะค่ามือ DF)
+        } else if (typeStr.includes('ซื้อสินค้า')) {
           comm += (price * ((parseFloat(employee.productCommissionRate) || 0) / 100)) / shareCount;
         } else if (typeStr.includes('บริการ') || typeStr.includes('จี้') || itemStr.includes('จี้') || h.isService || h.noCourseCommission || h.type === 'service') {
           // 🌟 รายการจี้ / หัตถการรายครั้ง: คิดเป็นค่ามือ (DF) ตามบิล ไม่คำนวณเป็นค่าคอมคอร์ส
-        } else {
+        } else if (typeStr.includes('ซื้อคอส') || typeStr.includes('ซื้อคอร์ส') || typeStr.includes('ซื้อเพิ่ม') || typeStr.includes('อัพคอร์ส') || typeStr.includes('เปิดคอร์ส') || (!typeStr && price > 0)) {
+          // 🌟 เฉพาะการซื้อคอร์สใหม่ หรือซื้อเพิ่มเท่านั้น ที่ได้ค่าคอมคอร์ส
           comm += (price * ((parseFloat(employee.commissionRate) || 0) / 100)) / shareCount;
         }
       }

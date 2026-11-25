@@ -36,7 +36,6 @@ import { analyzeSkinIssue } from '../utils/skinAiUtils';
 // 🌟 รายการมาตรฐานที่ได้ค่ามือพนักงาน (DF บริการ) - นำพอก/นวดหน้าใสออกตามคำสั่ง
 const HAND_FEE_PRESETS = [
   { id: 'acne_extraction', name: 'กดสิว', fee: 10, icon: Droplet, desc: 'เคลียร์สิวอุดตัน สิวเสี้ยน (10 บ.)' },
-  { id: 'body_spa', name: 'สปา / ขัดตัว', fee: 100, icon: Flame, desc: 'สครับผิว ขัดผิวกาย นวดอโรมา (100 บ.)' },
   { id: 'laser_ipl', name: 'IPL / เลเซอร์', isBillCalculated: true, icon: Zap, desc: 'คำนวณตามบิล (10-20%)' },
   { id: 'mole_removal', name: 'จี้ไฝ / กระ / ติ่งเนื้อ', isBillCalculated: true, icon: Target, desc: 'คำนวณตามบิล (10-20%)' }
 ];
@@ -1592,12 +1591,24 @@ export default function POSSystem({
                let prodGross = 0;
                let courseGross = 0;
                cart.forEach(item => {
-                 if (item.type === 'product' || item.type === 'claim_item') {
-                   prodGross += (item.price || 0) * (item.qty || 1);
-                 } else if (item.type === 'service' || item.isService || item.noCourseCommission || item.id?.startsWith('srv_mole') || item.name?.includes('จี้')) {
-                   // 🌟 รายการจี้ / หัตถการรายครั้ง: ไม่คำนวณเป็นค่าคอมคอร์ส (คิดเป็นค่ามือ DF ตามบิล)
-                 } else {
-                   courseGross += (item.price || 0) * (item.qty || 1);
+                 // 🌟 1. ตัดคอร์ส / รับบริการ / เบิกของแถม: ไม่ใช่การซื้อคอร์สหรือซื้อเพิ่ม พนักงานต้องไม่ได้ค่าขายคอร์ส (0 บ.)
+                 if (item.type === 'usage' || item.type === 'claim_item' || item.isUsage || item.actionType === 'usage' || item.noCourseCommission) {
+                   return;
+                 }
+                 // 🌟 2. สินค้าขาย
+                 if (item.type === 'product') {
+                   prodGross += (Number(item.price) || 0) * (Number(item.qty) || 1);
+                 }
+                 // 🌟 3. รายการจี้ / หัตถการรายครั้ง: ไม่คำนวณเป็นค่าคอมคอร์ส (คิดเป็นค่ามือ DF ตามบิล)
+                 else if (item.type === 'service' || item.isService || item.id?.startsWith('srv_mole') || item.name?.includes('จี้')) {
+                   return;
+                 }
+                 // 🌟 4. ซื้อคอร์สใหม่ หรือ ซื้อเพิ่ม (ต้องไม่ใช่ขั้นตอนรับบริการตัดคอร์ส และต้องมีราคาขายจริง)
+                 else if (item.type === 'course' || item.type === 'single_course') {
+                   if (isServiceStep && (Number(item.price) <= 0 || item.isUsage)) return;
+                   if (Number(item.price) > 0) {
+                     courseGross += (Number(item.price) || 0) * (Number(item.qty) || 1);
+                   }
                  }
                });
 
@@ -3687,6 +3698,11 @@ export default function POSSystem({
             "หมายเลขคำสั่งซื้อ": orderNo,
             "เลขที่ใบคอส": String(getFuzzyKey(item.originalItem, ["เลขที่ใบคอส", "col_2"]) || ''),
             "ประเภท": "รับบริการ",
+            "actionType": "usage",
+            "isUsage": true,
+            "noCourseCommission": true,
+            "ยอดเงิน": "0",
+            "ราคา": "0",
             "สถานะ": "เรียบร้อย",
             "รายการ": finalItemDescription,
             "จำนวน": String(finalQty),
@@ -3846,6 +3862,11 @@ export default function POSSystem({
             "cleanPhone": custCleanPhone,
             "หมายเลขคำสั่งซื้อ": orderNo,
             "ประเภท": "เบิกสินค้าจากคอร์ส",
+            "actionType": "claim_item",
+            "isUsage": true,
+            "noCourseCommission": true,
+            "ยอดเงิน": "0",
+            "ราคา": "0",
             "สถานะ": "เรียบร้อย",
             "รายการ": item.itemName || item.name,
             "สินค้า": deductedProdName || item.itemName || item.name,
@@ -11114,20 +11135,21 @@ export default function POSSystem({
                  </div>
                  <button 
                    onClick={() => {
-                      setCart(prev => {
-                        const filtered = prev.filter(i => i.type !== 'usage');
-                        const maxQty = selectedCourseForUsage.computedRemainQty || 1;
-                        const nameStr = `เบิกใช้: ${String(getFuzzyKey(selectedCourseForUsage, ["ชื่อคอส", "col_8"]))} (${String(getFuzzyKey(selectedCourseForUsage, ["เลขที่ใบคอส", "col_2"]))})`;
-                        return [...filtered, {
-                          id: selectedCourseForUsage.id,
-                          name: nameStr,
-                          price: 0,
-                          qty: 1,
-                          type: 'usage',
-                          maxQty,
-                          originalItem: selectedCourseForUsage
-                        }];
-                      });
+                      const maxQty = selectedCourseForUsage.computedRemainQty || 1;
+                      const nameStr = `เบิกใช้: ${String(getFuzzyKey(selectedCourseForUsage, ["ชื่อคอส", "col_8"]))} (${String(getFuzzyKey(selectedCourseForUsage, ["เลขที่ใบคอส", "col_2"]))})`;
+                      // 🌟 ล้างตะกร้าเดิมออก ให้มีเฉพาะรายการตัดคอร์ส เพื่อไม่ให้มีรายการคอร์สซื้อเดิมหลงเหลือมาคิดค่าคอม
+                      setCart([{
+                        id: selectedCourseForUsage.id,
+                        name: nameStr,
+                        price: 0,
+                        qty: 1,
+                        type: 'usage',
+                        actionType: 'usage',
+                        isUsage: true,
+                        noCourseCommission: true,
+                        maxQty,
+                        originalItem: selectedCourseForUsage
+                      }]);
                       setUsedServices([]);
                       setCheckoutStep(1);
                       setShowPaymentModal(true);
@@ -11242,21 +11264,26 @@ export default function POSSystem({
                                                if (cust) setSelectedCustomer(cust);
                                             }
                                          }
-                                         addToCart({
-                                            id: `claim_${selectedCourseForUsage.id}_${item.name}`,
-                                            courseId: selectedCourseForUsage.id,
-                                            courseName: String(getFuzzyKey(selectedCourseForUsage, ["ชื่อคอส", "col_8"]) || ''),
-                                            originalCourse: selectedCourseForUsage,
-                                            name: `[เบิกของแถม] ${item.name}`,
-                                            price: 0,
-                                            qty: 1,
-                                            maxQty: item.qty - claimedCount,
-                                            itemName: item.name,
-                                            linkedProductId: autoMatched?.id || null,
-                                            linkedProduct: autoMatched || null,
-                                            linkedProductCode: pCode,
-                                            linkedProductName: pName
-                                         }, 'claim_item');
+                                          // 🌟 ล้างตะกร้าเดิมออก สำหรับการเบิกของแถม เพื่อไม่ให้มีรายการซื้อเดิมหลงเหลือ
+                                          setCart([{
+                                             id: `claim_${selectedCourseForUsage.id}_${item.name}`,
+                                             courseId: selectedCourseForUsage.id,
+                                             courseName: String(getFuzzyKey(selectedCourseForUsage, ["ชื่อคอส", "col_8"]) || ''),
+                                             originalCourse: selectedCourseForUsage,
+                                             name: `[เบิกของแถม] ${item.name}`,
+                                             price: 0,
+                                             qty: 1,
+                                             type: 'claim_item',
+                                             actionType: 'claim_item',
+                                             isUsage: true,
+                                             noCourseCommission: true,
+                                             maxQty: item.qty - claimedCount,
+                                             itemName: item.name,
+                                             linkedProductId: autoMatched?.id || null,
+                                             linkedProduct: autoMatched || null,
+                                             linkedProductCode: pCode,
+                                             linkedProductName: pName
+                                          }]);
                                          setCheckoutStep(1);
                                          setShowPaymentModal(true);
                                          setSelectedCourseForUsage(null);
