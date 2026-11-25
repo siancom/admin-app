@@ -2,6 +2,66 @@ import React, { useMemo } from 'react';
 import { Sparkles, Check, CheckCircle2, ChevronRight, Zap, Target, Heart, Award, ShieldAlert, Loader2, Camera, Activity, Droplets } from 'lucide-react';
 import { SKIN_ISSUE_PRESETS, analyzeSkinIssue } from '../utils/skinAiUtils';
 
+const gaugeColor = (score) => {
+  if (typeof score !== 'number') return '#94a3b8';
+  if (score >= 8) return '#10b981'; // emerald-500 (ดีมาก)
+  if (score >= 6) return '#f59e0b'; // amber-500 (ปานกลาง)
+  return '#f43f5e';                  // rose-500 (ควรดูแล)
+};
+
+const getScoreStatus = (score) => {
+  if (typeof score !== 'number') return { label: '-', tone: 'bg-slate-100 text-slate-500' };
+  if (score >= 8) return { label: 'ดีเยี่ยม ✨', tone: 'bg-emerald-50 text-emerald-700 border border-emerald-200' };
+  if (score >= 6) return { label: 'ปานกลาง ⚖️', tone: 'bg-amber-50 text-amber-700 border border-amber-200' };
+  return { label: 'ควรดูแล ⚠️', tone: 'bg-rose-50 text-rose-700 border border-rose-200' };
+};
+
+function CircularGauge({ score, size = 52, stroke = 4.5, label, icon }) {
+  const r = (size - stroke * 2) / 2;
+  const c = 2 * Math.PI * r;
+  const pct = typeof score === 'number' ? Math.min(Math.max(score / 10, 0), 1) : 0;
+  const color = gaugeColor(score);
+  const status = getScoreStatus(score);
+
+  return (
+    <div className="flex flex-col items-center justify-center gap-1 p-2 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:shadow-xs hover:border-indigo-300 transition-all group">
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="-rotate-90 drop-shadow-2xs">
+          {/* background track */}
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth={stroke} />
+          {/* animated progress arc */}
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            fill="none"
+            stroke={color}
+            strokeWidth={stroke}
+            strokeDasharray={c}
+            strokeDashoffset={c * (1 - pct)}
+            strokeLinecap="round"
+            style={{ transition: 'stroke-dashoffset 0.8s cubic-bezier(0.4,0,0.2,1)' }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-[13px] font-black leading-none" style={{ color }}>
+            {typeof score === 'number' ? score : '-'}
+          </span>
+          <span className="text-[7.5px] text-slate-400 font-bold leading-none mt-0.5">/10</span>
+        </div>
+      </div>
+      <div className="text-center">
+        <span className="text-[10px] font-bold text-slate-700 leading-tight block truncate max-w-[70px]">
+          {label}
+        </span>
+        <span className={`text-[8px] font-bold px-1.5 py-0.2 rounded-full mt-0.5 inline-block ${status.tone}`}>
+          {status.label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export default function SkinAiBanner({ 
   issue = '', 
   onChangeIssue, 
@@ -140,38 +200,23 @@ export default function SkinAiBanner({
                   </p>
                 )}
 
-                {/* Score Pills */}
+                {/* Circular Gauges for Skin Health Scores (แบบเดียวกับฝั่งลูกค้า) */}
                 {aiScanResult.scores && (
-                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1 pt-1">
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-center">
-                      <div className="text-[9px] text-slate-500 font-bold">สิว/รอยแดง</div>
-                      <div className={`text-xs font-black ${aiScanResult.scores.acne >= 8 ? 'text-emerald-600' : aiScanResult.scores.acne >= 6 ? 'text-amber-600' : 'text-rose-600'}`}>
-                        {aiScanResult.scores.acne}/10
-                      </div>
+                  <div className="pt-1.5">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Activity size={12} className="text-teal-600" /> ระดับสุขภาพผิวแต่ละด้าน (เต็ม 10 คะแนน):
+                      </span>
+                      <span className="text-[9px] text-teal-700 font-bold bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200 shadow-2xs">
+                        กราฟเกจวงกลม
+                      </span>
                     </div>
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-center">
-                      <div className="text-[9px] text-slate-500 font-bold">ฝ้า/กระ</div>
-                      <div className={`text-xs font-black ${aiScanResult.scores.darkSpots >= 8 ? 'text-emerald-600' : aiScanResult.scores.darkSpots >= 6 ? 'text-amber-600' : 'text-rose-600'}`}>
-                        {aiScanResult.scores.darkSpots}/10
-                      </div>
-                    </div>
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-center">
-                      <div className="text-[9px] text-slate-500 font-bold">ความชุ่มชื้น</div>
-                      <div className={`text-xs font-black ${aiScanResult.scores.moisture >= 8 ? 'text-emerald-600' : aiScanResult.scores.moisture >= 6 ? 'text-amber-600' : 'text-rose-600'}`}>
-                        {aiScanResult.scores.moisture}/10
-                      </div>
-                    </div>
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-center">
-                      <div className="text-[9px] text-slate-500 font-bold">รูขุมขน</div>
-                      <div className={`text-xs font-black ${aiScanResult.scores.pores >= 8 ? 'text-emerald-600' : aiScanResult.scores.pores >= 6 ? 'text-amber-600' : 'text-rose-600'}`}>
-                        {aiScanResult.scores.pores}/10
-                      </div>
-                    </div>
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-1.5 text-center">
-                      <div className="text-[9px] text-slate-500 font-bold">ริ้วรอย</div>
-                      <div className={`text-xs font-black ${aiScanResult.scores.wrinkles >= 8 ? 'text-emerald-600' : aiScanResult.scores.wrinkles >= 6 ? 'text-amber-600' : 'text-rose-600'}`}>
-                        {aiScanResult.scores.wrinkles}/10
-                      </div>
+                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                      <CircularGauge score={aiScanResult.scores.acne} label="สิว/รอยแดง" icon="🔴" />
+                      <CircularGauge score={aiScanResult.scores.darkSpots} label="ฝ้า/กระ" icon="🟤" />
+                      <CircularGauge score={aiScanResult.scores.moisture} label="ความชุ่มชื้น" icon="💧" />
+                      <CircularGauge score={aiScanResult.scores.pores} label="รูขุมขน" icon="🕳️" />
+                      <CircularGauge score={aiScanResult.scores.wrinkles} label="ริ้วรอย" icon="⚡" />
                     </div>
                   </div>
                 )}

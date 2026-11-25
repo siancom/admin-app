@@ -372,7 +372,13 @@ export default function App() {
     subDistrict: '',
     district: '',
     province: '',
-    zipcode: ''
+    zipcode: '',
+    isVipUpgrade: false,
+    hasMemberCard: false,
+    memberCardNo: '',
+    memberCardPhotoFile: null,
+    memberCardPhotoPreview: null,
+    memberCardPhotoBase64: null,
   });
   const [isAnalyzingSkin, setIsAnalyzingSkin] = useState(false);
   const [isScanningIdCard, setIsScanningIdCard] = useState(false);
@@ -380,10 +386,49 @@ export default function App() {
   const customerFileInputRef = useRef(null);
   const idCardCameraInputRef = useRef(null);
   const idCardFileInputRef = useRef(null);
+  const memberCardCameraInputRef = useRef(null);
+  const memberCardFileInputRef = useRef(null);
   
   // 🌟 เพิ่มสถานะสำหรับระบบแก้ไขข้อมูลลูกค้า 🌟
   const [isEditCustomerOpen, setIsEditCustomerOpen] = useState(false);
-  const [editCustomerData, setEditCustomerData] = useState({ id: '', name: '', phone: '', issue: '' });
+  const [editCustomerData, setEditCustomerData] = useState({ 
+    id: '', 
+    name: '', 
+    firstName: '',
+    lastName: '',
+    nickname: '',
+    phone: '', 
+    gender: 'หญิง',
+    dob: '',
+    age: '',
+    citizenId: '',
+    issue: '',
+    photoFile: null,
+    photoPreview: null,
+    photoBase64: null,
+    aiSkinScanResult: null,
+    idCardPhotoFile: null,
+    idCardPhotoPreview: null,
+    idCardPhotoBase64: null,
+    addressNo: '',
+    subDistrict: '',
+    district: '',
+    province: '',
+    zipcode: '',
+    isVipUpgrade: false,
+    hasMemberCard: false,
+    memberCardNo: '',
+    memberCardPhotoFile: null,
+    memberCardPhotoPreview: null,
+    memberCardPhotoBase64: null,
+  });
+
+  const editCustomerCameraInputRef = useRef(null);
+  const editCustomerFileInputRef = useRef(null);
+  const editIdCardCameraInputRef = useRef(null);
+  const editIdCardFileInputRef = useRef(null);
+  const editMemberCardCameraInputRef = useRef(null);
+  const editMemberCardFileInputRef = useRef(null);
 
   // 🌟 เพิ่มสถานะสำหรับระบบจัดเก็บเอกสารลูกค้า 🌟
   const [customerDocuments, setCustomerDocuments] = useState([]);
@@ -4400,7 +4445,7 @@ const flexMessage = {
   };
 
   // 🪪 AI Thai National ID Card OCR Reader 🪪
-  const handleAnalyzeIdCard = async (base64Data) => {
+  const handleAnalyzeIdCard = async (base64Data, target = 'new') => {
     if (!base64Data) return;
     try {
       setIsScanningIdCard(true);
@@ -4511,7 +4556,7 @@ const flexMessage = {
       const cleanedText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsedData = JSON.parse(cleanedText);
 
-      setNewCustomerForm(prev => {
+      const updateFields = (prev) => {
         const updatedFirstName = parsedData.firstName ? String(parsedData.firstName).trim() : prev.firstName;
         const updatedLastName = parsedData.lastName ? String(parsedData.lastName).trim() : prev.lastName;
         const fullName = `${updatedFirstName} ${updatedLastName}`.trim();
@@ -4546,7 +4591,13 @@ const flexMessage = {
           province: parsedData.province ? String(parsedData.province).trim() : prev.province,
           zipcode: parsedData.zipcode ? String(parsedData.zipcode).trim() : prev.zipcode
         };
-      });
+      };
+
+      if (target === 'edit') {
+        setEditCustomerData(updateFields);
+      } else {
+        setNewCustomerForm(updateFields);
+      }
 
       const extractedName = parsedData.firstName ? `คุณ${parsedData.firstName} ${parsedData.lastName || ''}` : '';
       showToast(`✨ AI อ่านบัตรประชาชนสำเร็จ! ${extractedName} (กรอกข้อมูลให้อัตโนมัติแล้ว)`, 'success');
@@ -4559,7 +4610,7 @@ const flexMessage = {
     }
   };
 
-  const handleIdCardPhotoSelected = async (e) => {
+  const handleIdCardPhotoSelected = async (e, target = 'new') => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
@@ -4569,15 +4620,24 @@ const flexMessage = {
       const previewUrl = URL.createObjectURL(compressedBlob);
       const base64Data = await blobToBase64(compressedBlob);
 
-      setNewCustomerForm(prev => ({
-        ...prev,
-        idCardPhotoFile,
-        idCardPhotoPreview: previewUrl,
-        idCardPhotoBase64: base64Data
-      }));
+      if (target === 'edit') {
+        setEditCustomerData(prev => ({
+          ...prev,
+          idCardPhotoFile,
+          idCardPhotoPreview: previewUrl,
+          idCardPhotoBase64: base64Data
+        }));
+      } else {
+        setNewCustomerForm(prev => ({
+          ...prev,
+          idCardPhotoFile,
+          idCardPhotoPreview: previewUrl,
+          idCardPhotoBase64: base64Data
+        }));
+      }
 
       // Immediately trigger Gemini ID Card OCR analysis!
-      await handleAnalyzeIdCard(base64Data);
+      await handleAnalyzeIdCard(base64Data, target);
     } catch (err) {
       console.error('ID Card photo error:', err);
       showToast('ไม่สามารถประมวลผลรูปภาพบัตรได้: ' + err.message, 'error');
@@ -4588,7 +4648,7 @@ const flexMessage = {
   };
 
   // 🌟 AI Skin Analysis from Customer Photo 🌟
-  const handleAnalyzeCustomerPhoto = async (base64Data) => {
+  const handleAnalyzeCustomerPhoto = async (base64Data, target = 'new') => {
     if (!base64Data) return;
     try {
       setIsAnalyzingSkin(true);
@@ -4630,7 +4690,7 @@ const flexMessage = {
           detectedText = data.summary;
         }
 
-        setNewCustomerForm(prev => {
+        const updateFn = (prev) => {
           const updatedAge = (!prev.age && data.estimatedSkinAge) ? String(data.estimatedSkinAge) : prev.age;
           const updatedIssue = detectedText 
             ? (prev.issue ? `${prev.issue}, ${detectedText}` : detectedText)
@@ -4641,7 +4701,13 @@ const flexMessage = {
             age: updatedAge,
             aiSkinScanResult: data
           };
-        });
+        };
+
+        if (target === 'edit') {
+          setEditCustomerData(updateFn);
+        } else {
+          setNewCustomerForm(updateFn);
+        }
 
         showToast('✨ Iris AI วิเคราะห์สภาพผิวเรียบร้อยแล้ว!', 'success');
       }
@@ -4653,7 +4719,7 @@ const flexMessage = {
     }
   };
 
-  const handleCustomerPhotoSelected = async (e) => {
+  const handleCustomerPhotoSelected = async (e, target = 'new') => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
@@ -4663,19 +4729,61 @@ const flexMessage = {
       const previewUrl = URL.createObjectURL(compressedBlob);
       const base64Data = await blobToBase64(compressedBlob);
 
-      setNewCustomerForm(prev => ({
-        ...prev,
-        photoFile,
-        photoPreview: previewUrl,
-        photoBase64: base64Data
-      }));
+      if (target === 'edit') {
+        setEditCustomerData(prev => ({
+          ...prev,
+          photoFile,
+          photoPreview: previewUrl,
+          photoBase64: base64Data
+        }));
+      } else {
+        setNewCustomerForm(prev => ({
+          ...prev,
+          photoFile,
+          photoPreview: previewUrl,
+          photoBase64: base64Data
+        }));
+      }
 
       // Immediately trigger AI skin analysis!
-      await handleAnalyzeCustomerPhoto(base64Data);
+      await handleAnalyzeCustomerPhoto(base64Data, target);
     } catch (err) {
       console.error('Photo processing error:', err);
       showToast('ไม่สามารถประมวลผลรูปภาพได้: ' + err.message, 'error');
       setIsAnalyzingSkin(false);
+    } finally {
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  // 🌟 Member Card & VIP Upgrade Photo Handler 🌟
+  const handleMemberCardPhotoSelected = async (e, target = 'new') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressedBlob = await compressImage(file, 1200, 1200, 0.85);
+      const memberCardPhotoFile = new File([compressedBlob], `membercard_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      const previewUrl = URL.createObjectURL(compressedBlob);
+      const base64Data = await blobToBase64(compressedBlob);
+
+      const updateCard = (prev) => ({
+        ...prev,
+        hasMemberCard: true,
+        isVipUpgrade: true,
+        memberCardPhotoFile,
+        memberCardPhotoPreview: previewUrl,
+        memberCardPhotoBase64: base64Data
+      });
+
+      if (target === 'edit') {
+        setEditCustomerData(updateCard);
+      } else {
+        setNewCustomerForm(updateCard);
+      }
+      showToast('แนบรูปถ่ายบัตรสมาชิกเรียบร้อยแล้ว!', 'success');
+    } catch (err) {
+      console.error('Member Card photo error:', err);
+      showToast('ไม่สามารถประมวลผลรูปภาพบัตรสมาชิกได้: ' + err.message, 'error');
     } finally {
       if (e.target) e.target.value = '';
     }
@@ -4729,7 +4837,19 @@ const flexMessage = {
         }
       }
 
+      let uploadedMemberCardUrl = '';
+      if (newCustomerForm.memberCardPhotoFile) {
+        try {
+          const cardStorageRef = ref(storage, `customer_vip_cards/${cleanPhone}_${Date.now()}.jpg`);
+          await uploadBytes(cardStorageRef, newCustomerForm.memberCardPhotoFile);
+          uploadedMemberCardUrl = await getDownloadURL(cardStorageRef);
+        } catch (uploadErr) {
+          console.warn('Customer member card upload error:', uploadErr);
+        }
+      }
+
       const skinAnalysis = analyzeSkinIssue(newCustomerForm.issue);
+      const isVip = Boolean(newCustomerForm.isVipUpgrade || newCustomerForm.hasMemberCard || newCustomerForm.memberCardNo || uploadedMemberCardUrl);
 
       const docData = { 
         "ชื่อ": computedName, 
@@ -4744,6 +4864,7 @@ const flexMessage = {
         age: newCustomerForm.age || '',
         citizenId: newCustomerForm.citizenId || '',
         "เลขประจำตัวประชาชน": newCustomerForm.citizenId || '',
+        idCard: newCustomerForm.citizenId || '',
         idCardUrl: uploadedIdCardUrl || '',
         idCardPhotoUrl: uploadedIdCardUrl || '',
         "ปัญหาผิวหน้า": String(newCustomerForm.issue || ''), 
@@ -4766,7 +4887,12 @@ const flexMessage = {
         zipcode: newCustomerForm.zipcode || '',
         "หมายเลขใบสะสม": `Irismember${Math.floor(1000 + Math.random()*9000)}`, 
         "ยอดสะสม": "0", 
-        "สถานะสมาชิก": "ยังไม่สะสมยอด",
+        "สถานะสมาชิก": isVip ? "สมาชิกระดับ VIP" : "ยังไม่สะสมยอด",
+        isApproved: isVip,
+        hasMemberCard: isVip,
+        isMemberDiscount: isVip,
+        membershipCardNo: newCustomerForm.memberCardNo || '',
+        memberCardPhotoUrl: uploadedMemberCardUrl || '',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -4774,13 +4900,31 @@ const flexMessage = {
       const docRef = await addDoc(getCol('customers'), docData); 
       const createdCustomer = { id: docRef.id, ...docData };
 
+      if (uploadedMemberCardUrl) {
+        try {
+          await addDoc(getCol('customer_documents'), {
+            customerId: docRef.id,
+            title: 'รูปถ่ายบัตรสมาชิก (จากแอป)',
+            type: 'digital',
+            fileUrl: uploadedMemberCardUrl,
+            fileName: `membercard_${cleanPhone}.jpg`,
+            notes: 'แนบจากการลงทะเบียนลูกค้าใหม่',
+            createdAt: new Date()
+          });
+        } catch (docErr) {
+          console.warn('Customer member card document create error:', docErr);
+        }
+      }
+
       setIsAddCustomerOpen(false); 
       setNewCustomerForm({ 
         firstName: '', lastName: '', name: '', nickname: '',
         phone: '', gender: 'หญิง', dob: '', age: '', citizenId: '', issue: '',
         photoFile: null, photoPreview: null, photoBase64: null, aiSkinScanResult: null,
         idCardPhotoFile: null, idCardPhotoPreview: null, idCardPhotoBase64: null,
-        addressNo: '', subDistrict: '', district: '', province: '', zipcode: ''
+        addressNo: '', subDistrict: '', district: '', province: '', zipcode: '',
+        isVipUpgrade: false, hasMemberCard: false, memberCardNo: '',
+        memberCardPhotoFile: null, memberCardPhotoPreview: null, memberCardPhotoBase64: null
       }); 
       
       // Auto-select for POS!
@@ -4869,23 +5013,139 @@ const flexMessage = {
   
   const handleEditCustomerSave = async (e) => {
       e.preventDefault();
-      const skinAnalysis = analyzeSkinIssue(editCustomerData.issue);
       try {
-          await updateDoc(getDocRef('customers', editCustomerData.id), {
-              "ชื่อ": editCustomerData.name,
-              "เบอร์โทร": editCustomerData.phone,
-              "ปัญหาผิวหน้า": editCustomerData.issue,
-              issue: editCustomerData.issue,
+          const computedName = `${editCustomerData.firstName || ''} ${editCustomerData.lastName || ''}`.trim() || String(editCustomerData.name || '').trim();
+          const cleanPhone = String(editCustomerData.phone || '').trim().replace(/\D/g, '');
+
+          if (!computedName) {
+            showToast('กรุณาระบุชื่อลูกค้า', 'error');
+            return;
+          }
+          if (!cleanPhone || cleanPhone.length < 9) {
+            showToast('กรุณาระบุเบอร์โทรศัพท์ให้ถูกต้อง (9-10 หลัก)', 'error');
+            return;
+          }
+
+          let uploadedPhotoUrl = editCustomerData.photoPreview || '';
+          if (editCustomerData.photoFile) {
+            try {
+              const photoStorageRef = ref(storage, `customer_photos/${cleanPhone}_${Date.now()}.jpg`);
+              await uploadBytes(photoStorageRef, editCustomerData.photoFile);
+              uploadedPhotoUrl = await getDownloadURL(photoStorageRef);
+            } catch (uploadErr) {
+              console.warn('Customer photo upload error:', uploadErr);
+            }
+          }
+
+          let uploadedIdCardUrl = editCustomerData.idCardPhotoPreview || '';
+          if (editCustomerData.idCardPhotoFile) {
+            try {
+              const idCardStorageRef = ref(storage, `customer_id_cards/${cleanPhone}_${Date.now()}.jpg`);
+              await uploadBytes(idCardStorageRef, editCustomerData.idCardPhotoFile);
+              uploadedIdCardUrl = await getDownloadURL(idCardStorageRef);
+            } catch (uploadErr) {
+              console.warn('Customer ID card upload error:', uploadErr);
+            }
+          }
+
+          let uploadedMemberCardUrl = editCustomerData.memberCardPhotoPreview || '';
+          if (editCustomerData.memberCardPhotoFile) {
+            try {
+              const cardStorageRef = ref(storage, `customer_vip_cards/${cleanPhone}_${Date.now()}.jpg`);
+              await uploadBytes(cardStorageRef, editCustomerData.memberCardPhotoFile);
+              uploadedMemberCardUrl = await getDownloadURL(cardStorageRef);
+              
+              await addDoc(getCol('customer_documents'), {
+                customerId: editCustomerData.id,
+                title: 'รูปถ่ายบัตรสมาชิก (จากแอป)',
+                type: 'digital',
+                fileUrl: uploadedMemberCardUrl,
+                fileName: `membercard_${cleanPhone}.jpg`,
+                notes: 'แนบจากการแก้ไขข้อมูลลูกค้า / ส่งข้อมูลอัปเกรด VIP',
+                createdAt: new Date()
+              });
+            } catch (cardErr) {
+              console.warn('Member card upload error:', cardErr);
+            }
+          }
+
+          const skinAnalysis = analyzeSkinIssue(editCustomerData.issue);
+          const isVip = Boolean(editCustomerData.isVipUpgrade || editCustomerData.hasMemberCard || editCustomerData.memberCardNo || uploadedMemberCardUrl);
+
+          const updateData = {
+              "ชื่อ": computedName,
+              "เบอร์โทร": cleanPhone,
+              computedName: computedName,
+              computedPhone: cleanPhone,
+              firstName: editCustomerData.firstName || computedName.split(' ')[0] || '',
+              lastName: editCustomerData.lastName || computedName.split(' ').slice(1).join(' ') || '',
+              nickname: editCustomerData.nickname || '',
+              gender: editCustomerData.gender || 'หญิง',
+              dob: editCustomerData.dob || '',
+              age: editCustomerData.age || '',
+              citizenId: editCustomerData.citizenId || '',
+              "เลขประจำตัวประชาชน": editCustomerData.citizenId || '',
+              idCard: editCustomerData.citizenId || '',
+              "ปัญหาผิวหน้า": String(editCustomerData.issue || ''),
+              issue: String(editCustomerData.issue || ''),
+              addressNo: editCustomerData.addressNo || '',
+              subDistrict: editCustomerData.subDistrict || '',
+              district: editCustomerData.district || '',
+              province: editCustomerData.province || '',
+              zipcode: editCustomerData.zipcode || '',
               aiRecommendedCourses: skinAnalysis ? skinAnalysis.courses.map(c => c.name) : [],
               aiCarePhase: skinAnalysis ? skinAnalysis.primaryPhase : '',
-              aiRecommendation: skinAnalysis ? skinAnalysis.summaryText : ''
-          });
-          setIsEditCustomerOpen(false);
-          showToast('แก้ไขข้อมูลลูกค้าสำเร็จ!');
-          if (selectedCustomer && selectedCustomer.id === editCustomerData.id) {
-              setSelectedCustomer(prev => ({...prev, computedName: editCustomerData.name, computedPhone: editCustomerData.phone, computedIssue: editCustomerData.issue}));
+              aiRecommendation: skinAnalysis ? skinAnalysis.summaryText : '',
+              updatedAt: serverTimestamp()
+          };
+
+          if (uploadedPhotoUrl) {
+            updateData.imageUrl = uploadedPhotoUrl;
+            updateData.photoUrl = uploadedPhotoUrl;
+            updateData.customerPhoto = uploadedPhotoUrl;
           }
-      } catch (err) { showToast(`ข้อผิดพลาด: ${err.message}`); }
+          if (uploadedIdCardUrl) {
+            updateData.idCardUrl = uploadedIdCardUrl;
+            updateData.idCardPhotoUrl = uploadedIdCardUrl;
+          }
+          if (editCustomerData.aiSkinScanResult) {
+            updateData.aiSkinScanResult = editCustomerData.aiSkinScanResult;
+            updateData.aiEstimatedSkinAge = editCustomerData.aiSkinScanResult.estimatedSkinAge || null;
+            updateData.aiSkinScores = editCustomerData.aiSkinScanResult.scores || null;
+          }
+          if (isVip) {
+            updateData["สถานะสมาชิก"] = "สมาชิกระดับ VIP";
+            updateData.isApproved = true;
+            updateData.hasMemberCard = true;
+            updateData.isMemberDiscount = true;
+            if (editCustomerData.memberCardNo) {
+              updateData.membershipCardNo = editCustomerData.memberCardNo;
+            }
+            if (uploadedMemberCardUrl) {
+              updateData.memberCardPhotoUrl = uploadedMemberCardUrl;
+            }
+          }
+
+          await updateDoc(getDocRef('customers', editCustomerData.id), updateData);
+          setIsEditCustomerOpen(false);
+          showToast('อัปเดตข้อมูลลูกค้าและสิทธิประโยชน์สำเร็จ!', 'success');
+
+          if (selectedCustomer && selectedCustomer.id === editCustomerData.id) {
+              setSelectedCustomer(prev => ({
+                ...prev,
+                ...updateData,
+                computedName: computedName,
+                computedPhone: cleanPhone,
+                computedIssue: editCustomerData.issue,
+                computedMemberStatus: isVip ? "สมาชิกระดับ VIP" : prev.computedMemberStatus,
+                isApproved: isVip ? true : prev.isApproved,
+                hasMemberCard: isVip ? true : prev.hasMemberCard,
+                membershipCardNo: editCustomerData.memberCardNo || prev.membershipCardNo
+              }));
+          }
+      } catch (err) { 
+        showToast(`ข้อผิดพลาด: ${err.message}`, 'error'); 
+      }
   };
 
 
@@ -8803,9 +9063,16 @@ const flexMessage = {
                 <div className="absolute right-0 top-0 w-64 h-64 bg-white/10 rounded-full -mr-10 -mt-20 blur-3xl pointer-events-none"></div>
                 
                 {/* แถบเครื่องมือ (ย้ายมาจัดเรียงด้านบนให้ไม่ทับข้อความ) */}
-                <div className="flex justify-end gap-2 mb-6 relative z-10 w-full">
-                    {!selectedCustomer.isApproved && selectedCustomer.productAccumulatedAmount >= 5000 && (
-                        <button onClick={() => setIsVipFormOpen(true)} className="p-2.5 bg-orange-500 rounded-full hover:bg-orange-600 transition-colors text-white shadow-lg animate-bounce flex items-center gap-1.5 px-4" title="อนุมัติสิทธิ์ VIP"><Award size={16}/><span className="text-[11px] font-bold uppercase tracking-wider hidden sm:inline">อัปเกรด VIP</span></button>
+                <div className="flex justify-end gap-2 mb-6 relative z-10 w-full flex-wrap">
+                    {(!selectedCustomer.isApproved || selectedCustomer.computedMemberStatus !== 'สมาชิกระดับ VIP') && (
+                        <button 
+                          onClick={() => setIsVipFormOpen(true)} 
+                          className="p-2.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full hover:from-amber-600 hover:to-orange-600 transition-all text-white shadow-lg flex items-center gap-1.5 px-4 active:scale-95 cursor-pointer animate-pulse" 
+                          title="ส่งข้อมูลอัปเกรดสมาชิก VIP"
+                        >
+                          <Award size={16}/>
+                          <span className="text-[11px] font-bold tracking-wider">⭐ ส่งข้อมูลอัปเกรด VIP</span>
+                        </button>
                     )}
                     <button onClick={() => { 
                       const cCourses = getCustomerCourses(selectedCustomer.computedPhone).filter(c => (c.computedTotalCredit || 0) > 0);
@@ -8814,7 +9081,40 @@ const flexMessage = {
                     }} className="p-2.5 bg-blue-500 hover:bg-blue-600 transition-colors text-white shadow-sm flex items-center gap-1.5 px-4 rounded-full" title="จัดการวงเงินเครดิต">
                         <Wallet size={16}/><span className="text-[11px] font-bold tracking-wider hidden sm:inline">จัดการวงเงินเครดิต</span>
                     </button>
-                    <button onClick={() => { setEditCustomerData({ id: selectedCustomer.id, name: selectedCustomer.computedName, phone: selectedCustomer.computedPhone, issue: selectedCustomer.computedIssue }); setIsEditCustomerOpen(true); }} className="p-2.5 bg-white/20 rounded-full hover:bg-white/30 transition-colors text-white shadow-sm" title="แก้ไขข้อมูลลูกค้า"><PenTool size={18}/></button>
+                    <button onClick={() => { 
+                      setEditCustomerData({ 
+                        id: selectedCustomer.id, 
+                        name: selectedCustomer.computedName || '',
+                        firstName: selectedCustomer.firstName || (selectedCustomer.computedName ? selectedCustomer.computedName.split(' ')[0] : ''),
+                        lastName: selectedCustomer.lastName || (selectedCustomer.computedName ? selectedCustomer.computedName.split(' ').slice(1).join(' ') : ''),
+                        nickname: selectedCustomer.nickname || '',
+                        phone: selectedCustomer.computedPhone || selectedCustomer.เบอร์โทร || '',
+                        gender: selectedCustomer.gender || 'หญิง',
+                        dob: selectedCustomer.dob || '',
+                        age: selectedCustomer.age || '',
+                        citizenId: selectedCustomer.citizenId || selectedCustomer.เลขประจำตัวประชาชน || selectedCustomer.idCard || '',
+                        issue: selectedCustomer.computedIssue || selectedCustomer.ปัญหาผิวหน้า || selectedCustomer.issue || '',
+                        photoFile: null,
+                        photoPreview: selectedCustomer.imageUrl || selectedCustomer.photoUrl || selectedCustomer.customerPhoto || null,
+                        photoBase64: null,
+                        aiSkinScanResult: selectedCustomer.aiSkinScanResult || null,
+                        idCardPhotoFile: null,
+                        idCardPhotoPreview: selectedCustomer.idCardUrl || selectedCustomer.idCardPhotoUrl || null,
+                        idCardPhotoBase64: null,
+                        addressNo: selectedCustomer.addressNo || '',
+                        subDistrict: selectedCustomer.subDistrict || '',
+                        district: selectedCustomer.district || '',
+                        province: selectedCustomer.province || '',
+                        zipcode: selectedCustomer.zipcode || '',
+                        isVipUpgrade: selectedCustomer.isApproved || selectedCustomer.computedMemberStatus === 'สมาชิกระดับ VIP',
+                        hasMemberCard: selectedCustomer.hasMemberCard || !!selectedCustomer.membershipCardNo,
+                        memberCardNo: selectedCustomer.membershipCardNo || selectedCustomer.memberCardNo || '',
+                        memberCardPhotoFile: null,
+                        memberCardPhotoPreview: selectedCustomer.memberCardPhotoUrl || null,
+                        memberCardPhotoBase64: null,
+                      }); 
+                      setIsEditCustomerOpen(true); 
+                    }} className="p-2.5 bg-white/20 rounded-full hover:bg-white/30 transition-colors text-white shadow-sm" title="แก้ไขข้อมูลลูกค้า"><PenTool size={18}/></button>
                     <button onClick={handleOpenSelectPrint} className="p-2.5 bg-white/20 rounded-full hover:bg-white/30 transition-colors text-white shadow-sm" title="พิมพ์ใบคอร์สหลายใบ"><Printer size={18}/></button>
                     <button onClick={handlePrintView} className="p-2.5 bg-white/20 rounded-full hover:bg-white/30 transition-colors text-white shadow-sm" title="พิมพ์ประวัติ/บัตรสมาชิก"><FileText size={18}/></button>
                     <button onClick={() => setActionConfirmModal({ isOpen: true, title: 'ลบข้อมูลลูกค้า', message: 'ยืนยันการลบข้อมูลลูกค้านี้ทิ้งถาวร ใช่หรือไม่?', action: () => executeDeleteCustomer(selectedCustomer.id), confirmText: 'ลบทิ้ง', confirmColor: 'bg-red-600 hover:bg-red-700' })} className="p-2.5 bg-red-500/80 rounded-full hover:bg-red-500 transition-colors text-white shadow-sm ml-2" title="ลบข้อมูลลูกค้า"><Trash2 size={18}/></button>
@@ -8835,6 +9135,11 @@ const flexMessage = {
                         <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 sm:gap-4 text-white/90 text-sm">
                             <p className="font-mono flex items-center bg-white/10 px-3 py-1.5 rounded-xl"><Phone size={16} className="mr-2 opacity-70"/>{selectedCustomer.computedPhone}</p>
                             <p className="flex items-center bg-white/10 px-3 py-1.5 rounded-xl"><Users size={16} className="mr-2 opacity-70"/> สถานะ: <span className="font-bold ml-1 text-white">{selectedCustomer.computedMemberStatus}</span></p>
+                            {selectedCustomer.membershipCardNo && (
+                              <p className="flex items-center bg-amber-400/25 border border-amber-300/40 px-3 py-1.5 rounded-xl text-amber-100 font-bold">
+                                <Award size={16} className="mr-2 text-amber-300"/> บัตรสมาชิก: <span className="text-white ml-1 font-mono">{selectedCustomer.membershipCardNo}</span>
+                              </p>
+                            )}
                             <p className="flex items-center bg-white/10 px-3 py-1.5 rounded-xl"><AlertCircle size={16} className="mr-2 opacity-70"/> ปัญหาผิว: {selectedCustomer.computedIssue || 'ไม่ระบุ'}</p>
                             <p className="flex items-center bg-white/10 px-3 py-1.5 rounded-xl"><MapPin size={16} className="mr-2 opacity-70"/> ที่อยู่: {String(getFuzzyKey(selectedCustomer, ['ที่อยู่', 'col_4', 'address']) || 'ไม่ระบุ')}</p>
                         </div>
@@ -9208,19 +9513,578 @@ const flexMessage = {
          </form>
       </ModalWrapper>
 
-      {/* Edit Customer Modal */}
-      <ModalWrapper isOpen={isEditCustomerOpen} onClose={() => setIsEditCustomerOpen(false)} title="แก้ไขข้อมูลลูกค้า" icon={PenTool} colorClass="bg-indigo-100 text-indigo-600">
-         <form onSubmit={handleEditCustomerSave} className="space-y-4">
-             <InputField label="ชื่อลูกค้า" required placeholder="เช่น คุณสมหญิง..." value={editCustomerData.name} onChange={e => setEditCustomerData({...editCustomerData, name: e.target.value})} />
-             <InputField label="เบอร์โทรศัพท์" required placeholder="08X-XXX-XXXX" value={editCustomerData.phone} onChange={e => setEditCustomerData({...editCustomerData, phone: e.target.value})} />
-             <InputField label="ปัญหาผิวหน้า (ถ้ามี)" placeholder="เช่น สิว, ฝ้า..." value={editCustomerData.issue} onChange={e => setEditCustomerData({...editCustomerData, issue: e.target.value})} />
-             <SkinAiBanner 
-               issue={editCustomerData.issue} 
-               onChangeIssue={(val) => setEditCustomerData({...editCustomerData, issue: val})} 
-               compact={true} 
-             />
-             <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3 rounded-xl mt-4 shadow-lg active:scale-95 transition-all">อัปเดตข้อมูลลูกค้า</button>
-         </form>
+      {/* Edit Customer Modal - Unified Rich Form */}
+      <ModalWrapper 
+        isOpen={isEditCustomerOpen} 
+        onClose={() => setIsEditCustomerOpen(false)} 
+        title="แก้ไขข้อมูลลูกค้า & สิทธิประโยชน์" 
+        icon={PenTool} 
+        colorClass="bg-indigo-100 text-indigo-700"
+        maxWidth="max-w-xl"
+        noMaxHeight={true}
+      >
+        <form onSubmit={handleEditCustomerSave} className="space-y-4 max-h-[75vh] overflow-y-auto px-1 hide-scrollbar">
+          
+          <div className="bg-indigo-50/90 border border-indigo-150 p-3 rounded-2xl flex items-center gap-2.5 text-indigo-900 text-xs">
+            <Sparkles size={18} className="text-indigo-600 shrink-0" />
+            <span>อัปเดตข้อมูลลูกค้า สแกนบัตรประชาชน ถ่ายภาพวิเคราะห์ผิวหน้า และส่งข้อมูลอัปเกรด VIP</span>
+          </div>
+
+          {/* 🪪 AI Thai National ID Card OCR Scanner 🪪 */}
+          <div className="bg-gradient-to-r from-blue-50/90 via-sky-50/70 to-indigo-50/90 border-2 border-sky-200/90 rounded-2xl p-3 sm:p-3.5 shadow-2xs relative overflow-hidden">
+            <div className="flex items-center gap-3">
+              {/* ID Card Thumbnail / Preview */}
+              <div className="relative shrink-0">
+                <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-2xl bg-white border-2 border-sky-200 shadow-xs overflow-hidden flex items-center justify-center relative">
+                  {editCustomerData.idCardPhotoPreview ? (
+                    <img 
+                      src={editCustomerData.idCardPhotoPreview} 
+                      alt="ID Card preview" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-sky-50/70 flex flex-col items-center justify-center text-sky-600 p-1 text-center">
+                      <CreditCard size={22} className="text-sky-600 mb-0.5" />
+                      <span className="text-[9px] font-bold text-sky-700 leading-tight">บัตร ปชช.</span>
+                    </div>
+                  )}
+
+                  {isScanningIdCard && (
+                    <div className="absolute inset-0 bg-sky-950/75 backdrop-blur-[1px] flex flex-col items-center justify-center text-white p-1 text-center">
+                      <Loader2 size={20} className="animate-spin text-sky-300 mb-0.5" />
+                      <span className="text-[9px] font-black text-sky-200">AI อ่านบัตร...</span>
+                    </div>
+                  )}
+                </div>
+
+                {editCustomerData.idCardPhotoPreview && !isScanningIdCard && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditCustomerData(prev => ({
+                        ...prev,
+                        idCardPhotoFile: null,
+                        idCardPhotoPreview: null,
+                        idCardPhotoBase64: null
+                      }));
+                    }}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-rose-500 hover:bg-rose-600 text-white rounded-full flex items-center justify-center shadow-md active:scale-90 transition-transform cursor-pointer"
+                    title="ลบรูปบัตร"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              {/* Text & Buttons */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                  <span className="text-xs font-black text-slate-800 flex items-center gap-1">
+                    <Sparkles size={14} className="text-sky-600" /> สแกนบัตรประชาชนด้วย AI
+                  </span>
+                  {editCustomerData.citizenId ? (
+                    <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2 rounded-full border border-emerald-200">
+                      อ่านข้อมูลสำเร็จ ✨
+                    </span>
+                  ) : (
+                    <span className="bg-sky-100 text-sky-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-sky-200">
+                      กรอกฟอร์มอัตโนมัติ
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 leading-tight mb-2">
+                  ถ่ายรูปบัตรประชาชน AI จะช่วยอ่านชื่อ นามสกุล เพศ วันเกิด อายุ และที่อยู่อัตโนมัติทันที
+                </p>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={isScanningIdCard}
+                    onClick={() => editIdCardCameraInputRef.current?.click()}
+                    className="px-2.5 py-1.5 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white text-xs font-bold rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Camera size={14} />
+                    <span>{editCustomerData.idCardPhotoPreview ? 'ถ่ายบัตรใหม่' : 'ถ่ายรูปบัตรประชาชน'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isScanningIdCard}
+                    onClick={() => editIdCardFileInputRef.current?.click()}
+                    className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 shadow-2xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <ImageIcon size={14} className="text-sky-600" />
+                    <span>{editCustomerData.idCardPhotoPreview ? 'เปลี่ยนรูป' : 'เลือกรูปบัตร'}</span>
+                  </button>
+
+                  {editCustomerData.idCardPhotoBase64 && !isScanningIdCard && (
+                    <button
+                      type="button"
+                      onClick={() => handleAnalyzeIdCard(editCustomerData.idCardPhotoBase64, 'edit')}
+                      className="px-2 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 text-xs font-bold rounded-xl border border-sky-200 transition-all flex items-center gap-1 active:scale-95 cursor-pointer"
+                      title="ให้ AI อ่านบัตรใหม่อีกครั้ง"
+                    >
+                      <RefreshCw size={13} className="text-sky-600" />
+                      <span>สแกนซ้ำ</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Hidden file inputs for ID Card Camera and Gallery */}
+            <input 
+              ref={editIdCardCameraInputRef}
+              type="file" 
+              accept="image/*" 
+              capture="environment" 
+              className="hidden" 
+              onChange={(e) => handleIdCardPhotoSelected(e, 'edit')}
+            />
+            <input 
+              ref={editIdCardFileInputRef}
+              type="file" 
+              accept="image/*" 
+              className="hidden" 
+              onChange={(e) => handleIdCardPhotoSelected(e, 'edit')}
+            />
+          </div>
+
+          {/* 🌟 Customer Profile Photo & Instant AI Face/Skin Scan 🌟 */}
+          <div className="bg-gradient-to-r from-indigo-50/90 via-purple-50/60 to-pink-50/90 border-2 border-indigo-150 rounded-2xl p-3 sm:p-3.5 shadow-2xs relative overflow-hidden">
+            <div className="flex items-center gap-3 sm:gap-4">
+              {/* Photo Avatar / Preview */}
+              <div className="relative shrink-0">
+                <div className="w-20 h-20 sm:w-22 sm:h-22 rounded-2xl bg-white border-2 border-indigo-200/80 shadow-xs overflow-hidden flex items-center justify-center relative group">
+                  {editCustomerData.photoPreview ? (
+                    <img 
+                      src={editCustomerData.photoPreview} 
+                      alt="Customer face preview" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-slate-50/90 flex flex-col items-center justify-center text-slate-400 p-1 text-center">
+                      <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mb-1 shadow-2xs">
+                        <Camera size={18} />
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-500 leading-tight">ถ่ายรูปใบหน้า</span>
+                    </div>
+                  )}
+
+                  {/* Scanning overlay on the photo */}
+                  {isAnalyzingSkin && (
+                    <div className="absolute inset-0 bg-indigo-950/60 backdrop-blur-[1px] flex flex-col items-center justify-center text-white p-1 text-center">
+                      <Loader2 size={24} className="animate-spin text-indigo-300 mb-1" />
+                      <span className="text-[9px] font-black tracking-wide text-indigo-200">Iris AI สแกน...</span>
+                    </div>
+                  )}
+                </div>
+
+                {editCustomerData.photoPreview && !isAnalyzingSkin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditCustomerData(prev => ({
+                        ...prev,
+                        photoFile: null,
+                        photoPreview: null,
+                        photoBase64: null,
+                        aiSkinScanResult: null
+                      }));
+                    }}
+                    className="absolute -top-1.5 -right-1.5 w-6 h-6 bg-rose-500 hover:bg-rose-600 text-white rounded-full flex items-center justify-center shadow-md active:scale-90 transition-transform cursor-pointer"
+                    title="ลบรูปถ่าย"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+
+              {/* Action Buttons & Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                  <span className="text-xs font-black text-slate-800">รูปถ่ายลูกค้า & ให้ AI วิเคราะห์ทันที</span>
+                  {editCustomerData.aiSkinScanResult ? (
+                    <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2 rounded-full border border-emerald-200">
+                      AI สแกนสำเร็จ ✨
+                    </span>
+                  ) : (
+                    <span className="bg-indigo-100 text-indigo-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-indigo-200">
+                      Iris AI Face Scan
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 leading-tight mb-2.5">
+                  ถ่ายรูปหน้าตรงเพื่อวิเคราะห์ปัญหาผิว คาดคะเนอายุผิว และวางแผนโปรแกรมรักษาให้อัตโนมัติ
+                </p>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={isAnalyzingSkin}
+                    onClick={() => editCustomerCameraInputRef.current?.click()}
+                    className="px-2.5 py-1.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white text-xs font-bold rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Camera size={14} />
+                    <span>{editCustomerData.photoPreview ? 'ถ่ายใหม่' : 'ถ่ายรูปใบหน้า'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isAnalyzingSkin}
+                    onClick={() => editCustomerFileInputRef.current?.click()}
+                    className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 shadow-2xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <ImageIcon size={14} className="text-indigo-500" />
+                    <span>{editCustomerData.photoPreview ? 'เปลี่ยนรูป' : 'เลือกจากเครื่อง'}</span>
+                  </button>
+
+                  {editCustomerData.photoBase64 && !isAnalyzingSkin && (
+                    <button
+                      type="button"
+                      onClick={() => handleAnalyzeCustomerPhoto(editCustomerData.photoBase64, 'edit')}
+                      className="px-2 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-200 transition-all flex items-center gap-1 active:scale-95 cursor-pointer"
+                      title="ให้ AI วิเคราะห์ใหม่อีกครั้ง"
+                    >
+                      <Sparkles size={13} className="text-indigo-600" />
+                      <span>วิเคราะห์ใหม่</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Hidden file inputs for Camera and File picker */}
+            <input 
+              ref={editCustomerCameraInputRef}
+              type="file" 
+              accept="image/*" 
+              capture="user" 
+              className="hidden" 
+              onChange={(e) => handleCustomerPhotoSelected(e, 'edit')}
+            />
+            <input 
+              ref={editCustomerFileInputRef}
+              type="file" 
+              accept="image/*" 
+              className="hidden" 
+              onChange={(e) => handleCustomerPhotoSelected(e, 'edit')}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <InputField 
+              label="ชื่อ" 
+              required 
+              placeholder="เช่น คุณสมหญิง" 
+              value={editCustomerData.firstName} 
+              onChange={e => setEditCustomerData({
+                ...editCustomerData, 
+                firstName: e.target.value,
+                name: `${e.target.value} ${editCustomerData.lastName || ''}`.trim()
+              })} 
+            />
+            <InputField 
+              label="นามสกุล" 
+              placeholder="เช่น ใจดี" 
+              value={editCustomerData.lastName} 
+              onChange={e => setEditCustomerData({
+                ...editCustomerData, 
+                lastName: e.target.value,
+                name: `${editCustomerData.firstName || ''} ${e.target.value}`.trim()
+              })} 
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <InputField 
+              label="ชื่อเล่น" 
+              placeholder="เช่น หญิง" 
+              value={editCustomerData.nickname} 
+              onChange={e => setEditCustomerData({...editCustomerData, nickname: e.target.value})} 
+            />
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+                เบอร์โทรศัพท์ <span className="text-red-500">*</span>
+              </label>
+              <input 
+                type="tel"
+                required
+                maxLength={10}
+                placeholder="08X-XXX-XXXX"
+                value={editCustomerData.phone}
+                onChange={e => {
+                  const val = e.target.value.replace(/\D/g, '');
+                  if (val.length <= 10) setEditCustomerData({...editCustomerData, phone: val});
+                }}
+                className={`w-full border-2 bg-gray-50/50 rounded-xl p-3 text-sm outline-none transition-all font-medium text-gray-800 ${editCustomerData.phone && editCustomerData.phone.length === 10 ? 'border-emerald-400 focus:border-emerald-500 focus:bg-white' : 'border-gray-100 focus:border-indigo-400 focus:bg-white'}`}
+              />
+              {editCustomerData.phone && editCustomerData.phone.length < 10 && (
+                <p className="text-amber-600 text-[10px] mt-1 font-bold">กรอกให้ครบ 10 หลัก (ปัจจุบัน {editCustomerData.phone.length} หลัก)</p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span className="flex items-center gap-1.5"><CreditCard size={14} className="text-sky-600"/> เลขประจำตัวประชาชน (13 หลัก)</span>
+              {editCustomerData.citizenId && (
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${editCustomerData.citizenId.length === 13 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                  {editCustomerData.citizenId.length === 13 ? '✓ ครบ 13 หลัก' : `${editCustomerData.citizenId.length}/13 หลัก`}
+                </span>
+              )}
+            </label>
+            <input 
+              type="text"
+              maxLength={17}
+              placeholder="X-XXXX-XXXXX-XX-X"
+              value={editCustomerData.citizenId || ''}
+              onChange={e => {
+                const val = e.target.value.replace(/\D/g, '');
+                if (val.length <= 13) setEditCustomerData({...editCustomerData, citizenId: val});
+              }}
+              className="w-full border-2 border-gray-100 bg-gray-50/50 rounded-xl p-3 text-sm outline-none focus:border-sky-400 focus:bg-white transition-all font-mono font-bold text-gray-800 tracking-wider"
+            />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">เพศ</label>
+              <select 
+                value={editCustomerData.gender} 
+                onChange={e => setEditCustomerData({...editCustomerData, gender: e.target.value})}
+                className="w-full border-2 border-gray-100 bg-gray-50/50 rounded-xl p-3 text-sm outline-none focus:border-indigo-400 focus:bg-white transition-all font-medium text-gray-800"
+              >
+                <option value="หญิง">หญิง</option>
+                <option value="ชาย">ชาย</option>
+                <option value="อื่นๆ">อื่นๆ</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">วัน/เดือน/ปีเกิด (พ.ศ.)</label>
+              <input 
+                type="text"
+                placeholder="วว/ดด/ปปปป"
+                value={editCustomerData.dob}
+                onChange={e => {
+                  const val = e.target.value;
+                  let newAge = editCustomerData.age;
+                  const yearMatch = val.match(/\d{4}/);
+                  if (yearMatch) {
+                    const year = parseInt(yearMatch[0], 10);
+                    const currentYearCE = new Date().getFullYear();
+                    if (year > 2400 && year <= currentYearCE + 543) {
+                      newAge = String(currentYearCE + 543 - year);
+                    } else if (year > 1900 && year <= currentYearCE) {
+                      newAge = String(currentYearCE - year);
+                    }
+                  }
+                  setEditCustomerData({...editCustomerData, dob: val, age: newAge});
+                }}
+                className="w-full border-2 border-gray-100 bg-gray-50/50 rounded-xl p-3 text-sm outline-none focus:border-indigo-400 focus:bg-white transition-all font-medium text-gray-800"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">อายุ (ปี)</label>
+              <input 
+                type="number"
+                placeholder="เช่น 28"
+                value={editCustomerData.age}
+                onChange={e => setEditCustomerData({...editCustomerData, age: e.target.value})}
+                className="w-full border-2 border-gray-100 bg-gray-50/50 rounded-xl p-3 text-sm outline-none focus:border-indigo-400 focus:bg-white transition-all font-medium text-gray-800"
+              />
+            </div>
+          </div>
+
+          <InputField 
+            label="ปัญหาผิวหน้า / ความกังวลที่ต้องการดูแล" 
+            placeholder="เช่น สิวอักเสบ, ฝ้ากระ, ผิวแห้งขาดน้ำ, ริ้วรอย..." 
+            value={editCustomerData.issue} 
+            onChange={e => setEditCustomerData({...editCustomerData, issue: e.target.value})} 
+          />
+
+          {/* 🌟 AI Skin Analysis & Smart Treatment Matcher Banner 🌟 */}
+          <SkinAiBanner 
+            issue={editCustomerData.issue}
+            onChangeIssue={(val) => setEditCustomerData({...editCustomerData, issue: val})}
+            aiScanResult={editCustomerData.aiSkinScanResult}
+            isAnalyzing={isAnalyzingSkin}
+          />
+
+          <div className="border-t border-slate-100 pt-3">
+            <h4 className="text-xs font-bold text-slate-700 mb-2.5 flex items-center gap-1.5">
+              <span>📍 ที่อยู่ลูกค้า (สำหรับส่งสินค้าหรือออกใบเสร็จ)</span>
+            </h4>
+            <div className="grid grid-cols-2 gap-2.5">
+              <InputField 
+                label="บ้านเลขที่ / หมู่บ้าน / ถนน" 
+                placeholder="เช่น 123/45 ม.2 ถ.ทวีราษฎร์ภักดี" 
+                value={editCustomerData.addressNo} 
+                onChange={e => setEditCustomerData({...editCustomerData, addressNo: e.target.value})} 
+              />
+              <InputField 
+                label="ตำบล / แขวง" 
+                placeholder="เช่น บ่อผุด" 
+                value={editCustomerData.subDistrict} 
+                onChange={e => setEditCustomerData({...editCustomerData, subDistrict: e.target.value})} 
+              />
+              <InputField 
+                label="อำเภอ / เขต" 
+                placeholder="เช่น เกาะสมุย" 
+                value={editCustomerData.district} 
+                onChange={e => setEditCustomerData({...editCustomerData, district: e.target.value})} 
+              />
+              <InputField 
+                label="จังหวัด / รหัสไปรษณีย์" 
+                placeholder="เช่น สุราษฎร์ธานี 84320" 
+                value={editCustomerData.province} 
+                onChange={e => setEditCustomerData({...editCustomerData, province: e.target.value})} 
+              />
+            </div>
+          </div>
+
+          {/* 🌟 บัตรสมาชิก & อัปเกรดสมาชิก VIP 🌟 */}
+          <div className="bg-gradient-to-r from-amber-50/90 via-orange-50/70 to-yellow-50/90 border-2 border-amber-200/90 rounded-2xl p-3 sm:p-3.5 shadow-2xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <Award size={18} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-amber-950 flex items-center gap-1.5 flex-wrap">
+                    <span>สิทธิ์บัตรสมาชิก & อัปเกรด VIP</span>
+                    {editCustomerData.isVipUpgrade && (
+                      <span className="bg-amber-200/90 text-amber-900 text-[9px] font-black px-1.5 py-0.2 rounded-full border border-amber-300">
+                        สถานะ VIP ✨
+                      </span>
+                    )}
+                  </h4>
+                  <p className="text-[10px] text-amber-800/80 leading-tight">
+                    ลูกค้ามีบัตรสมาชิก หรือต้องการส่งข้อมูลเพื่ออัปเกรดรับสิทธิประโยชน์ VIP
+                  </p>
+                </div>
+              </div>
+              
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input 
+                  type="checkbox"
+                  checked={editCustomerData.isVipUpgrade || editCustomerData.hasMemberCard}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setEditCustomerData(prev => ({
+                      ...prev,
+                      isVipUpgrade: checked,
+                      hasMemberCard: checked
+                    }));
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+              </label>
+            </div>
+
+            {(editCustomerData.isVipUpgrade || editCustomerData.hasMemberCard) && (
+              <div className="mt-3 pt-3 border-t border-amber-200/70 space-y-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-amber-900 uppercase tracking-wider mb-1 flex items-center justify-between">
+                    <span>หมายเลขบัตรสมาชิก (Member Card No.)</span>
+                    <span className="text-[10px] font-bold text-amber-700">รับสิทธิ์ VIP</span>
+                  </label>
+                  <input 
+                    type="text"
+                    placeholder="เช่น IRIS-VIP-8899 หรือ เบอร์โทร"
+                    value={editCustomerData.memberCardNo}
+                    onChange={(e) => setEditCustomerData(prev => ({ ...prev, memberCardNo: e.target.value }))}
+                    className="w-full border-2 border-amber-200 bg-white rounded-xl p-2.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-400 font-mono tracking-wider"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="relative shrink-0">
+                    <div className="w-16 h-16 rounded-xl bg-white border-2 border-amber-200 shadow-2xs overflow-hidden flex items-center justify-center relative">
+                      {editCustomerData.memberCardPhotoPreview ? (
+                        <img 
+                          src={editCustomerData.memberCardPhotoPreview} 
+                          alt="Member Card" 
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-amber-50/50 flex flex-col items-center justify-center text-amber-600 p-1 text-center">
+                          <CreditCard size={20} className="text-amber-500 mb-0.5" />
+                          <span className="text-[8px] font-bold text-amber-800 leading-tight">รูปบัตร</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {editCustomerData.memberCardPhotoPreview && (
+                      <button
+                        type="button"
+                        onClick={() => setEditCustomerData(prev => ({
+                          ...prev,
+                          memberCardPhotoFile: null,
+                          memberCardPhotoPreview: null,
+                          memberCardPhotoBase64: null
+                        }))}
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-xs cursor-pointer"
+                        title="ลบรูปบัตรสมาชิก"
+                      >
+                        <X size={10} />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-bold text-amber-950 mb-1">
+                      แนบรูปถ่ายบัตรสมาชิก (สำหรับยืนยันสิทธิ์ VIP)
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => editMemberCardCameraInputRef.current?.click()}
+                        className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-2xs flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                      >
+                        <Camera size={13} />
+                        <span>ถ่ายรูปบัตร</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => editMemberCardFileInputRef.current?.click()}
+                        className="px-2.5 py-1.5 bg-white hover:bg-amber-50 text-amber-900 border border-amber-200 text-xs font-bold rounded-xl shadow-2xs flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                      >
+                        <ImageIcon size={13} className="text-amber-600" />
+                        <span>เลือกรูป</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <input 
+                  ref={editMemberCardCameraInputRef}
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment" 
+                  className="hidden" 
+                  onChange={(e) => handleMemberCardPhotoSelected(e, 'edit')}
+                />
+                <input 
+                  ref={editMemberCardFileInputRef}
+                  type="file" 
+                  accept="image/*" 
+                  className="hidden" 
+                  onChange={(e) => handleMemberCardPhotoSelected(e, 'edit')}
+                />
+              </div>
+            )}
+          </div>
+
+          <button 
+            type="submit" 
+            className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-black py-3.5 rounded-xl shadow-lg shadow-indigo-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer"
+          >
+            <Save size={18} />
+            <span>บันทึกการแก้ไขข้อมูลลูกค้า</span>
+          </button>
+        </form>
       </ModalWrapper>
 
       {/* Add Customer Modal - Customer App Style */}
@@ -9651,6 +10515,140 @@ const flexMessage = {
                 onChange={e => setNewCustomerForm({...newCustomerForm, province: e.target.value})} 
               />
             </div>
+          </div>
+
+          {/* 🌟 บัตรสมาชิก & อัปเกรดสมาชิก VIP 🌟 */}
+          <div className="bg-gradient-to-r from-amber-50/90 via-orange-50/70 to-yellow-50/90 border-2 border-amber-200/90 rounded-2xl p-3 sm:p-3.5 shadow-2xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <Award size={18} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-amber-950 flex items-center gap-1.5 flex-wrap">
+                    <span>สิทธิ์บัตรสมาชิก & อัปเกรด VIP</span>
+                    {newCustomerForm.isVipUpgrade && (
+                      <span className="bg-amber-200/90 text-amber-900 text-[9px] font-black px-1.5 py-0.2 rounded-full border border-amber-300">
+                        อัปเกรด VIP ✨
+                      </span>
+                    )}
+                  </h4>
+                  <p className="text-[10px] text-amber-800/80 leading-tight">
+                    ลูกค้ามีบัตรสมาชิก หรือต้องการส่งข้อมูลเพื่ออัปเกรดรับสิทธิประโยชน์ VIP
+                  </p>
+                </div>
+              </div>
+              
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input 
+                  type="checkbox"
+                  checked={newCustomerForm.isVipUpgrade || newCustomerForm.hasMemberCard}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setNewCustomerForm(prev => ({
+                      ...prev,
+                      isVipUpgrade: checked,
+                      hasMemberCard: checked
+                    }));
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+              </label>
+            </div>
+
+            {(newCustomerForm.isVipUpgrade || newCustomerForm.hasMemberCard) && (
+              <div className="mt-3 pt-3 border-t border-amber-200/70 space-y-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-amber-900 uppercase tracking-wider mb-1 flex items-center justify-between">
+                    <span>หมายเลขบัตรสมาชิก (Member Card No.)</span>
+                    <span className="text-[10px] font-bold text-amber-700">รับสิทธิ์ VIP</span>
+                  </label>
+                  <input 
+                    type="text"
+                    placeholder="เช่น IRIS-VIP-8899 หรือ เบอร์โทร"
+                    value={newCustomerForm.memberCardNo}
+                    onChange={(e) => setNewCustomerForm(prev => ({ ...prev, memberCardNo: e.target.value }))}
+                    className="w-full border-2 border-amber-200 bg-white rounded-xl p-2.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-400 font-mono tracking-wider"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="relative shrink-0">
+                    <div className="w-16 h-16 rounded-xl bg-white border-2 border-amber-200 shadow-2xs overflow-hidden flex items-center justify-center relative">
+                      {newCustomerForm.memberCardPhotoPreview ? (
+                        <img 
+                          src={newCustomerForm.memberCardPhotoPreview} 
+                          alt="Member Card" 
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-amber-50/50 flex flex-col items-center justify-center text-amber-600 p-1 text-center">
+                          <CreditCard size={20} className="text-amber-500 mb-0.5" />
+                          <span className="text-[8px] font-bold text-amber-800 leading-tight">รูปบัตร</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {newCustomerForm.memberCardPhotoPreview && (
+                      <button
+                        type="button"
+                        onClick={() => setNewCustomerForm(prev => ({
+                          ...prev,
+                          memberCardPhotoFile: null,
+                          memberCardPhotoPreview: null,
+                          memberCardPhotoBase64: null
+                        }))}
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center shadow-xs cursor-pointer"
+                        title="ลบรูปบัตรสมาชิก"
+                      >
+                        <X size={10} />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-bold text-amber-950 mb-1">
+                      แนบรูปถ่ายบัตรสมาชิก (สำหรับยืนยันสิทธิ์ VIP)
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => memberCardCameraInputRef.current?.click()}
+                        className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-2xs flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                      >
+                        <Camera size={13} />
+                        <span>ถ่ายรูปบัตร</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => memberCardFileInputRef.current?.click()}
+                        className="px-2.5 py-1.5 bg-white hover:bg-amber-50 text-amber-900 border border-amber-200 text-xs font-bold rounded-xl shadow-2xs flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                      >
+                        <ImageIcon size={13} className="text-amber-600" />
+                        <span>เลือกรูป</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <input 
+                  ref={memberCardCameraInputRef}
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment" 
+                  className="hidden" 
+                  onChange={(e) => handleMemberCardPhotoSelected(e, 'new')}
+                />
+                <input 
+                  ref={memberCardFileInputRef}
+                  type="file" 
+                  accept="image/*" 
+                  className="hidden" 
+                  onChange={(e) => handleMemberCardPhotoSelected(e, 'new')}
+                />
+              </div>
+            )}
           </div>
 
           <button 

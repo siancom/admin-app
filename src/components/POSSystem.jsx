@@ -5343,7 +5343,22 @@ export default function POSSystem({
                             );
                           })
                         ) : (
-                          <div className="px-4 py-3 text-center text-slate-500 text-sm">ไม่พบลูกค้า</div>
+                          <div className="px-4 py-3 text-center space-y-2">
+                            <div className="text-slate-500 text-xs">ไม่พบข้อมูลลูกค้าในระบบ</div>
+                            {onAddCustomer && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCustSearch('');
+                                  onAddCustomer();
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 transition-all cursor-pointer"
+                              >
+                                <UserPlus size={14} />
+                                <span>+ ลงทะเบียนลูกค้าใหม่</span>
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}
@@ -6855,7 +6870,22 @@ export default function POSSystem({
                           </div>
                         )})
                       ) : (
-                        <div className="px-4 py-3 text-center text-slate-500">ไม่พบลูกค้า</div>
+                        <div className="px-4 py-3 text-center space-y-2">
+                          <div className="text-slate-500 text-xs">ไม่พบข้อมูลลูกค้าในระบบ</div>
+                          {onAddCustomer && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCustSearch('');
+                                onAddCustomer();
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 transition-all cursor-pointer"
+                            >
+                              <UserPlus size={14} />
+                              <span>+ ลงทะเบียนลูกค้าใหม่</span>
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}
