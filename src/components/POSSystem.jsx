@@ -1944,6 +1944,12 @@ export default function POSSystem({
         if ((code.includes('ACNE') || name.includes('สิว/ฝ้า')) && cat !== 'acne_sets') {
           counts.acne_sets = (counts.acne_sets || 0) + 1;
         }
+        if ((code.includes('IPL') || name.includes('IPL')) && cat !== 'ipl') {
+          counts.ipl = (counts.ipl || 0) + 1;
+        }
+        if (Array.isArray(c.promoOptions) && c.promoOptions.length > 0 && cat !== 'promo') {
+          counts.promo = (counts.promo || 0) + 1;
+        }
       }
     });
     groupedSingleCourses.forEach(g => {
@@ -2526,7 +2532,8 @@ export default function POSSystem({
             items: itemsDesc,
             badge: badgeStr,
             credit: credit,
-            creditReceived: credit
+            creditReceived: credit,
+            freeGift: promoOption?.freeGift || item.freeGift || ''
           }];
         } else if (type === 'debt_payment') {
           const pendingAmt = item.computedPendingAmount || 0;
@@ -5623,11 +5630,17 @@ export default function POSSystem({
                       const category = getCourseCategory(c);
                       if (category === 'old_courses') return false;
                       if (multiCourseTab === 'all') return true;
+                      if (multiCourseTab === 'promo') {
+                        return category === 'promo' || (Array.isArray(c.promoOptions) && c.promoOptions.length > 0) || String(getFuzzyKey(c, ["รหัสคอส", "col_1"])).startsWith('PROMO-');
+                      }
                       if (multiCourseTab === 'acne_clear') {
                         return category === 'acne_clear' || c.id === 'acmm' || String(getFuzzyKey(c, ["รหัสคอส", "col_1"])).toLowerCase() === 'acmm' || String(getFuzzyKey(c, ["ชื่อคอส", "col_4"])).includes('เคลียร์สิว');
                       }
                       if (multiCourseTab === 'acne_sets') {
                         return category === 'acne_sets' || c.id === 'PROMO-ACNE-MELASMA' || String(getFuzzyKey(c, ["รหัสคอส", "col_1"])).includes('ACNE') || String(getFuzzyKey(c, ["ชื่อคอส", "col_4"])).includes('สิว/ฝ้า');
+                      }
+                      if (multiCourseTab === 'ipl') {
+                        return category === 'ipl' || c.id === 'PROMO-IPL-HAIR' || String(getFuzzyKey(c, ["รหัสคอส", "col_1"])).includes('IPL') || String(getFuzzyKey(c, ["ชื่อคอส", "col_4"])).includes('IPL');
                       }
                       return category === multiCourseTab;
                     })
@@ -5661,6 +5674,17 @@ export default function POSSystem({
                       }
                       if (!creditDisplayStr && credit > 0) {
                         creditDisplayStr = `+เครดิต ฿${credit.toLocaleString()}`;
+                      }
+
+                      let giftDisplayStr = '';
+                      if (hasPromoOptions) {
+                        const giftOpt = promoOptions.find(o => o.freeGift);
+                        if (giftOpt) {
+                          giftDisplayStr = '+ฟรี แป้งรักแร้ขาว ฿140';
+                        }
+                      }
+                      if (!giftDisplayStr && c.freeGiftDisplay) {
+                        giftDisplayStr = c.freeGiftDisplay;
                       }
 
                       let sessionCount = null;
@@ -5784,6 +5808,11 @@ export default function POSSystem({
                             {creditDisplayStr && (
                               <span className="text-[9px] text-emerald-600 font-bold whitespace-nowrap mt-0.5">
                                 {creditDisplayStr}
+                              </span>
+                            )}
+                            {giftDisplayStr && (
+                              <span className="text-[9px] text-amber-700 font-extrabold whitespace-nowrap mt-0.5 flex items-center gap-0.5">
+                                🎁 {giftDisplayStr}
                               </span>
                             )}
                           </div>
@@ -6663,6 +6692,11 @@ export default function POSSystem({
                       {item.type === 'course' && (Number(item.credit) > 0 || Number(item.creditReceived) > 0) && (
                         <div className="text-[10px] text-emerald-600 font-bold mt-[2px] flex items-center gap-1">
                           💳 วงเงินเครดิต ฿{Number(item.credit || item.creditReceived).toLocaleString()}
+                        </div>
+                      )}
+                      {item.type === 'course' && item.freeGift && (
+                        <div className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-bold mt-[2px] flex items-center gap-1 w-fit">
+                          🎁 แถมฟรี: {item.freeGift}
                         </div>
                       )}
                       {item.type === 'product' && (
@@ -10522,6 +10556,11 @@ export default function POSSystem({
                           {opt.freeMemberCard && (
                             <div className="inline-block text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-md">
                               💳 ฟรีบัตรสมาชิก (เมื่อชำระเต็ม)
+                            </div>
+                          )}
+                          {opt.freeGift && (
+                            <div className="inline-block text-[11px] font-black text-amber-800 bg-amber-50 border border-amber-300 px-2 py-0.5 rounded-md shadow-xs">
+                              🎁 แถมฟรี! {opt.freeGift}
                             </div>
                           )}
                         </div>
