@@ -128,6 +128,7 @@ import AdminLoginPage from './components/AdminLoginPage';
 import VipApplicationFormModal from './components/VipApplicationFormModal';
 import MoleRemovalSystem from './components/MoleRemovalSystem';
 import CourseDeductionSystem from './components/CourseDeductionSystem';
+import StaffServiceQueue from './components/StaffServiceQueue';
 import LiveTimer from './components/LiveTimer';
 import InventoryDashboard from './components/InventoryDashboard';
 import PromotionManager from './components/PromotionManager';
@@ -270,6 +271,7 @@ export default function App() {
   const [selectedHolidayDate, setSelectedHolidayDate] = useState(null);
   const [expenses, setExpenses] = useState([]);
   const [serviceLogs, setServiceLogs] = useState([]);
+  const [activeServices, setActiveServices] = useState([]);
   const [inventoryLogs, setInventoryLogs] = useState([]);
   const [appSettings, setAppSettings] = useState({ monthlyTarget: 0 });
   const [branchPasscodeModal, setBranchPasscodeModal] = useState({ isOpen: false, branch: null, passcode: '' });
@@ -1152,10 +1154,11 @@ export default function App() {
     const unsub15 = onSnapshot(getCol('expenses'), (s) => { setExpenses(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsub16 = onSnapshot(getCol('service_logs'), (s) => { setServiceLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsubInvLogs = onSnapshot(getCol('inventory_logs'), (s) => { setInventoryLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
+    const unsubActiveServices = onSnapshot(getCol('active_services'), (s) => { setActiveServices(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
 
     return () => { 
       clearTimeout(safetyTimer);
-      unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsubPromo(); unsub8(); unsub9(); unsubHolidays(); unsub10(); unsub11(); unsub12(); unsub13(); unsubReqs(); unsubJobs(); unsub14(); unsub15(); unsub16(); unsubInvLogs(); 
+      unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsubPromo(); unsub8(); unsub9(); unsubHolidays(); unsub10(); unsub11(); unsub12(); unsub13(); unsubReqs(); unsubJobs(); unsub14(); unsub15(); unsub16(); unsubInvLogs(); unsubActiveServices();
     };
   }, [user]);
 
@@ -6291,6 +6294,7 @@ const flexMessage = {
               clockedInEmployees={clockedInEmployees}
               wooImagesMap={wooImagesMap}
               wooIdMap={wooIdMap}
+              activeServices={activeServices}
               onOpenVipForm={(customer) => {
                  setSelectedCustomer(customer);
                  setIsVipFormOpen(true);
@@ -6486,7 +6490,12 @@ const flexMessage = {
                {/* Staff Tabs */}
                <div className="flex bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden mb-6 flex-wrap">
                   <button onClick={() => setStaffDashboardTab('used_course')} className={`flex-1 min-w-[120px] py-4 font-bold text-sm transition-colors flex items-center justify-center gap-2 ${staffDashboardTab === 'used_course' ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600' : 'text-gray-500 hover:bg-gray-50'}`}>
-                     <CheckCircle size={16} /> ใช้คอร์ส / รับบริการ
+                     <CheckCircle size={16} /> <span>ใช้คอร์ส / รับบริการ</span>
+                     {activeServices.filter(s => (!globalBranch || !s.branch || s.branch === globalBranch) && s.status !== 'เรียบร้อย').length > 0 && (
+                        <span className="px-2 py-0.5 bg-rose-500 text-white rounded-full text-xs font-black animate-pulse shadow-sm">
+                          {activeServices.filter(s => (!globalBranch || !s.branch || s.branch === globalBranch) && s.status !== 'เรียบร้อย').length}
+                        </span>
+                     )}
                   </button>
                   <button onClick={() => setStaffDashboardTab('new_sale')} className={`flex-1 min-w-[120px] py-4 font-bold text-sm transition-colors flex items-center justify-center gap-2 ${staffDashboardTab === 'new_sale' ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600' : 'text-gray-500 hover:bg-gray-50'}`}>
                      <ShoppingCart size={16} /> ขายคอร์ส / สินค้า
@@ -6521,24 +6530,52 @@ const flexMessage = {
                              
                              if (staffDashboardTab === 'used_course') {
                                 rows = histories.filter(h => h['วันที่'] === todayDateStr && (!globalBranch || h['สาขา'] === globalBranch) && (h['ประเภท'] === 'รับบริการ' || h['ประเภท'] === 'เบิกใช้เครดิต'));
-                                if (rows.length === 0) return <div className="px-6 py-12 text-center text-gray-400 font-bold bg-white rounded-2xl border border-gray-100">ไม่มีประวัติการใช้คอร์สในวันนี้</div>;
-                                return rows.map((r, i) => (
-                                   <div key={i} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm hover:border-emerald-200 transition-colors flex flex-col sm:flex-row sm:items-center gap-3">
-                                      <div className="flex justify-between sm:w-48 shrink-0">
-                                        <div className="font-bold text-gray-800 truncate">{r['ชื่อลูกค้า']}</div>
-                                        <div className="text-gray-400 font-bold text-sm sm:hidden">{r['เวลา'] || '-'}</div>
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                         <div className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded inline-block text-[10px] mb-1">{r['ประเภท']}</div>
-                                         <div className="text-gray-700 text-sm truncate" title={r['รายการ']}>{r['รายการ']}</div>
-                                      </div>
-                                      <div className="flex justify-between sm:flex-col sm:items-end gap-1 shrink-0 mt-2 sm:mt-0 border-t border-gray-50 sm:border-0 pt-2 sm:pt-0">
-                                        {renderEmpAvatar(r['พนักงาน'])}
-                                        <div className="font-black text-emerald-600">฿{Number(r['จำนวนเงิน'] || r['ยอดรวม'] || r['ราคา'] || 0).toLocaleString()}</div>
-                                      </div>
-                                      <div className="hidden sm:block text-gray-400 font-bold text-sm w-16 text-right shrink-0">{r['เวลา'] || '-'}</div>
-                                   </div>
-                                ));
+                                return (
+                                  <div className="space-y-4">
+                                    <StaffServiceQueue 
+                                      activeServices={activeServices}
+                                      courses={processedCourses}
+                                      customers={customers}
+                                      employees={employees}
+                                      clockedInEmployees={clockedInEmployees}
+                                      activeStaff={activeStaff}
+                                      globalBranch={globalBranch}
+                                      showToast={triggerToast}
+                                    />
+
+                                    <div className="pt-2">
+                                      <h4 className="text-xs font-black text-slate-700 mb-2.5 flex items-center gap-1.5 px-1">
+                                        <HistoryIcon size={14} className="text-indigo-500" />
+                                        <span>ประวัติการใช้คอร์สที่ตัดยอดเรียบร้อยแล้ววันนี้ ({rows.length})</span>
+                                      </h4>
+                                      {rows.length === 0 ? (
+                                        <div className="px-6 py-8 text-center text-gray-400 font-bold bg-white rounded-2xl border border-gray-100 text-xs">
+                                          ยังไม่มีประวัติการตัดคอร์สในวันนี้
+                                        </div>
+                                      ) : (
+                                        <div className="space-y-2">
+                                          {rows.map((r, i) => (
+                                             <div key={i} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm hover:border-emerald-200 transition-colors flex flex-col sm:flex-row sm:items-center gap-3">
+                                                <div className="flex justify-between sm:w-48 shrink-0">
+                                                  <div className="font-bold text-gray-800 truncate">{r['ชื่อลูกค้า']}</div>
+                                                  <div className="text-gray-400 font-bold text-sm sm:hidden">{r['เวลา'] || '-'}</div>
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                   <div className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded inline-block text-[10px] mb-1">{r['ประเภท']}</div>
+                                                   <div className="text-gray-700 text-sm truncate" title={r['รายการ']}>{r['รายการ']}</div>
+                                                </div>
+                                                <div className="flex justify-between sm:flex-col sm:items-end gap-1 shrink-0 mt-2 sm:mt-0 border-t border-gray-50 sm:border-0 pt-2 sm:pt-0">
+                                                  {renderEmpAvatar(r['พนักงาน'])}
+                                                  <div className="font-black text-emerald-600">฿{Number(r['จำนวนเงิน'] || r['ยอดรวม'] || r['ราคา'] || 0).toLocaleString()}</div>
+                                                </div>
+                                                <div className="hidden sm:block text-gray-400 font-bold text-sm w-16 text-right shrink-0">{r['เวลา'] || '-'}</div>
+                                             </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
                              } 
                              else if (staffDashboardTab === 'new_sale') {
                                 rows = histories.filter(h => h['วันที่'] === todayDateStr && (!globalBranch || h['สาขา'] === globalBranch) && h['ประเภท'] && h['ประเภท'].includes('ซื้อ'));
