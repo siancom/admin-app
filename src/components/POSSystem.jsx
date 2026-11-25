@@ -91,6 +91,112 @@ export const isServiceOrCourseProduct = (p) => {
   return false;
 };
 
+export const SKINCARE_STEPS = [
+  { step: 1, id: 'step_cleanse', label: '1. คลีนซิ่ง & ล้างหน้า', shortLabel: 'ล้างหน้า', icon: '🧼' },
+  { step: 2, id: 'step_toner', label: '2. โทนเนอร์ & ปรับสภาพผิว', shortLabel: 'โทนเนอร์', icon: '💧' },
+  { step: 3, id: 'step_mask', label: '3. ผลัดเซลล์ / มาร์ค / ผงพอก', shortLabel: 'มาร์ค/พอก', icon: '🧖' },
+  { step: 4, id: 'step_eye_lip', label: '4. บำรุงรอบดวงตา & ริมฝีปาก', shortLabel: 'ตา & ปาก', icon: '👁️' },
+  { step: 5, id: 'step_serum', label: '5. เซรั่ม & เอสเซ้นส์ฟื้นฟู', shortLabel: 'เซรั่ม', icon: '✨' },
+  { step: 6, id: 'step_treatment', label: '6. แต้มสิว & ฝ้าเฉพาะจุด', shortLabel: 'แต้มสิว/ฝ้า', icon: '🎯' },
+  { step: 7, id: 'step_cream', label: '7. ครีมบำรุง & คอลลาเจน', shortLabel: 'ครีมบำรุง', icon: '🧴' },
+  { step: 8, id: 'step_sunscreen', label: '8. ปกป้องแสงแดด (กันแดด)', shortLabel: 'กันแดด', icon: '☀️' },
+  { step: 9, id: 'step_others', label: '9. แป้ง / ผิวกาย & อื่นๆ', shortLabel: 'แป้ง/ผิวกาย', icon: '🌸' },
+];
+
+export const getProductSkincareStep = (p) => {
+  if (!p) return SKINCARE_STEPS[8];
+  const name = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2", "ชื่อ", "name"]) || '').trim();
+  const lower = name.toLowerCase();
+
+  // 1. เส้นผม / ผิวกาย / แป้ง (เฉพาะที่ระบุชัดเจน)
+  if (
+    lower.includes('ผม') || lower.includes('hair') || lower.includes('shampoo') || lower.includes('แชมพู') ||
+    lower.includes('อาบน้ำ') || lower.includes('ผิวกาย') || lower.includes('body') || lower.includes('รักแร้') ||
+    lower.includes('แป้ง') || lower.includes('powder') || lower.includes('บัตรสมาชิก') || lower.includes('ฟองน้ำ') ||
+    lower.includes('เข็มกดสิว')
+  ) {
+    return SKINCARE_STEPS[8]; // step 9
+  }
+
+  // 2. กันแดด (Sunscreen) - ต้องเช็คก่อน "ครีม" เพราะมี "ครีมกันแดด"
+  if (
+    lower.includes('กันแดด') || lower.includes('sunscreen') || lower.includes('spf') || lower.includes('pa+')
+  ) {
+    return SKINCARE_STEPS[7]; // step 8
+  }
+
+  // 3. คลีนซิ่ง & ล้างหน้า
+  if (
+    lower.includes('คลีนซิ่ง') || lower.includes('cleansing') || lower.includes('cleancing') ||
+    lower.includes('สบู่') || lower.includes('soap') ||
+    lower.includes('เจลล้างหน้า') || lower.includes('เจลสิว') || lower.includes('เจลฝ้า') ||
+    lower.includes('facial cleanser') || lower.includes('มิ้ลโยเกิร์ต') || lower.includes('milky') ||
+    lower.includes('น้ำนม')
+  ) {
+    return SKINCARE_STEPS[0]; // step 1
+  }
+
+  // 4. โทนเนอร์ & ปรับสภาพผิว
+  if (lower.includes('โทนเนอร์') || lower.includes('toner') || lower.includes('softener lotion')) {
+    return SKINCARE_STEPS[1]; // step 2
+  }
+
+  // 5. ผลัดเซลล์ / ผงพอก / โคลน / สครับ
+  if (
+    lower.includes('ผงพอก') || lower.includes('ผงนวล') || lower.includes('ผงเร่ง') || lower.includes('ผงสิว') ||
+    lower.includes('โคลน') || lower.includes('มาส์ก') || lower.includes('มาส์ฝ้า') || lower.includes('มาร์ค') ||
+    lower.includes('mask') || lower.includes('clay') || lower.includes('scrub') || lower.includes('สครับ') ||
+    lower.includes('aha') || lower.includes('แลคติก') || lower.includes('lactic') || lower.includes('พอกสด')
+  ) {
+    return SKINCARE_STEPS[2]; // step 3
+  }
+
+  // 6. บำรุงรอบดวงตา & ริมฝีปาก
+  if (
+    lower.includes('อาย') || lower.includes('eye') ||
+    lower.includes('ลิป') || lower.includes('lip')
+  ) {
+    return SKINCARE_STEPS[3]; // step 4
+  }
+
+  // 7. เซรั่ม & เอสเซ้นส์ฟื้นฟู
+  if (
+    lower.includes('เซรั่ม') || lower.includes('ซีรั่ม') || lower.includes('serum') ||
+    lower.includes('เอสเซ้น') || lower.includes('essence') ||
+    lower.includes('ซุปเปอร์ลิฟ') || lower.includes('ซุปเปอร์ไวท์') ||
+    lower.includes('ดีอ๊อกซี่') || lower.includes('snail') || lower.includes('algae') || lower.includes('แองจี้เจล') ||
+    lower.includes('ลดอาการ') || lower.includes('เรตินอล') || lower.includes('retinol') ||
+    lower.includes('เอ็กตร้าเบอร์3') || lower.includes('extra serum')
+  ) {
+    return SKINCARE_STEPS[4]; // step 5
+  }
+
+  // 8. แต้มสิว & ฝ้าเฉพาะจุด
+  if (
+    lower.includes('แต้มสิว') || lower.includes('ครีมสิว') || lower.includes('acne skin cream') ||
+    lower.includes('แต้มฝ้า') || lower.includes('ครีมฝ้า') || lower.includes('melasma') || lower.includes('purifying cream')
+  ) {
+    return SKINCARE_STEPS[5]; // step 6
+  }
+
+  // 9. ครีมบำรุง & คอลลาเจน
+  if (
+    lower.includes('คอลลาเจน') || lower.includes('collagen') ||
+    lower.includes('เด้ง') || lower.includes('facialtensor') ||
+    lower.includes('ไวท์ 28') || lower.includes('white28') || lower.includes('ไวท์เฟิร์มมิ่ง') ||
+    lower.includes('ดับเบิ้ลไวท์') || lower.includes('double white') ||
+    lower.includes('มูนไลท์') || lower.includes('moonlight') ||
+    lower.includes('ครีมถนอมผิว') || lower.includes('แอบโซลูท เดย์') || lower.includes('absolutedaycream') ||
+    lower.includes('ไนท์') || lower.includes('night') ||
+    lower.includes('ปัมกิ้น') || lower.includes('pumpkin') ||
+    lower.includes('ครีม') || lower.includes('cream') || lower.includes('เจล') || lower.includes('gel')
+  ) {
+    return SKINCARE_STEPS[6]; // step 7
+  }
+
+  return SKINCARE_STEPS[8]; // step 9
+};
+
 export const getProductCategory = (p) => {
   if (!p) return 'ทั่วไป';
   const raw = String(
@@ -338,8 +444,8 @@ export default function POSSystem({
   const quickEodActiveRef = useRef(!!autoOpenEod);
   const quickEodSubmittedRef = useRef(false);
   const [activeTab, setActiveTab] = useState('products'); // 'products' | 'courses' | 'my_courses'
-  const [productSortMode, setProductSortMode] = useState('bestseller'); // 'bestseller' | 'category' | 'stock' | 'alpha'
-  const [selectedProductCategory, setSelectedProductCategory] = useState('all');
+  const [productSortMode, setProductSortMode] = useState('routine'); // 'routine' | 'bestseller' | 'stock' | 'alpha'
+  const [selectedSkincareStep, setSelectedSkincareStep] = useState('all');
   const [singleCourseTab, setSingleCourseTab] = useState('machine');
   const [multiCourseTab, setMultiCourseTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -1554,10 +1660,10 @@ export default function POSSystem({
       const searchStr = `${String(getFuzzyKey(p, ["รหัส", "col_1"]) || '')} ${name}`.toLowerCase();
       if (searchTerm !== '' && !searchStr.includes(searchTerm.toLowerCase())) return false;
       
-      // กรองตามหมวดหมู่สินค้า เมื่อเลือกหมวดหมู่เจาะจงในโหมดตามประเภท
-      if (productSortMode === 'category' && selectedProductCategory !== 'all') {
-        const cat = getProductCategory(p);
-        if (cat !== selectedProductCategory) return false;
+      // กรองตามขั้นตอนดูแลผิว เมื่อเลือกขั้นตอนเฉพาะ
+      if ((productSortMode === 'routine' || productSortMode === 'category') && selectedSkincareStep !== 'all') {
+        const stepInfo = getProductSkincareStep(p);
+        if (stepInfo.id !== selectedSkincareStep) return false;
       }
       return true;
     });
@@ -1566,20 +1672,15 @@ export default function POSSystem({
       const nameA = String(getFuzzyKey(a, ["ชื่อสินค้า", "col_2"]) || '');
       const nameB = String(getFuzzyKey(b, ["ชื่อสินค้า", "col_2"]) || '');
 
-      if (productSortMode === 'alpha') {
+      // 🌟 เรียงอัจฉริยะตามขั้นตอนดูแลผิว (Cleanse -> Tone -> Mask -> Eye/Lip -> Serum -> Spot -> Cream -> Sunscreen -> Others)
+      if (productSortMode === 'routine' || productSortMode === 'category') {
+        const stepA = getProductSkincareStep(a).step;
+        const stepB = getProductSkincareStep(b).step;
+        if (stepA !== stepB) return stepA - stepB;
         return nameA.localeCompare(nameB, 'th');
       }
 
-      if (productSortMode === 'category') {
-        const catA = getProductCategory(a);
-        const catB = getProductCategory(b);
-        if (catA !== catB) {
-          const catOrder = { 'Iris': 1, 'Jeness': 2, 'PureFresh': 3, 'ลงเครื่อง': 4, 'อุปกรณ์อื่นๆ': 5, 'บัตรสมาชิก / สิทธิ์': 6 };
-          const pA = catOrder[catA] || 50;
-          const pB = catOrder[catB] || 50;
-          if (pA !== pB) return pA - pB;
-          return catA.localeCompare(catB, 'th');
-        }
+      if (productSortMode === 'alpha') {
         return nameA.localeCompare(nameB, 'th');
       }
 
@@ -1614,11 +1715,13 @@ export default function POSSystem({
 
       return nameA.localeCompare(nameB, 'th');
     });
-  }, [products, searchTerm, isStockMode, isRequisitionMode, productSortMode, selectedProductCategory, productSalesMap, globalBranch, wooImagesMap]);
+  }, [products, searchTerm, isStockMode, isRequisitionMode, productSortMode, selectedSkincareStep, productSalesMap, globalBranch, wooImagesMap]);
 
-  // หมวดหมู่สินค้าและจำนวนสำหรับแถบตัวกรองด่วน
-  const productCategoryTabs = useMemo(() => {
+  // แถบขั้นตอนดูแลผิวและจำนวนสินค้าในแต่ละขั้นตอน
+  const skincareStepTabs = useMemo(() => {
     const counts = { all: 0 };
+    SKINCARE_STEPS.forEach(s => { counts[s.id] = 0; });
+
     products.forEach(p => {
       const name = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2", "ชื่อ", "name"]) || '').trim();
       const status = String(getFuzzyKey(p, ["สถานะ", "status", "การใช้งาน", "state"]) || '').trim();
@@ -1630,36 +1733,36 @@ export default function POSSystem({
       if (searchTerm !== '' && !searchStr.includes(searchTerm.toLowerCase())) return;
 
       counts.all++;
-      const cat = getProductCategory(p);
-      counts[cat] = (counts[cat] || 0) + 1;
-    });
-
-    const categoryOrder = ['Iris', 'Jeness', 'PureFresh', 'ลงเครื่อง', 'อุปกรณ์อื่นๆ', 'บัตรสมาชิก / สิทธิ์'];
-    const cats = Object.keys(counts).filter(k => k !== 'all');
-    cats.sort((a, b) => {
-      const idxA = categoryOrder.indexOf(a);
-      const idxB = categoryOrder.indexOf(b);
-      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-      if (idxA !== -1) return -1;
-      if (idxB !== -1) return 1;
-      return a.localeCompare(b, 'th');
+      const stepInfo = getProductSkincareStep(p);
+      counts[stepInfo.id] = (counts[stepInfo.id] || 0) + 1;
     });
 
     return [
-      { id: 'all', label: 'ทั้งหมด', count: counts.all },
-      ...cats.map(c => ({ id: c, label: c, count: counts[c] || 0 }))
+      { id: 'all', label: 'ทั้งหมด', count: counts.all, icon: '✨' },
+      ...SKINCARE_STEPS.filter(s => counts[s.id] > 0).map(s => ({
+        id: s.id,
+        label: s.shortLabel,
+        fullLabel: s.label,
+        count: counts[s.id],
+        icon: s.icon
+      }))
     ];
   }, [products, searchTerm, isStockMode, isRequisitionMode]);
 
-  // จัดกลุ่มสินค้าตามหมวดหมู่เพื่อแสดงหัวข้อแยกในโหมด 'category'
-  const groupedProductsByCategory = useMemo(() => {
-    const groups = new Map();
+  // จัดกลุ่มสินค้าตามขั้นตอนดูแลผิว เพื่อแสดงหัวข้อคั่นในโหมดขั้นตอนผิว
+  const groupedProductsByStep = useMemo(() => {
+    const map = new Map();
+    SKINCARE_STEPS.forEach(s => map.set(s.id, { step: s, items: [] }));
+
     filteredProducts.forEach(p => {
-      const cat = getProductCategory(p);
-      if (!groups.has(cat)) groups.set(cat, []);
-      groups.get(cat).push(p);
+      const s = getProductSkincareStep(p);
+      if (!map.has(s.id)) {
+        map.set(s.id, { step: s, items: [] });
+      }
+      map.get(s.id).items.push(p);
     });
-    return Array.from(groups.entries());
+
+    return Array.from(map.values()).filter(g => g.items.length > 0);
   }, [filteredProducts]);
 
   const getCourseSortTimestamp = (item) => {
@@ -5212,7 +5315,7 @@ export default function POSSystem({
                     type="button"
                     onClick={() => {
                       setProductSortMode('bestseller');
-                      setSelectedProductCategory('all');
+                      setSelectedSkincareStep('all');
                     }}
                     className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                       productSortMode === 'bestseller'
@@ -5226,23 +5329,23 @@ export default function POSSystem({
 
                   <button
                     type="button"
-                    onClick={() => setProductSortMode('category')}
+                    onClick={() => setProductSortMode('routine')}
                     className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-                      productSortMode === 'category'
-                        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-sm'
+                      productSortMode === 'routine' || productSortMode === 'category'
+                        ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 text-white shadow-sm'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
                     }`}
-                    title="จัดเรียงตามหมวดหมู่ / ประเภทสินค้า"
+                    title="เรียงอัจฉริยะตามขั้นตอนดูแลผิว (ล้างหน้า -> โทนเนอร์ -> พอก/มาร์ค -> ตา/ปาก -> เซรั่ม -> แต้มสิว/ฝ้า -> ครีมบำรุง -> กันแดด)"
                   >
-                    <Layers size={14} className={productSortMode === 'category' ? 'text-white' : 'text-purple-600'} />
-                    <span><span className="hidden sm:inline">ตาม</span>ประเภท</span>
+                    <Sparkles size={14} className={productSortMode === 'routine' || productSortMode === 'category' ? 'text-white' : 'text-purple-600'} />
+                    <span>ขั้นตอนดูแลผิว</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => {
                       setProductSortMode('stock');
-                      setSelectedProductCategory('all');
+                      setSelectedSkincareStep('all');
                     }}
                     className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                       productSortMode === 'stock'
@@ -5258,7 +5361,7 @@ export default function POSSystem({
                     type="button"
                     onClick={() => {
                       setProductSortMode('alpha');
-                      setSelectedProductCategory('all');
+                      setSelectedSkincareStep('all');
                     }}
                     className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                       productSortMode === 'alpha'
@@ -5275,25 +5378,27 @@ export default function POSSystem({
                 </div>
               </div>
 
-              {/* Category Quick Filter Pills when in Category Mode */}
-              {productSortMode === 'category' && (
+              {/* Skincare Step Quick Filter Pills */}
+              {(productSortMode === 'routine' || productSortMode === 'category') && (
                 <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto pb-1 no-scrollbar animate-in fade-in slide-in-from-top-1 duration-150">
-                  {productCategoryTabs.map(cat => (
+                  {skincareStepTabs.map(tab => (
                     <button
-                      key={cat.id}
+                      key={tab.id}
                       type="button"
-                      onClick={() => setSelectedProductCategory(cat.id)}
-                      className={`px-2.5 sm:px-3 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 shrink-0 cursor-pointer ${
-                        selectedProductCategory === cat.id
-                          ? 'bg-purple-600 text-white shadow-xs'
-                          : 'bg-white hover:bg-purple-50 text-slate-600 hover:text-purple-700 border border-slate-200'
+                      onClick={() => setSelectedSkincareStep(tab.id)}
+                      className={`px-2.5 sm:px-3 py-1 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                        selectedSkincareStep === tab.id
+                          ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-xs ring-1 ring-purple-600/30'
+                          : 'bg-white hover:bg-purple-50 text-slate-700 hover:text-purple-700 border border-slate-200'
                       }`}
+                      title={tab.fullLabel || tab.label}
                     >
-                      <span>{cat.label}</span>
+                      <span>{tab.icon}</span>
+                      <span>{tab.label}</span>
                       <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-                        selectedProductCategory === cat.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                        selectedSkincareStep === tab.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
                       }`}>
-                        {cat.count}
+                        {tab.count}
                       </span>
                     </button>
                   ))}
@@ -5371,14 +5476,18 @@ export default function POSSystem({
                         )}
                       </div>
                       
-                      {/* Category & Code badges */}
+                      {/* Skincare Step & Code badges */}
                       <div className="flex items-center gap-1.5 mb-1 flex-wrap">
                         {productCode && <span className="text-[9px] font-mono text-slate-400 font-bold">{productCode}</span>}
-                        {productCat && productCat !== 'ทั่วไป' && (
-                          <span className="text-[9px] font-black px-1.5 py-0.2 rounded-md bg-purple-50 text-purple-700 border border-purple-200/60 leading-tight">
-                            {productCat}
-                          </span>
-                        )}
+                        {(() => {
+                          const stepInfo = getProductSkincareStep(p);
+                          return (
+                            <span className="text-[9px] font-black px-1.5 py-0.2 rounded-md bg-purple-50 text-purple-700 border border-purple-200/60 leading-tight flex items-center gap-1">
+                              <span>{stepInfo.icon}</span>
+                              <span>{stepInfo.shortLabel}</span>
+                            </span>
+                          );
+                        })()}
                       </div>
 
                       <div className="font-semibold text-slate-800 flex-1 line-clamp-2 text-xs sm:text-base leading-snug">{productName}</div>
@@ -5429,20 +5538,22 @@ export default function POSSystem({
                   );
                 }
 
-                if (productSortMode === 'category' && selectedProductCategory === 'all') {
-                  return groupedProductsByCategory.map(([catName, items]) => (
-                    <React.Fragment key={catName}>
-                      <div className="col-span-full pt-3 pb-1 first:pt-0">
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1.5 px-3 py-1 bg-purple-50 border border-purple-200/80 rounded-xl text-purple-800 font-black text-xs sm:text-sm shadow-2xs">
-                            <Layers size={14} className="text-purple-600" />
-                            <span>หมวด: {catName}</span>
-                            <span className="text-[10px] px-1.5 py-0.2 bg-purple-200/70 text-purple-900 rounded-full font-bold">{items.length}</span>
+                if ((productSortMode === 'routine' || productSortMode === 'category') && selectedSkincareStep === 'all') {
+                  return groupedProductsByStep.map(g => (
+                    <React.Fragment key={g.step.id}>
+                      <div className="col-span-full pt-4 pb-1.5 first:pt-0">
+                        <div className="flex items-center gap-2.5">
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200/90 rounded-xl text-purple-900 font-black text-xs sm:text-sm shadow-2xs">
+                            <span className="text-sm sm:text-base">{g.step.icon}</span>
+                            <span>{g.step.label}</span>
+                            <span className="text-[10px] sm:text-xs px-2 py-0.5 bg-purple-600 text-white rounded-full font-bold shadow-xs">
+                              {g.items.length}
+                            </span>
                           </div>
-                          <div className="flex-1 h-[1px] bg-slate-200/80"></div>
+                          <div className="flex-1 h-[1.5px] bg-gradient-to-r from-purple-200 via-indigo-100 to-transparent"></div>
                         </div>
                       </div>
-                      {items.map(p => renderCard(p))}
+                      {g.items.map(p => renderCard(p))}
                     </React.Fragment>
                   ));
                 }
