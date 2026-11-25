@@ -3707,8 +3707,8 @@ export default function POSSystem({
             
             let expireDateStr = "";
             const sessCount = parseInt(courseTotalQty) || 1;
-            const customExpStr = String(getFuzzyKey(item.originalItem, ["วันหมดอายุ", "col_10", "กำหนดเวลา", "กำหนดระยะเวลา", "col_13"]) || '').trim();
-            if (customExpStr && customExpStr.includes('/')) {
+            const customExpStr = String(getFuzzyKey(item.originalItem, ["วันหมดอายุ", "col_10", "กำหนดเวลา", "กำหนดระยะเวลา"]) || '').trim();
+            if (customExpStr && customExpStr.includes('/') && !customExpStr.startsWith('http') && !customExpStr.includes('firebasestorage')) {
                 expireDateStr = customExpStr;
             } else {
                 const expDate = new Date(customDateObj);
