@@ -8146,6 +8146,25 @@ export default function POSSystem({
                         ))}
                       </div>
                     )}
+
+                    {/* Quick check-in action: just checked in and want to close modal to treat customer */}
+                    {paymentPhotos.before.length > 0 && (
+                      <div className="mt-2.5 pt-2 border-t border-white/15 flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[11px] text-white/90 font-medium">
+                          ✓ เริ่มจับเวลาแล้ว สามารถปิดหน้าต่างนี้ไปทำบริการได้ทันที
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowPaymentModal(false);
+                            showToast('เช็คอินเริ่มบริการเรียบร้อย! การ์ดจะกระพริบจับเวลา สามารถกลับมาตัดยอดและเลือกพนักงานเมื่อทำเสร็จ', 'info');
+                          }}
+                          className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-[11px] font-bold border border-white/30 backdrop-blur-sm active:scale-95 transition-all cursor-pointer shrink-0"
+                        >
+                          ปิดหน้าต่างไปทำบริการก่อน
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Service Selection (Only for usage) */}
@@ -9388,9 +9407,6 @@ export default function POSSystem({
                   <button 
                     type="button"
                     onClick={() => {
-                       if (!paymentStaff) {
-                           return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ให้บริการ', 'error');
-                       }
                        // If payment not initialized yet, default to transfer or total
                        const currentCovered = (Number(splitPayment.cash) || 0) + (Number(splitPayment.transfer) || 0) + (Number(splitPayment.cod) || 0) + (Number(splitPayment.credit) || 0);
                        if (total > 0 && currentCovered === 0) {
