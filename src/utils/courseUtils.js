@@ -147,3 +147,139 @@ export function isHistoryUsageRecord(h) {
   const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '');
   return isUsageType(type) || isAddType(type);
 }
+
+// 🌟 ฟังก์ชันจับคู่ของแถมจากคอร์สกับสินค้าจริงในสต็อกอัตโนมัติ (Auto-match Free Gifts to Inventory Products)
+export function findAutoMatchedProduct(giftName, productsList) {
+  if (!giftName || !Array.isArray(productsList) || productsList.length === 0) return null;
+  const rawName = String(giftName).trim();
+  const clean = rawName.toLowerCase().replace(/[\s\-_(),.+/]/g, '');
+
+  // 1. ตรวจสอบชื่อของแถมยอดนิยม & สินค้าโปรโมชั่น
+  // แป้งรักแร้ขาว / Deo
+  if (clean.includes('รักแร้') || clean.includes('deo') || clean.includes('แป้งรักแร้')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'P801' || pName.includes('รักแร้ขาว') || (pName.includes('deo') && pName.includes('crystal'));
+    });
+    if (p) return p;
+  }
+
+  // ผงพอก (กระปุก RelaxingPowderMask)
+  if (clean.includes('ผงพอก') || clean.includes('relaxingpowder')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'IQ470006' || pName.includes('ผงพอก(กระปุก)') || pName.includes('relaxingpowder');
+    });
+    if (p) return p;
+  }
+
+  // เจลลดอาการ (Revival Clear Gel)
+  if (clean.includes('ลดอาการ') || clean.includes('revivalclear')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'IQ470009' || pName.includes('ลดอาการเจล') || pName.includes('revival clear');
+    });
+    if (p) return p;
+  }
+
+  // สบู่มินิ (MiniHerbalSoap)
+  if (clean.includes('สบู่มินิ') || clean.includes('miniherbal')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'RTC013' || pName.includes('สบู่มินิ');
+    });
+    if (p) return p;
+  }
+
+  // สบู่ลอก (HerbalSoap)
+  if (clean.includes('สบู่ลอก')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'RTC010' || pName.includes('สบู่ลอก');
+    });
+    if (p) return p;
+  }
+
+  // สบู่เดียว (Clarifying Herbal Soap)
+  if (clean.includes('สบู่เดียว')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'IQ470005' || pName.includes('สบู่เดียว');
+    });
+    if (p) return p;
+  }
+
+  // เซรั่มฟื้นฟู / เซรั่มบำรุง (Revival Serum)
+  if (clean.includes('เซรั่มฟื้นฟู') || clean.includes('เซรั่มบำรุง') || clean.includes('revivalserum')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'RTT021' || pName.includes('เซรั่มฟื้นฟู') || pName.includes('revival serum');
+    });
+    if (p) return p;
+  }
+
+  // เซรั่มโกลด์ / โกด์ล (Absolute Serum)
+  if (clean.includes('เซรั่มโกล') || clean.includes('เซรั่มโกด์ล') || clean.includes('absoluteserum')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'RTT007' || pName.includes('เซรั่มโกล') || pName.includes('เซรั่มโกด์ล');
+    });
+    if (p) return p;
+  }
+
+  // เซรั่มวิตซี (VITC)
+  if (clean.includes('วิตซี') || clean.includes('vitc')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'RTT026' || pName.includes('วิตซี');
+    });
+    if (p) return p;
+  }
+
+  // เจลสิว
+  if (clean.includes('เจลสิว')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'IQ470003' || pName.includes('เจลสิว');
+    });
+    if (p) return p;
+  }
+
+  // เจลฝ้า
+  if (clean.includes('เจลฝ้า')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'IQ470002' || pName.includes('เจลฝ้า');
+    });
+    if (p) return p;
+  }
+
+  // 2. ค้นหาจากรหัสสินค้าที่ระบุในข้อความ
+  for (const p of productsList) {
+    const pCode = String(getFuzzyKey(p, ["รหัสสินค้า", "col_1"]) || '').trim().toLowerCase();
+    if (pCode && pCode.length >= 3 && clean.includes(pCode)) {
+      return p;
+    }
+  }
+
+  // 3. ค้นหาจากชื่อสินค้าที่มีความยาวใกล้เคียงหรือซ้อนทับกัน
+  for (const p of productsList) {
+    const pName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim().toLowerCase().replace(/[\s\-_(),.+/]/g, '');
+    if (pName && (clean === pName || (pName.length >= 4 && clean.includes(pName)) || (clean.length >= 4 && pName.includes(clean)))) {
+      return p;
+    }
+  }
+
+  return null;
+}

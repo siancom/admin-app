@@ -3,6 +3,7 @@ import { X, Search, FileText, AlertCircle, Trash2, Clock, CheckCircle, DollarSig
 import { query, where, orderBy, getDocs, doc, writeBatch, getDoc, limit } from 'firebase/firestore';
 import { db, getCol } from '../config/firebase';
 import { getBranchStock, getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
+import { findAutoMatchedProduct } from '../utils/courseUtils';
 import BarcodeScannerModal from './BarcodeScannerModal';
 import { sendOrderLineNotification } from '../utils/lineUtils';
 import ClearMonthlyPosSalesModal from './ClearMonthlyPosSalesModal';
@@ -155,7 +156,9 @@ export default function SalesHistoryModal({
             const qty = Number(item.qty) || 1;
             
             // Restore product stock if it was a physical product
-            const prod = products.find(p => String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim() === cleanClaimName) ||
+            const prod = (item.linkedProductId && products.find(p => p.id === item.linkedProductId)) ||
+              findAutoMatchedProduct(cleanClaimName, products) ||
+              products.find(p => String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim() === cleanClaimName) ||
               products.find(p => {
                 const pName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim();
                 return pName.length >= 3 && (cleanClaimName.includes(pName) || pName.includes(cleanClaimName));

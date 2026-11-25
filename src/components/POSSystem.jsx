@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { AlertTriangle,
   Scissors, Search, Info, ShoppingCart, Package, Layers, User, Trash2, UserPlus,
   Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink,
-  Flame, TrendingUp, Tag, Droplet, Zap, Target, Heart
+  Flame, TrendingUp, Tag, Droplet, Zap, Target, Heart, Edit3, AlertCircle, RefreshCw
 } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, getDocs, query, where, writeBatch, orderBy, limit, collection, arrayUnion } from 'firebase/firestore';
@@ -33,15 +33,149 @@ import BarcodeScannerModal from './BarcodeScannerModal';
 import { MACHINE_TREATMENT_ADDONS, STANDARD_FACIAL_SERVICES } from '../data/machineAddons';
 import { analyzeSkinIssue } from '../utils/skinAiUtils';
 
-// 🌟 รายการมาตรฐานที่ได้ค่ามือพนักงาน (DF บริการ)
+// 🌟 รายการมาตรฐานที่ได้ค่ามือพนักงาน (DF บริการ) - นำพอก/นวดหน้าใสออกตามคำสั่ง
 const HAND_FEE_PRESETS = [
   { id: 'acne_extraction', name: 'กดสิว', fee: 10, icon: Droplet, desc: 'เคลียร์สิวอุดตัน สิวเสี้ยน (10 บ.)' },
-  { id: 'facial_massage', name: 'นวดหน้าใส / ทรีทเม้นท์', fee: 50, icon: Sparkles, desc: 'นวดหน้า ผลักวิตามิน ทรีตเมนต์ (50 บ.)' },
   { id: 'body_spa', name: 'สปา / ขัดตัว', fee: 100, icon: Flame, desc: 'สครับผิว ขัดผิวกาย นวดอโรมา (100 บ.)' },
   { id: 'laser_ipl', name: 'IPL / เลเซอร์', isBillCalculated: true, icon: Zap, desc: 'คำนวณตามบิล (10-20%)' },
-  { id: 'mole_removal', name: 'จี้ไฝ / กระ / ติ่งเนื้อ', isBillCalculated: true, icon: Target, desc: 'คำนวณตามบิล (10-20%)' },
-  { id: 'facial_mask', name: 'พอก / มาร์คหน้า', fee: 30, icon: Heart, desc: 'มาร์คบำรุง พอกฆ่าเชื้อสิว (30 บ.)' }
+  { id: 'mole_removal', name: 'จี้ไฝ / กระ / ติ่งเนื้อ', isBillCalculated: true, icon: Target, desc: 'คำนวณตามบิล (10-20%)' }
 ];
+
+// 🌟 ฟังก์ชันจับคู่ของแถมจากคอร์สกับสินค้าจริงในสต็อกอัตโนมัติ (Auto-match Free Gifts to Inventory Products)
+export function findAutoMatchedProduct(giftName, productsList) {
+  if (!giftName || !Array.isArray(productsList) || productsList.length === 0) return null;
+  const rawName = String(giftName).trim();
+  const clean = rawName.toLowerCase().replace(/[\s\-_(),.+/]/g, '');
+
+  // 1. ตรวจสอบชื่อของแถมยอดนิยม & สินค้าโปรโมชั่น
+  // แป้งรักแร้ขาว / Deo
+  if (clean.includes('รักแร้') || clean.includes('deo') || clean.includes('แป้งรักแร้')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'P801' || pName.includes('รักแร้ขาว') || (pName.includes('deo') && pName.includes('crystal'));
+    });
+    if (p) return p;
+  }
+
+  // ผงพอก (กระปุก RelaxingPowderMask)
+  if (clean.includes('ผงพอก') || clean.includes('relaxingpowder')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'IQ470006' || pName.includes('ผงพอก(กระปุก)') || pName.includes('relaxingpowder');
+    });
+    if (p) return p;
+  }
+
+  // เจลลดอาการ (Revival Clear Gel)
+  if (clean.includes('ลดอาการ') || clean.includes('revivalclear')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'IQ470009' || pName.includes('ลดอาการเจล') || pName.includes('revival clear');
+    });
+    if (p) return p;
+  }
+
+  // สบู่มินิ (MiniHerbalSoap)
+  if (clean.includes('สบู่มินิ') || clean.includes('miniherbal')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'RTC013' || pName.includes('สบู่มินิ');
+    });
+    if (p) return p;
+  }
+
+  // สบู่ลอก (HerbalSoap)
+  if (clean.includes('สบู่ลอก')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'RTC010' || pName.includes('สบู่ลอก');
+    });
+    if (p) return p;
+  }
+
+  // สบู่เดียว (Clarifying Herbal Soap)
+  if (clean.includes('สบู่เดียว')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'IQ470005' || pName.includes('สบู่เดียว');
+    });
+    if (p) return p;
+  }
+
+  // เซรั่มฟื้นฟู / เซรั่มบำรุง (Revival Serum)
+  if (clean.includes('เซรั่มฟื้นฟู') || clean.includes('เซรั่มบำรุง') || clean.includes('revivalserum')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'RTT021' || pName.includes('เซรั่มฟื้นฟู') || pName.includes('revival serum');
+    });
+    if (p) return p;
+  }
+
+  // เซรั่มโกลด์ / โกด์ล (Absolute Serum)
+  if (clean.includes('เซรั่มโกล') || clean.includes('เซรั่มโกด์ล') || clean.includes('absoluteserum')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'RTT007' || pName.includes('เซรั่มโกล') || pName.includes('เซรั่มโกด์ล');
+    });
+    if (p) return p;
+  }
+
+  // เซรั่มวิตซี (VITC)
+  if (clean.includes('วิตซี') || clean.includes('vitc')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'RTT026' || pName.includes('วิตซี');
+    });
+    if (p) return p;
+  }
+
+  // เจลสิว
+  if (clean.includes('เจลสิว')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'IQ470003' || pName.includes('เจลสิว');
+    });
+    if (p) return p;
+  }
+
+  // เจลฝ้า
+  if (clean.includes('เจลฝ้า')) {
+    const p = productsList.find(x => {
+      const pCode = String(getFuzzyKey(x, ["รหัสสินค้า", "col_1"]) || '').toUpperCase();
+      const pName = String(getFuzzyKey(x, ["ชื่อสินค้า", "col_2"]) || '').toLowerCase();
+      return pCode === 'IQ470002' || pName.includes('เจลฝ้า');
+    });
+    if (p) return p;
+  }
+
+  // 2. ค้นหาจากรหัสสินค้าที่ระบุในข้อความ
+  for (const p of productsList) {
+    const pCode = String(getFuzzyKey(p, ["รหัสสินค้า", "col_1"]) || '').trim().toLowerCase();
+    if (pCode && pCode.length >= 3 && clean.includes(pCode)) {
+      return p;
+    }
+  }
+
+  // 3. ค้นหาจากชื่อสินค้าที่มีความยาวใกล้เคียงหรือซ้อนทับกัน
+  for (const p of productsList) {
+    const pName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim().toLowerCase().replace(/[\s\-_(),.+/]/g, '');
+    if (pName && (clean === pName || (pName.length >= 4 && clean.includes(pName)) || (clean.length >= 4 && pName.includes(clean)))) {
+      return p;
+    }
+  }
+
+  return null;
+}
 const CosmeticsIcon = ({ size = 24, className = "" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <rect x="4" y="3" width="4" height="4" rx="1" />
@@ -457,6 +591,10 @@ export default function POSSystem({
   const [hasCheckedSod, setHasCheckedSod] = useState(false);
   const [sodData, setSodData] = useState({ floatCash: '', submittedBy: '' });
   const [isSubmittingSod, setIsSubmittingSod] = useState(false);
+
+  // 🎁 State สำหรับการเลือกสินค้าตัดสต็อกของแถม
+  const [selectingGiftItem, setSelectingGiftItem] = useState(null);
+  const [giftProductSearchQuery, setGiftProductSearchQuery] = useState('');
 
   const COURSE_TABS = [
     { id: 'all', label: 'ทั้งหมด' },
@@ -2548,6 +2686,10 @@ export default function POSSystem({
           const nameStr = `เบิกใช้: ${String(getFuzzyKey(item, ["ชื่อคอส", "col_8"]))} (${String(getFuzzyKey(item, ["เลขที่ใบคอส", "col_2"]))})`;
           return [...prev, { id: item.id, name: nameStr, price: 0, qty: 1, type, maxQty, originalItem: item }];
         } else if (type === 'claim_item') {
+          const autoMatched = item.linkedProduct || findAutoMatchedProduct(item.itemName || item.name, products);
+          const pCode = item.linkedProductCode || (autoMatched ? String(getFuzzyKey(autoMatched, ["รหัสสินค้า", "col_1"]) || '') : '');
+          const pName = item.linkedProductName || (autoMatched ? String(getFuzzyKey(autoMatched, ["ชื่อสินค้า", "col_2"]) || autoMatched.name || '') : '');
+
           return [...prev, {
             id: item.id,
             name: item.name || `[เบิกของแถม] ${item.itemName}`,
@@ -2559,7 +2701,12 @@ export default function POSSystem({
             courseName: item.courseName,
             itemName: item.itemName,
             originalCourse: item.originalCourse,
-            originalItem: item.originalItem || item.originalCourse
+            originalItem: item.originalItem || item.originalCourse,
+            linkedProductId: item.linkedProductId || autoMatched?.id || null,
+            linkedProduct: autoMatched || null,
+            linkedProductCode: pCode,
+            linkedProductName: pName,
+            skipStockDeduction: item.skipStockDeduction || false
           }];
         }
         return prev;
@@ -3648,24 +3795,42 @@ export default function POSSystem({
         else if (item.type === 'claim_item') {
           // Record the claim update locally to prevent overwriting in batch
           if (!courseClaimUpdates[item.courseId]) {
-             courseClaimUpdates[item.courseId] = [...(item.originalCourse.claimedItems || [])];
+             courseClaimUpdates[item.courseId] = [...(item.originalCourse?.claimedItems || [])];
           }
           for (let i = 0; i < item.qty; i++) {
-             courseClaimUpdates[item.courseId].push(item.itemName);
+             courseClaimUpdates[item.courseId].push(item.itemName || item.name);
           }
 
-          // Try to deduct stock if it's a product (match exact name first, using col_2 NOT col_4 brand)
-          const cleanClaimName = String(item.itemName || '').trim();
-          const product = products.find(p => String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim() === cleanClaimName) ||
-            products.find(p => {
-              const pName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim();
-              return pName.length >= 3 && cleanClaimName.includes(pName);
-            });
-          if (product) {
-             const stateEntry = getWorkingStockObj(product);
-             const myStock = parseQty(stateEntry.stock_by_branch[targetPosBranch] || 0);
-             stateEntry.stock_by_branch[targetPosBranch] = Math.max(0, myStock - item.qty);
+          // Try to deduct stock if it's a physical product
+          let product = null;
+          if (!item.skipStockDeduction) {
+            if (item.linkedProductId) {
+              product = products.find(p => p.id === item.linkedProductId);
+            }
+            if (!product && item.linkedProduct) {
+              product = item.linkedProduct;
+            }
+            if (!product) {
+              product = findAutoMatchedProduct(item.itemName || item.name, products);
+            }
+            if (!product) {
+              const cleanClaimName = String(item.itemName || item.name || '').trim();
+              product = products.find(p => String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim() === cleanClaimName) ||
+                products.find(p => {
+                  const pName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '').trim();
+                  return pName.length >= 3 && cleanClaimName.includes(pName);
+                });
+            }
+
+            if (product) {
+               const stateEntry = getWorkingStockObj(product);
+               const myStock = parseQty(stateEntry.stock_by_branch[targetPosBranch] || 0);
+               stateEntry.stock_by_branch[targetPosBranch] = Math.max(0, myStock - item.qty);
+            }
           }
+
+          const deductedProdCode = product ? String(getFuzzyKey(product, ["รหัสสินค้า", "col_1"]) || '') : (item.linkedProductCode || '');
+          const deductedProdName = product ? String(getFuzzyKey(product, ["ชื่อสินค้า", "col_2"]) || product.name || '') : (item.linkedProductName || '');
 
           // Add History
           const historyRef = doc(getCol('histories'));
@@ -3682,8 +3847,12 @@ export default function POSSystem({
             "หมายเลขคำสั่งซื้อ": orderNo,
             "ประเภท": "เบิกสินค้าจากคอร์ส",
             "สถานะ": "เรียบร้อย",
-            "รายการ": item.itemName,
-            "สินค้า": item.itemName,
+            "รายการ": item.itemName || item.name,
+            "สินค้า": deductedProdName || item.itemName || item.name,
+            "รหัสสินค้า": deductedProdCode,
+            "linkedProductId": product?.id || item.linkedProductId || '',
+            "linkedProductName": deductedProdName,
+            "linkedProductCode": deductedProdCode,
             "จำนวน": String(item.qty),
             "สาขา": String(globalBranch || "สำนักงานใหญ่"),
             "courseId": item.courseId || '',
@@ -3902,7 +4071,19 @@ export default function POSSystem({
         totalCost: String(totalCost),
         courseCost: String(courseCost),
         productCost: String(productCost),
-        cartItems: effectiveCart.map(i => ({ id: i.id, name: i.name, qty: i.qty, price: i.price, type: i.type }))
+        cartItems: effectiveCart.map(i => ({
+          id: i.id,
+          name: i.name,
+          qty: i.qty,
+          price: i.price,
+          type: i.type,
+          itemName: i.itemName || null,
+          courseId: i.courseId || null,
+          linkedProductId: i.linkedProductId || null,
+          linkedProductCode: i.linkedProductCode || '',
+          linkedProductName: i.linkedProductName || '',
+          skipStockDeduction: Boolean(i.skipStockDeduction)
+        }))
       });
 
       if (activeCustomerAppOrderIds.length > 0) {
@@ -7332,17 +7513,97 @@ export default function POSSystem({
 
               {/* Claimed Items Summary (For claim_item) */}
               {hasCourseClaim && (
-                <div className="p-3.5 bg-pink-50 border border-pink-200 rounded-2xl">
-                  <div className="text-xs font-bold text-pink-700 mb-1.5 flex items-center gap-1.5">
-                    <Package size={15} /> รายการสินค้า / ของแถมที่ขอเบิกจากคอร์ส:
+                <div className="p-4 bg-gradient-to-br from-pink-50/90 via-rose-50/60 to-pink-50/90 border border-pink-200 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-black text-pink-800 flex items-center gap-1.5">
+                      <Package size={16} className="text-pink-600" /> รายการสินค้า / ของแถมที่ขอเบิกจากคอร์ส:
+                    </div>
+                    <span className="text-[10px] text-pink-700 font-bold bg-white/90 px-2 py-0.5 rounded-full border border-pink-200 shadow-xs">
+                      แตะเพื่อเลือกหรือเปลี่ยนสินค้าตัดสต็อก
+                    </span>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {cart.filter(i => i.type === 'claim_item').map(ci => (
-                      <span key={ci.id} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-white text-pink-800 border border-pink-200 shadow-sm">
-                        <span>🎁 {ci.itemName || ci.name}</span>
-                        <span className="text-pink-600 font-black">({ci.qty} ชิ้น)</span>
-                      </span>
-                    ))}
+                  <div className="space-y-2">
+                    {cart.filter(i => i.type === 'claim_item').map(ci => {
+                      const currentBranch = normalizeBranchName(globalBranch || 'เฉวง') || 'เฉวง';
+                      const linkedProd = (ci.linkedProductId && products.find(p => p.id === ci.linkedProductId)) ||
+                        ci.linkedProduct ||
+                        findAutoMatchedProduct(ci.itemName || ci.name, products);
+                      const linkedStock = linkedProd ? getBranchStock(linkedProd, currentBranch) : null;
+                      const linkedCode = linkedProd ? String(getFuzzyKey(linkedProd, ["รหัสสินค้า", "col_1"]) || '') : '';
+                      const linkedName = linkedProd ? String(getFuzzyKey(linkedProd, ["ชื่อสินค้า", "col_2"]) || linkedProd.name || '') : '';
+
+                      return (
+                        <div key={ci.id} className="p-3 bg-white rounded-xl border border-pink-200/90 shadow-xs flex flex-col gap-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-lg shrink-0">🎁</span>
+                              <div className="min-w-0">
+                                <span className="text-xs sm:text-sm font-black text-slate-800 truncate block">
+                                  {ci.itemName || ci.name}
+                                </span>
+                                <span className="text-[11px] text-pink-600 font-bold">
+                                  เบิก {ci.qty} ชิ้น {ci.courseName ? `• จากคอร์ส: ${ci.courseName}` : ''}
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectingGiftItem(ci);
+                                setGiftProductSearchQuery('');
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-pink-50 hover:bg-pink-100 text-pink-700 border border-pink-300 flex items-center gap-1 transition-all active:scale-95 shrink-0 shadow-xs"
+                            >
+                              <Edit size={12} />
+                              <span>{linkedProd ? 'เปลี่ยนสินค้าตัดสต็อก' : 'เลือกสินค้าตัดสต็อก'}</span>
+                            </button>
+                          </div>
+
+                          {/* Linked Product & Stock Info */}
+                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs flex-wrap gap-1.5">
+                            {ci.skipStockDeduction ? (
+                              <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                                🔘 รายการนี้ไม่ตัดสต็อกสินค้า (เป็นสิทธิ์พิเศษ/บริการ)
+                              </span>
+                            ) : linkedProd ? (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                                  <Package size={13} className="text-pink-500" /> ตัดสต็อก:
+                                </span>
+                                <span className="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md text-[11px] border border-slate-200">
+                                  {linkedCode ? `[${linkedCode}] ` : ''}{linkedName}
+                                </span>
+                                {linkedStock !== null && (
+                                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                                    linkedStock >= ci.qty 
+                                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
+                                      : 'bg-rose-100 text-rose-800 border border-rose-200'
+                                  }`}>
+                                    สต็อกสาขา{currentBranch}: {linkedStock} ชิ้น {linkedStock < ci.qty && '(สต็อกไม่พอ)'}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between w-full text-[11px] text-amber-800 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-200">
+                                <span className="flex items-center gap-1 font-bold">
+                                  <AlertCircle size={13} className="text-amber-600" /> ยังไม่ได้เลือกสินค้าตัดสต็อก
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectingGiftItem(ci);
+                                    setGiftProductSearchQuery('');
+                                  }}
+                                  className="font-black text-amber-900 underline hover:text-amber-700"
+                                >
+                                  แตะเลือกสินค้าทันที
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -10948,10 +11209,29 @@ export default function POSSystem({
 
                              const claimedCount = Math.max(0, rawClaimedCount - cancelledClaimCount);
                              const isClaimed = claimedCount >= item.qty;
+                             const autoMatched = findAutoMatchedProduct(item.name, products);
+                             const pCode = autoMatched ? String(getFuzzyKey(autoMatched, ["รหัสสินค้า", "col_1"]) || '') : '';
+                             const pName = autoMatched ? String(getFuzzyKey(autoMatched, ["ชื่อสินค้า", "col_2"]) || autoMatched.name || '') : '';
+                             const currentBranch = normalizeBranchName(globalBranch || 'เฉวง') || 'เฉวง';
+                             const bStock = autoMatched ? getBranchStock(autoMatched, currentBranch) : null;
+
                              return (
-                                <div key={idx} className={`flex justify-between items-center p-3 rounded-lg border ${isClaimed ? 'bg-slate-50 border-slate-200' : 'bg-white border-pink-100 shadow-sm'}`}>
-                                   <div className={`text-sm ${isClaimed ? 'text-slate-400 line-through' : 'font-semibold text-slate-700'}`}>
-                                      {item.name} <span className="text-xs ml-1 text-slate-400 font-normal">(เหลือ {item.qty - claimedCount}/{item.qty})</span>
+                                <div key={idx} className={`flex justify-between items-center p-3 rounded-lg border gap-2 ${isClaimed ? 'bg-slate-50 border-slate-200' : 'bg-white border-pink-100 shadow-sm'}`}>
+                                   <div className="min-w-0 flex-1">
+                                      <div className={`text-sm ${isClaimed ? 'text-slate-400 line-through' : 'font-semibold text-slate-700'}`}>
+                                         {item.name} <span className="text-xs ml-1 text-slate-400 font-normal">(เหลือ {item.qty - claimedCount}/{item.qty})</span>
+                                      </div>
+                                      {autoMatched && !isClaimed && (
+                                         <div className="text-[11px] text-emerald-700 font-medium flex items-center gap-1 mt-0.5 flex-wrap">
+                                            <Package size={11} className="text-emerald-500 shrink-0" />
+                                            <span>ตัดสต็อก: {pCode ? `[${pCode}] ` : ''}{pName}</span>
+                                            {bStock !== null && (
+                                               <span className={`font-bold px-1.5 py-0.2 rounded text-[10px] ${bStock > 0 ? 'text-slate-600 bg-slate-100' : 'text-rose-600 bg-rose-50'}`}>
+                                                  • สาขา{currentBranch}: {bStock} ชิ้น
+                                               </span>
+                                            )}
+                                         </div>
+                                      )}
                                    </div>
                                    <button 
                                       onClick={() => {
@@ -10971,14 +11251,18 @@ export default function POSSystem({
                                             price: 0,
                                             qty: 1,
                                             maxQty: item.qty - claimedCount,
-                                            itemName: item.name
+                                            itemName: item.name,
+                                            linkedProductId: autoMatched?.id || null,
+                                            linkedProduct: autoMatched || null,
+                                            linkedProductCode: pCode,
+                                            linkedProductName: pName
                                          }, 'claim_item');
                                          setCheckoutStep(1);
                                          setShowPaymentModal(true);
                                          setSelectedCourseForUsage(null);
                                       }}
                                       disabled={isClaimed}
-                                      className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${isClaimed ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-pink-100 text-pink-600 hover:bg-pink-200 hover:text-pink-700'}`}
+                                      className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 shrink-0 ${isClaimed ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-pink-100 text-pink-600 hover:bg-pink-200 hover:text-pink-700'}`}
                                    >
                                       {isClaimed ? <><CheckCircle size={14}/> รับครบแล้ว</> : 'เบิก 1 ชิ้น'}
                                    </button>
@@ -10995,7 +11279,210 @@ export default function POSSystem({
       )}
     </div>
 
-    {/* Booking Check-In Modal */}
+    {/* 🎁 Modal เลือกสินค้าตัดสต็อกสำหรับของแถม (Gift Product Selector Modal) */}
+    {selectingGiftItem && (
+      <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+        <div className="bg-white rounded-3xl p-5 sm:p-6 w-full max-w-xl shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+          {/* Header */}
+          <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-pink-100 text-pink-600 flex items-center justify-center shrink-0">
+                <Package size={22} />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-slate-800">
+                  เลือกสินค้าตัดสต็อกของแถม
+                </h3>
+                <p className="text-xs text-slate-500 font-medium flex items-center gap-2 mt-0.5">
+                  <span>🎁 ของแถม: <strong className="text-pink-600">{selectingGiftItem.itemName || selectingGiftItem.name}</strong></span>
+                  <span>•</span>
+                  <span>สาขา: <strong className="text-indigo-600">{normalizeBranchName(globalBranch || 'เฉวง') || 'เฉวง'}</strong></span>
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectingGiftItem(null)}
+              className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Search Box */}
+          <div className="my-3 relative">
+            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              autoFocus
+              value={giftProductSearchQuery}
+              onChange={(e) => setGiftProductSearchQuery(e.target.value)}
+              placeholder="ค้นหาชื่อสินค้า หรือรหัสสินค้า (เช่น P801, แป้ง, ผงพอก)..."
+              className="w-full pl-9 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white"
+            />
+            {giftProductSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setGiftProductSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Option: Do not deduct stock */}
+          <div className="mb-2">
+            <button
+              type="button"
+              onClick={() => {
+                setCart(prev => prev.map(ci => {
+                  if (ci.id === selectingGiftItem.id) {
+                    return {
+                      ...ci,
+                      linkedProductId: null,
+                      linkedProduct: null,
+                      linkedProductCode: '',
+                      linkedProductName: '',
+                      skipStockDeduction: true
+                    };
+                  }
+                  return ci;
+                }));
+                showToast('ตั้งค่าไม่ตัดสต็อกสินค้าสำหรับรายการนี้แล้ว', 'info');
+                setSelectingGiftItem(null);
+              }}
+              className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center justify-between transition-colors border border-dashed border-slate-300"
+            >
+              <span className="flex items-center gap-1.5">
+                <span>🔘</span> ไม่ต้องการตัดสต็อก (เป็นบริการพิเศษ / บัตร VIP / ไม่ใช่วัตถุดิบจริง)
+              </span>
+              <span className="text-[10px] text-slate-500 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                เลือก
+              </span>
+            </button>
+          </div>
+
+          {/* Product List */}
+          <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px]">
+            {(() => {
+              const currentBranch = normalizeBranchName(globalBranch || 'เฉวง') || 'เฉวง';
+              const queryStr = giftProductSearchQuery.trim().toLowerCase();
+              const autoBest = findAutoMatchedProduct(selectingGiftItem.itemName || selectingGiftItem.name, products);
+
+              // Filter physical products (exclude courses/services)
+              const physicalProducts = products.filter(p => !isServiceOrCourseProduct(p));
+
+              // Filter by query
+              let filtered = physicalProducts.filter(p => {
+                if (!queryStr) return true;
+                const pCode = String(getFuzzyKey(p, ["รหัสสินค้า", "col_1"]) || '').toLowerCase();
+                const pName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || p.name || '').toLowerCase();
+                return pCode.includes(queryStr) || pName.includes(queryStr);
+              });
+
+              // Sort: Put best matching product and products with stock in current branch first
+              filtered.sort((a, b) => {
+                const aIsBest = autoBest && a.id === autoBest.id ? 1 : 0;
+                const bIsBest = autoBest && b.id === autoBest.id ? 1 : 0;
+                if (aIsBest !== bIsBest) return bIsBest - aIsBest;
+
+                const aStock = getBranchStock(a, currentBranch);
+                const bStock = getBranchStock(b, currentBranch);
+                if ((aStock > 0) !== (bStock > 0)) return bStock > 0 ? 1 : -1;
+                return bStock - aStock;
+              });
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="text-center py-8 text-slate-400 text-xs">
+                    ไม่พบสินค้าที่ตรงกับคำค้นหา
+                  </div>
+                );
+              }
+
+              return filtered.map(prod => {
+                const pCode = String(getFuzzyKey(prod, ["รหัสสินค้า", "col_1"]) || '');
+                const pName = String(getFuzzyKey(prod, ["ชื่อสินค้า", "col_2"]) || prod.name || '');
+                const price = parseNumber(getFuzzyKey(prod, ["ราคาขาย", "ราคา", "col_3"]));
+                const bStock = getBranchStock(prod, currentBranch);
+                const isSelected = selectingGiftItem.linkedProductId === prod.id || (!selectingGiftItem.linkedProductId && autoBest?.id === prod.id && !selectingGiftItem.skipStockDeduction);
+                const isBestMatch = autoBest?.id === prod.id;
+
+                return (
+                  <div
+                    key={prod.id}
+                    onClick={() => {
+                      setCart(prev => prev.map(ci => {
+                        if (ci.id === selectingGiftItem.id) {
+                          return {
+                            ...ci,
+                            linkedProductId: prod.id,
+                            linkedProduct: prod,
+                            linkedProductCode: pCode,
+                            linkedProductName: pName,
+                            skipStockDeduction: false
+                          };
+                        }
+                        return ci;
+                      }));
+                      showToast(`เลือกตัดสต็อก [${pCode}] ${pName}`, 'success');
+                      setSelectingGiftItem(null);
+                    }}
+                    className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 active:scale-98 ${
+                      isSelected
+                        ? 'bg-pink-50/70 border-pink-500 ring-2 ring-pink-200'
+                        : 'bg-white border-slate-200 hover:border-pink-300 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {pCode && (
+                          <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                            {pCode}
+                          </span>
+                        )}
+                        <span className="text-xs sm:text-sm font-bold text-slate-800">
+                          {pName}
+                        </span>
+                        {isBestMatch && (
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 border border-pink-200 flex items-center gap-0.5">
+                            <Sparkles size={10} /> แนะนำตรงกับของแถม
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-3">
+                        <span>ราคา: ฿{price.toLocaleString()}</span>
+                        <span className={`font-bold px-2 py-0.5 rounded-md text-[10px] ${
+                          bStock >= selectingGiftItem.qty
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : bStock > 0
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                            : 'bg-rose-50 text-rose-700 border border-rose-200'
+                        }`}>
+                          สต็อกสาขา{currentBranch}: {bStock} ชิ้น {bStock < selectingGiftItem.qty && '(ไม่พอ)'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-all ${
+                        isSelected
+                          ? 'bg-pink-600 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-pink-100 hover:text-pink-700'
+                      }`}
+                    >
+                      {isSelected ? 'เลือกแล้ว ✓' : 'เลือกสินค้านี้'}
+                    </button>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </div>
+      </div>
+    )}
     {pendingCheckInBooking && (
       <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
         <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col items-center animate-in zoom-in-95 duration-200">
