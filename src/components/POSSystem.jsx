@@ -2479,6 +2479,7 @@ export default function POSSystem({
           );
           let itemsDesc = String(getFuzzyKey(item, ["รายการที่ได้รับ", "col_11"]) || '');
           let badgeStr = '';
+          let credit = parseNumber(getFuzzyKey(item, ["เครดิตที่ได้รับ", "เครดิต", "col_8", "credit"])) || 0;
 
           if (promoOption) {
             price = parseNumber(promoOption.price) || price;
@@ -2486,6 +2487,10 @@ export default function POSSystem({
             sessions = String(promoOption.sessions || sessions || '1');
             itemsDesc = promoOption.items || itemsDesc;
             badgeStr = promoOption.badge || '';
+            const optCredit = parseNumber(promoOption.credit || promoOption.เครดิตที่ได้รับ || promoOption.วงเงินเครดิต || getFuzzyKey(promoOption, ["เครดิต", "credit", "วงเงิน"]));
+            if (optCredit > 0) {
+              credit = optCredit;
+            }
           }
 
           return [...prev, { 
@@ -2501,7 +2506,9 @@ export default function POSSystem({
             promoOption: promoOption || null,
             sessions: sessions,
             items: itemsDesc,
-            badge: badgeStr
+            badge: badgeStr,
+            credit: credit,
+            creditReceived: credit
           }];
         } else if (type === 'debt_payment') {
           const pendingAmt = item.computedPendingAmount || 0;
@@ -3686,7 +3693,12 @@ export default function POSSystem({
             );
             let creditReceived = String(
               item.credit || 
-              getFuzzyKey(item.originalItem, ["เครดิตที่ได้รับ", "เครดิตที่ได้", "ยอดเครดิต", "เครดิต", "วงเงินคอร์ส", "col_14"]) || 
+              item.creditReceived ||
+              item.promoOption?.credit ||
+              item.promoOption?.เครดิตที่ได้รับ ||
+              item.promoOption?.วงเงินเครดิต ||
+              getFuzzyKey(item.promoOption, ["เครดิต", "credit", "วงเงิน"]) ||
+              getFuzzyKey(item.originalItem, ["เครดิตที่ได้รับ", "เครดิตที่ได้", "ยอดเครดิต", "เครดิต", "วงเงินคอร์ส", "col_14", "col_8"]) || 
               "0"
             );
             if (parseNumber(creditReceived) === 0 && String(item.name).match(/(เติมเงิน|เครดิต|วงเงิน|ฝากเงิน|voucher)/i)) {
@@ -5600,12 +5612,31 @@ export default function POSSystem({
                       let letter = code.replace('F-', '').replace(/\d+/g, '');
                       if (letter.length > 3) letter = letter.substring(0, 3);
                       
-                      const credit = Number(getFuzzyKey(c, ["เครดิตที่ได้รับ", "เครดิต", "col_8"]) || 0);
+                      const credit = Number(getFuzzyKey(c, ["เครดิตที่ได้รับ", "เครดิต", "col_8", "credit"]) || 0);
                       const subItems = String(getFuzzyKey(c, ["รายการที่ได้รับ", "col_11"]) || '').trim();
                       const courseName = String(getFuzzyKey(c, ["ชื่อคอส", "col_4"]));
                       
                       const promoOptions = Array.isArray(c.promoOptions) ? c.promoOptions.filter(o => o && (o.name || o.price)) : [];
                       const hasPromoOptions = promoOptions.length > 0;
+
+                      let creditDisplayStr = '';
+                      if (hasPromoOptions) {
+                        const validCredits = promoOptions
+                          .map(o => Number(o.credit || o.เครดิตที่ได้รับ || o.วงเงินเครดิต || getFuzzyKey(o, ["เครดิต", "credit", "วงเงิน"]) || 0))
+                          .filter(cr => cr > 0);
+                        if (validCredits.length > 0) {
+                          const minC = Math.min(...validCredits);
+                          const maxC = Math.max(...validCredits);
+                          if (minC !== maxC) {
+                            creditDisplayStr = `+เครดิต ฿${minC.toLocaleString()} - ฿${maxC.toLocaleString()}`;
+                          } else {
+                            creditDisplayStr = `+เครดิต ฿${minC.toLocaleString()}`;
+                          }
+                        }
+                      }
+                      if (!creditDisplayStr && credit > 0) {
+                        creditDisplayStr = `+เครดิต ฿${credit.toLocaleString()}`;
+                      }
 
                       let sessionCount = null;
                       const match = courseName.match(/\(?(\d+)\s*ครั้ง\)?/);
@@ -5725,9 +5756,9 @@ export default function POSSystem({
                             <span className={`text-sm sm:text-base font-black ${priceStyle} whitespace-nowrap leading-none`}>
                               {displayPriceStr}
                             </span>
-                            {credit > 0 && (
+                            {creditDisplayStr && (
                               <span className="text-[9px] text-emerald-600 font-bold whitespace-nowrap mt-0.5">
-                                +เครดิต {credit.toLocaleString()}
+                                {creditDisplayStr}
                               </span>
                             )}
                           </div>
@@ -6604,6 +6635,11 @@ export default function POSSystem({
                         {item.type === 'claim_item' && <span className="inline-block px-1.5 py-[1px] rounded text-[9px] bg-pink-100 text-pink-700 font-bold shrink-0">เบิกของแถม</span>}
                         <span className="truncate" title={item.name}>{item.name}</span>
                       </div>
+                      {item.type === 'course' && (Number(item.credit) > 0 || Number(item.creditReceived) > 0) && (
+                        <div className="text-[10px] text-emerald-600 font-bold mt-[2px] flex items-center gap-1">
+                          💳 วงเงินเครดิต ฿{Number(item.credit || item.creditReceived).toLocaleString()}
+                        </div>
+                      )}
                       {item.type === 'product' && (
                         <div className="text-[10px] text-slate-400 mt-[2px] truncate" title={String(getFuzzyKey(item.originalItem, ["หมวดสินค้า", "col_4"]) || 'ทั่วไป')}>
                           แบรนด์/หมวดหมู่: <span className="font-medium text-slate-500">{String(getFuzzyKey(item.originalItem, ["หมวดสินค้า", "col_4"]) || 'ทั่วไป')}</span>
@@ -10453,9 +10489,9 @@ export default function POSSystem({
                           <div className="inline-block text-[11px] font-bold text-teal-700 bg-teal-50 border border-teal-200/60 px-2 py-0.5 rounded-md">
                             ✨ จำนวน {optSessions} ครั้ง
                           </div>
-                          {opt.credit && (
-                            <div className="inline-block text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200/60 px-2 py-0.5 rounded-md">
-                              🎁 วงเงินผลิตภัณฑ์ ฿{Number(opt.credit).toLocaleString()}
+                          {opt.credit && Number(opt.credit) > 0 && (
+                            <div className="inline-block text-[11px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md shadow-2xs">
+                              💳 วงเงินเครดิต ฿{Number(opt.credit).toLocaleString()} (ใช้เบิกผลิตภัณฑ์)
                             </div>
                           )}
                           {opt.freeMemberCard && (
