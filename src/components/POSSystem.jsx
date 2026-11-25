@@ -91,6 +91,22 @@ export const isServiceOrCourseProduct = (p) => {
   return false;
 };
 
+export const getProductCategory = (p) => {
+  if (!p) return 'ทั่วไป';
+  const raw = String(
+    getFuzzyKey(p, ["หมวดสินค้า", "หมวดหมู่", "หมวด", "category", "ประเภท", "col_4"]) || ''
+  ).trim();
+  if (!raw) return 'ทั่วไป';
+  const lower = raw.toLowerCase();
+  if (lower === 'iris' || lower.includes('ไอริส')) return 'Iris';
+  if (lower === 'jeness' || lower.includes('จีนีส') || lower.includes('เจนเนส')) return 'Jeness';
+  if (lower === 'purefresh' || lower.includes('เพียวเฟรช')) return 'PureFresh';
+  if (lower === 'ticket' || lower.includes('บัตรสมาชิก')) return 'บัตรสมาชิก / สิทธิ์';
+  if (lower === 'อุปกรณ์อื่นๆ' || lower.includes('อุปกรณ์')) return 'อุปกรณ์อื่นๆ';
+  if (lower === 'ลงเครื่อง' || lower.includes('เครื่อง')) return 'ลงเครื่อง';
+  return raw;
+};
+
 export const hasPosProductImage = (p, wooImagesMap) => {
   if (!p) return false;
   const productName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || p.name || '').trim();
@@ -322,7 +338,8 @@ export default function POSSystem({
   const quickEodActiveRef = useRef(!!autoOpenEod);
   const quickEodSubmittedRef = useRef(false);
   const [activeTab, setActiveTab] = useState('products'); // 'products' | 'courses' | 'my_courses'
-  const [productSortMode, setProductSortMode] = useState('bestseller'); // 'bestseller' | 'stock' | 'alpha'
+  const [productSortMode, setProductSortMode] = useState('bestseller'); // 'bestseller' | 'category' | 'stock' | 'alpha'
+  const [selectedProductCategory, setSelectedProductCategory] = useState('all');
   const [singleCourseTab, setSingleCourseTab] = useState('machine');
   const [multiCourseTab, setMultiCourseTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -1535,7 +1552,14 @@ export default function POSSystem({
       // กรองบริการ/คอร์ส/ทรีทเม้นท์ ที่หลุดเข้ามาในตารางสินค้า (เช่น ขัดหน้าขาว 1 ครั้ง)
       if (!isStockMode && !isRequisitionMode && isServiceOrCourseProduct(p)) return false;
       const searchStr = `${String(getFuzzyKey(p, ["รหัส", "col_1"]) || '')} ${name}`.toLowerCase();
-      return searchTerm === '' || searchStr.includes(searchTerm.toLowerCase());
+      if (searchTerm !== '' && !searchStr.includes(searchTerm.toLowerCase())) return false;
+      
+      // กรองตามหมวดหมู่สินค้า เมื่อเลือกหมวดหมู่เจาะจงในโหมดตามประเภท
+      if (productSortMode === 'category' && selectedProductCategory !== 'all') {
+        const cat = getProductCategory(p);
+        if (cat !== selectedProductCategory) return false;
+      }
+      return true;
     });
 
     return filtered.sort((a, b) => {
@@ -1543,6 +1567,19 @@ export default function POSSystem({
       const nameB = String(getFuzzyKey(b, ["ชื่อสินค้า", "col_2"]) || '');
 
       if (productSortMode === 'alpha') {
+        return nameA.localeCompare(nameB, 'th');
+      }
+
+      if (productSortMode === 'category') {
+        const catA = getProductCategory(a);
+        const catB = getProductCategory(b);
+        if (catA !== catB) {
+          const catOrder = { 'Iris': 1, 'Jeness': 2, 'PureFresh': 3, 'ลงเครื่อง': 4, 'อุปกรณ์อื่นๆ': 5, 'บัตรสมาชิก / สิทธิ์': 6 };
+          const pA = catOrder[catA] || 50;
+          const pB = catOrder[catB] || 50;
+          if (pA !== pB) return pA - pB;
+          return catA.localeCompare(catB, 'th');
+        }
         return nameA.localeCompare(nameB, 'th');
       }
 
@@ -1577,7 +1614,53 @@ export default function POSSystem({
 
       return nameA.localeCompare(nameB, 'th');
     });
-  }, [products, searchTerm, isStockMode, isRequisitionMode, productSortMode, productSalesMap, globalBranch, wooImagesMap]);
+  }, [products, searchTerm, isStockMode, isRequisitionMode, productSortMode, selectedProductCategory, productSalesMap, globalBranch, wooImagesMap]);
+
+  // หมวดหมู่สินค้าและจำนวนสำหรับแถบตัวกรองด่วน
+  const productCategoryTabs = useMemo(() => {
+    const counts = { all: 0 };
+    products.forEach(p => {
+      const name = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2", "ชื่อ", "name"]) || '').trim();
+      const status = String(getFuzzyKey(p, ["สถานะ", "status", "การใช้งาน", "state"]) || '').trim();
+      if (!name) return;
+      if (status === 'ร่าง' || status === 'draft' || status === 'ปิดใช้งาน' || status === 'ปิด' || status === 'ไม่แสดง' || status === 'ซ่อน') return;
+      if (p.isStoreUseOnly && !isStockMode && !isRequisitionMode) return;
+      if (!isStockMode && !isRequisitionMode && isServiceOrCourseProduct(p)) return;
+      const searchStr = `${String(getFuzzyKey(p, ["รหัส", "col_1"]) || '')} ${name}`.toLowerCase();
+      if (searchTerm !== '' && !searchStr.includes(searchTerm.toLowerCase())) return;
+
+      counts.all++;
+      const cat = getProductCategory(p);
+      counts[cat] = (counts[cat] || 0) + 1;
+    });
+
+    const categoryOrder = ['Iris', 'Jeness', 'PureFresh', 'ลงเครื่อง', 'อุปกรณ์อื่นๆ', 'บัตรสมาชิก / สิทธิ์'];
+    const cats = Object.keys(counts).filter(k => k !== 'all');
+    cats.sort((a, b) => {
+      const idxA = categoryOrder.indexOf(a);
+      const idxB = categoryOrder.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b, 'th');
+    });
+
+    return [
+      { id: 'all', label: 'ทั้งหมด', count: counts.all },
+      ...cats.map(c => ({ id: c, label: c, count: counts[c] || 0 }))
+    ];
+  }, [products, searchTerm, isStockMode, isRequisitionMode]);
+
+  // จัดกลุ่มสินค้าตามหมวดหมู่เพื่อแสดงหัวข้อแยกในโหมด 'category'
+  const groupedProductsByCategory = useMemo(() => {
+    const groups = new Map();
+    filteredProducts.forEach(p => {
+      const cat = getProductCategory(p);
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat).push(p);
+    });
+    return Array.from(groups.entries());
+  }, [filteredProducts]);
 
   const getCourseSortTimestamp = (item) => {
     if (item.updatedAt) {
@@ -5122,159 +5205,250 @@ export default function POSSystem({
             </div>
           )}
           {activeTab === 'products' && (
-            <div className="flex items-center justify-between gap-2 mb-3 px-1 flex-wrap">
-              <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-200/70 p-1 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setProductSortMode('bestseller')}
-                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all ${
-                    productSortMode === 'bestseller'
-                      ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-                  }`}
-                >
-                  <Flame size={14} className={productSortMode === 'bestseller' ? 'text-white' : 'text-amber-500'} />
-                  <span>สินค้าขายดี</span>
-                </button>
+            <div className="space-y-2 mb-3 px-1">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-200/70 p-1 rounded-xl overflow-x-auto no-scrollbar max-w-full">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProductSortMode('bestseller');
+                      setSelectedProductCategory('all');
+                    }}
+                    className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                      productSortMode === 'bestseller'
+                        ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                    }`}
+                  >
+                    <Flame size={14} className={productSortMode === 'bestseller' ? 'text-white' : 'text-amber-500'} />
+                    <span><span className="hidden sm:inline">สินค้า</span>ขายดี</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setProductSortMode('stock')}
-                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all ${
-                    productSortMode === 'stock'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-                  }`}
-                >
-                  <Package size={14} className={productSortMode === 'stock' ? 'text-white' : 'text-emerald-600'} />
-                  <span>มีสต็อกพร้อมขาย</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setProductSortMode('category')}
+                    className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                      productSortMode === 'category'
+                        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                    }`}
+                    title="จัดเรียงตามหมวดหมู่ / ประเภทสินค้า"
+                  >
+                    <Layers size={14} className={productSortMode === 'category' ? 'text-white' : 'text-purple-600'} />
+                    <span><span className="hidden sm:inline">ตาม</span>ประเภท</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setProductSortMode('alpha')}
-                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all ${
-                    productSortMode === 'alpha'
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-                  }`}
-                >
-                  <span>🔤 ชื่อ ก-ฮ</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProductSortMode('stock');
+                      setSelectedProductCategory('all');
+                    }}
+                    className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                      productSortMode === 'stock'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                    }`}
+                  >
+                    <Package size={14} className={productSortMode === 'stock' ? 'text-white' : 'text-emerald-600'} />
+                    <span><span className="hidden sm:inline">มีสต็อก</span>พร้อมขาย</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProductSortMode('alpha');
+                      setSelectedProductCategory('all');
+                    }}
+                    className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                      productSortMode === 'alpha'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                    }`}
+                  >
+                    <span>🔤 <span className="hidden sm:inline">ชื่อ </span>ก-ฮ</span>
+                  </button>
+                </div>
+
+                <div className="text-[11px] sm:text-xs text-slate-500 font-medium">
+                  พบ {filteredProducts.length} รายการ
+                </div>
               </div>
 
-              <div className="text-[11px] sm:text-xs text-slate-500 font-medium">
-                พบ {filteredProducts.length} รายการ
-              </div>
+              {/* Category Quick Filter Pills when in Category Mode */}
+              {productSortMode === 'category' && (
+                <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto pb-1 no-scrollbar animate-in fade-in slide-in-from-top-1 duration-150">
+                  {productCategoryTabs.map(cat => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setSelectedProductCategory(cat.id)}
+                      className={`px-2.5 sm:px-3 py-1 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                        selectedProductCategory === cat.id
+                          ? 'bg-purple-600 text-white shadow-xs'
+                          : 'bg-white hover:bg-purple-50 text-slate-600 hover:text-purple-700 border border-slate-200'
+                      }`}
+                    >
+                      <span>{cat.label}</span>
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                        selectedProductCategory === cat.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {cat.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <div className="grid grid-cols-4 md:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-4">
             {activeTab === 'products' ? (
-              filteredProducts.map(p => {
-                const productName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '');
-                const productCode = String(getFuzzyKey(p, ["รหัส", "col_1"]) || '');
-                const salesScore = getProductSalesScore(p);
-                
-                const fullPrice = parseNumber(getFuzzyKey(p, ["ราคาขายเต็ม", "col_6"]));
-                const displayPrice = computeFinalPrice(p, isVipCustomer);
-                
-                const imageUrl = getPosProductImageUrl(p, wooImagesMap);
-
-                const isOwnerPurchase = isStockMode && globalRole === 'owner';
-                const isBranchReq = isRequisitionMode && globalRole !== 'owner';
-                const isSpecialMode = isOwnerPurchase || isBranchReq;
-                
-                const costPrice = isSpecialMode ? computeOwnerCostPrice(p) : 0;
-                const discountRate = isSpecialMode ? getOwnerDiscountRate(p) : 0;
-                const memberPrice = parseNumber(getFuzzyKey(p, ["ราคาสมาชิก", "col_10"]));
-                const originalCostBasePrice = memberPrice > 0 ? memberPrice : fullPrice;
-                const cartItem = cart.find(i => i.id === p.id && i.type === 'product');
-                const cartQty = cartItem ? (Number(cartItem.qty) || 0) : 0;
-
-                return (
-                <div 
-                  key={p.id} 
-                  onClick={() => isOwnerPurchase ? addToCart(p, 'product', 'owner_purchase') : isBranchReq ? addToCart(p, 'product', 'branch_requisition') : isStockMode ? setStockInputModal({ isOpen: true, item: p, inputVal: '' }) : addToCart(p, 'product')}
-                  className={`bg-white p-2 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm border cursor-pointer transition-all flex flex-col h-full ${isSpecialMode ? "border-slate-100 hover:shadow-md hover:border-teal-200 active:scale-95" : isStockMode ? (stockAdjustments.some(a => a.id === p.id) ? "border-emerald-500 opacity-70" : "border-rose-400 animate-pulse shadow-[0_0_15px_rgba(251,113,133,0.3)]") : (cartQty > 0 ? "border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/10 shadow-sm" : "border-slate-100 hover:shadow-md hover:border-indigo-200 active:scale-95")}`}
-                >
-                  <div className="w-full aspect-[4/3] bg-slate-100 rounded-lg sm:rounded-xl mb-2 sm:mb-3 overflow-hidden relative group flex items-center justify-center">
-                    {salesScore > 0 && !isSpecialMode && (
-                      <div className="absolute top-1.5 left-1.5 z-10 bg-gradient-to-r from-amber-500 to-rose-500 text-white p-1 rounded-md shadow-md flex items-center justify-center" title={`สินค้าขายดี (${salesScore} ชิ้น)`}>
-                        <Flame size={12} className="fill-white text-white" />
-                      </div>
-                    )}
-                    {cartQty > 0 && !isSpecialMode && !isStockMode && (
-                      <div className="absolute top-1.5 right-1.5 z-10 bg-indigo-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-md shadow-md flex items-center gap-1 border border-white animate-in zoom-in-75 duration-150" title={`ในตะกร้า ${cartQty} ชิ้น`}>
-                        <ShoppingCart size={11} className="shrink-0" />
-                        <span>{cartQty}</span>
-                      </div>
-                    )}
-                    {imageUrl ? (
-                      <img 
-                        src={imageUrl} 
-                        alt={productName}
-                        className="absolute inset-0 w-full h-full object-contain mix-blend-multiply transition-transform duration-300 group-hover:scale-110"
-                        loading="lazy"
-                        onError={(e) => { 
-                          const fallback = getProductFallbackUrl(p);
-                          if (fallback && e.target.src !== fallback) {
-                            e.target.src = fallback;
-                            return;
-                          }
-                          e.target.onerror = null; 
-                          e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="%23cbd5e1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>';
-                          e.target.className = "w-1/2 h-1/2 object-contain m-auto mt-4 opacity-50 transition-transform duration-300 group-hover:scale-110";
-                        }}
-                      />
-                    ) : (
-                      <Package size={40} className="text-slate-300" strokeWidth={1.5} />
-                    )}
-                    {!isSpecialMode && isStockMode && stockAdjustments.some(a => a.id === p.id) && (
-                      <div className="absolute inset-0 bg-emerald-500/20 z-10 flex items-center justify-center backdrop-blur-[1px]">
-                        <CheckCircle size={40} className="text-emerald-600 bg-white rounded-full drop-shadow-md" />
-                      </div>
-                    )}
-                  </div>
+              (() => {
+                const renderCard = (p) => {
+                  const productName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || '');
+                  const productCode = String(getFuzzyKey(p, ["รหัส", "col_1"]) || '');
+                  const productCat = getProductCategory(p);
+                  const salesScore = getProductSalesScore(p);
                   
-                  {/* <div className="text-[10px] sm:text-xs font-medium text-slate-400 mb-1 truncate">{productCode}</div> */}
-                  <div className="font-semibold text-slate-800 flex-1 line-clamp-2 text-xs sm:text-base leading-snug">{productName}</div>
-                  <div className="mt-2 sm:mt-3 flex items-center justify-between w-full gap-2">
-                    {isSpecialMode ? (
-                      <div className={`${isOwnerPurchase ? 'text-teal-600' : 'text-amber-600'} font-bold text-[10px] sm:text-xs flex flex-col gap-0.5`}>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[9px] text-slate-400 font-normal">ปกติ:</span>
-                          <del className="text-slate-400 text-[9px] sm:text-[10px] font-normal">฿{originalCostBasePrice.toLocaleString()}</del>
-                        </div>
-                        <div className="flex items-center gap-1 flex-wrap">
-                          <span>฿{costPrice.toLocaleString()}</span>
-                          <span className={`${isOwnerPurchase ? 'bg-teal-50 text-teal-700 border-teal-100' : 'bg-amber-50 text-amber-700 border-amber-100'} text-[8px] font-bold px-1 py-0.5 rounded border leading-none`}>ลด {Math.round(discountRate * 100)}%</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-indigo-600 font-bold text-sm sm:text-lg flex items-center gap-1 shrink-0">
-                        {displayPrice < fullPrice && (
-                          <del className="text-gray-400 text-[10px] sm:text-xs">฿{fullPrice.toLocaleString()}</del>
+                  const fullPrice = parseNumber(getFuzzyKey(p, ["ราคาขายเต็ม", "col_6"]));
+                  const displayPrice = computeFinalPrice(p, isVipCustomer);
+                  
+                  const imageUrl = getPosProductImageUrl(p, wooImagesMap);
+
+                  const isOwnerPurchase = isStockMode && globalRole === 'owner';
+                  const isBranchReq = isRequisitionMode && globalRole !== 'owner';
+                  const isSpecialMode = isOwnerPurchase || isBranchReq;
+                  
+                  const costPrice = isSpecialMode ? computeOwnerCostPrice(p) : 0;
+                  const discountRate = isSpecialMode ? getOwnerDiscountRate(p) : 0;
+                  const memberPrice = parseNumber(getFuzzyKey(p, ["ราคาสมาชิก", "col_10"]));
+                  const originalCostBasePrice = memberPrice > 0 ? memberPrice : fullPrice;
+                  const cartItem = cart.find(i => i.id === p.id && i.type === 'product');
+                  const cartQty = cartItem ? (Number(cartItem.qty) || 0) : 0;
+
+                  return (
+                    <div 
+                      key={p.id} 
+                      onClick={() => isOwnerPurchase ? addToCart(p, 'product', 'owner_purchase') : isBranchReq ? addToCart(p, 'product', 'branch_requisition') : isStockMode ? setStockInputModal({ isOpen: true, item: p, inputVal: '' }) : addToCart(p, 'product')}
+                      className={`bg-white p-2 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm border cursor-pointer transition-all flex flex-col h-full ${isSpecialMode ? "border-slate-100 hover:shadow-md hover:border-teal-200 active:scale-95" : isStockMode ? (stockAdjustments.some(a => a.id === p.id) ? "border-emerald-500 opacity-70" : "border-rose-400 animate-pulse shadow-[0_0_15px_rgba(251,113,133,0.3)]") : (cartQty > 0 ? "border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/10 shadow-sm" : "border-slate-100 hover:shadow-md hover:border-indigo-200 active:scale-95")}`}
+                    >
+                      <div className="w-full aspect-[4/3] bg-slate-100 rounded-lg sm:rounded-xl mb-2 sm:mb-3 overflow-hidden relative group flex items-center justify-center">
+                        {salesScore > 0 && !isSpecialMode && (
+                          <div className="absolute top-1.5 left-1.5 z-10 bg-gradient-to-r from-amber-500 to-rose-500 text-white p-1 rounded-md shadow-md flex items-center justify-center" title={`สินค้าขายดี (${salesScore} ชิ้น)`}>
+                            <Flame size={12} className="fill-white text-white" />
+                          </div>
                         )}
-                        ฿{displayPrice.toLocaleString()}
+                        {cartQty > 0 && !isSpecialMode && !isStockMode && (
+                          <div className="absolute top-1.5 right-1.5 z-10 bg-indigo-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-md shadow-md flex items-center gap-1 border border-white animate-in zoom-in-75 duration-150" title={`ในตะกร้า ${cartQty} ชิ้น`}>
+                            <ShoppingCart size={11} className="shrink-0" />
+                            <span>{cartQty}</span>
+                          </div>
+                        )}
+                        {imageUrl ? (
+                          <img 
+                            src={imageUrl} 
+                            alt={productName}
+                            className="absolute inset-0 w-full h-full object-contain mix-blend-multiply transition-transform duration-300 group-hover:scale-110"
+                            loading="lazy"
+                            onError={(e) => { 
+                              const fallback = getProductFallbackUrl(p);
+                              if (fallback && e.target.src !== fallback) {
+                                e.target.src = fallback;
+                                return;
+                              }
+                              e.target.onerror = null; 
+                              e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="%23cbd5e1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>';
+                              e.target.className = "w-1/2 h-1/2 object-contain m-auto mt-4 opacity-50 transition-transform duration-300 group-hover:scale-110";
+                            }}
+                          />
+                        ) : (
+                          <Package size={40} className="text-slate-300" strokeWidth={1.5} />
+                        )}
+                        {!isSpecialMode && isStockMode && stockAdjustments.some(a => a.id === p.id) && (
+                          <div className="absolute inset-0 bg-emerald-500/20 z-10 flex items-center justify-center backdrop-blur-[1px]">
+                            <CheckCircle size={40} className="text-emerald-600 bg-white rounded-full drop-shadow-md" />
+                          </div>
+                        )}
                       </div>
-                    )}
-                    
-                    <div className="flex items-center gap-1 shrink-0">
-                      {(() => {
-                           const currentBranch = globalBranch || "สำนักงานใหญ่";
-                           const v = getBranchStock(p, currentBranch);
-                           const vNum = Number(v);
-                           return (
-                             <div className={`flex items-center justify-center min-w-[32px] sm:min-w-[36px] px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-black shadow-sm ${vNum <= 0 ? 'bg-rose-500 text-white shadow-rose-200' : 'bg-emerald-500 text-white shadow-emerald-200'}`} title={`สต๊อกคงเหลือสาขา ${currentBranch}`}>
-                                {parseQty(v)}
-                             </div>
-                           );
-                      })()}
+                      
+                      {/* Category & Code badges */}
+                      <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                        {productCode && <span className="text-[9px] font-mono text-slate-400 font-bold">{productCode}</span>}
+                        {productCat && productCat !== 'ทั่วไป' && (
+                          <span className="text-[9px] font-black px-1.5 py-0.2 rounded-md bg-purple-50 text-purple-700 border border-purple-200/60 leading-tight">
+                            {productCat}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="font-semibold text-slate-800 flex-1 line-clamp-2 text-xs sm:text-base leading-snug">{productName}</div>
+                      <div className="mt-2 sm:mt-3 flex items-center justify-between w-full gap-2">
+                        {isSpecialMode ? (
+                          <div className={`${isOwnerPurchase ? 'text-teal-600' : 'text-amber-600'} font-bold text-[10px] sm:text-xs flex flex-col gap-0.5`}>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[9px] text-slate-400 font-normal">ปกติ:</span>
+                              <del className="text-slate-400 text-[9px] sm:text-[10px] font-normal">฿{originalCostBasePrice.toLocaleString()}</del>
+                            </div>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span>฿{costPrice.toLocaleString()}</span>
+                              <span className={`${isOwnerPurchase ? 'bg-teal-50 text-teal-700 border-teal-100' : 'bg-amber-50 text-amber-700 border-amber-100'} text-[8px] font-bold px-1 py-0.5 rounded border leading-none`}>ลด {Math.round(discountRate * 100)}%</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-indigo-600 font-bold text-sm sm:text-lg flex items-center gap-1 shrink-0">
+                            {displayPrice < fullPrice && (
+                              <del className="text-gray-400 text-[10px] sm:text-xs">฿{fullPrice.toLocaleString()}</del>
+                            )}
+                            ฿{displayPrice.toLocaleString()}
+                          </div>
+                        )}
+                        
+                        <div className="flex items-center gap-1 shrink-0">
+                          {(() => {
+                               const currentBranch = globalBranch || "สำนักงานใหญ่";
+                               const v = getBranchStock(p, currentBranch);
+                               const vNum = Number(v);
+                               return (
+                                 <div className={`flex items-center justify-center min-w-[32px] sm:min-w-[36px] px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-black shadow-sm ${vNum <= 0 ? 'bg-rose-500 text-white shadow-rose-200' : 'bg-emerald-500 text-white shadow-emerald-200'}`} title={`สต๊อกคงเหลือสาขา ${currentBranch}`}>
+                                    {parseQty(v)}
+                                 </div>
+                               );
+                          })()}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-                );
-              })
+                  );
+                };
+
+                if (filteredProducts.length === 0) {
+                  return (
+                    <div className="col-span-full text-center py-12 text-slate-400">
+                      <Package size={48} className="mx-auto mb-2 opacity-30" />
+                      <p className="font-bold text-sm">ไม่พบสินค้าในหมวดหมู่นี้</p>
+                    </div>
+                  );
+                }
+
+                if (productSortMode === 'category' && selectedProductCategory === 'all') {
+                  return groupedProductsByCategory.map(([catName, items]) => (
+                    <React.Fragment key={catName}>
+                      <div className="col-span-full pt-3 pb-1 first:pt-0">
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5 px-3 py-1 bg-purple-50 border border-purple-200/80 rounded-xl text-purple-800 font-black text-xs sm:text-sm shadow-2xs">
+                            <Layers size={14} className="text-purple-600" />
+                            <span>หมวด: {catName}</span>
+                            <span className="text-[10px] px-1.5 py-0.2 bg-purple-200/70 text-purple-900 rounded-full font-bold">{items.length}</span>
+                          </div>
+                          <div className="flex-1 h-[1px] bg-slate-200/80"></div>
+                        </div>
+                      </div>
+                      {items.map(p => renderCard(p))}
+                    </React.Fragment>
+                  ));
+                }
+
+                return filteredProducts.map(p => renderCard(p));
+              })()
             ) : activeTab === 'courses' ? (
               <div className="col-span-full mb-4">
                 <div className="flex gap-2 p-1 bg-slate-100/80 backdrop-blur rounded-xl border border-slate-200/60 mb-4 flex-wrap w-full">
