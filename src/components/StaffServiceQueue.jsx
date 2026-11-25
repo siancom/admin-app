@@ -125,7 +125,16 @@ export default function StaffServiceQueue({
     const allCourses = getCustomerCourses(selectedCustomer);
     // Show remaining courses
     return allCourses.filter(c => Number(c.computedRemainQty || 0) > 0 && c.computedStatus !== 'ใช้ครบแล้ว');
-  }, [selectedCustomer, courses, getCustomerCourses]);
+  }, [selectedCustomer, getCustomerCourses]);
+
+  // Quick list of customers who currently have remaining courses
+  const customersWithRemainingCourses = useMemo(() => {
+    return (customers || []).map(cust => {
+      const custCourses = getCustomerCourses(cust);
+      const remainCount = custCourses.filter(c => Number(c.computedRemainQty || 0) > 0 && c.computedStatus !== 'ใช้ครบแล้ว').length;
+      return { ...cust, remainCourseCount: remainCount };
+    }).filter(c => c.remainCourseCount > 0).slice(0, 15);
+  }, [customers, getCustomerCourses]);
 
   // Handle select / unselect course
   const toggleSelectCourse = (courseId) => {
@@ -818,6 +827,34 @@ export default function StaffServiceQueue({
             </div>
           )}
         </div>
+
+        {/* Quick Customer Selection Chips */}
+        {!selectedCustomer && !custSearchQuery && customersWithRemainingCourses.length > 0 && (
+          <div className="pt-1 space-y-1.5">
+            <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1.5">
+              <User size={12} className="text-indigo-600" />
+              <span>เลือกลูกค้าที่มีคอร์สคงเหลือด่วน:</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto custom-scrollbar">
+              {customersWithRemainingCourses.map(cust => (
+                <button
+                  key={cust.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedCustomer(cust);
+                    setSelectedCourseIds([]);
+                  }}
+                  className="px-2.5 py-1.5 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs active:scale-95"
+                >
+                  <span>{cust.computedName || cust.name}</span>
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded-md font-black">
+                    เหลือ {cust.remainCourseCount} คอร์ส
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Selected Customer Banner */}
         {selectedCustomer && (

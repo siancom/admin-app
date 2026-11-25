@@ -6868,96 +6868,37 @@ export default function POSSystem({
         )}
 
         {/* 🌟 Floating Bottom Action Bar สำหรับการตัดยอดหลายคอร์สพร้อมกัน 🌟 */}
-        {cart.some(i => i.type === 'usage') && !showPaymentModal && (() => {
-          const handleSendToStaffDashboard = async () => {
-            const usageItems = cart.filter(i => i.type === 'usage');
-            if (usageItems.length === 0) return;
-            try {
-              setIsProcessing(true);
-              const batch = writeBatch(db);
-              const createdNames = [];
-
-              usageItems.forEach(item => {
-                const activeRef = doc(collection(db, 'active_services'));
-                const cleanCourseName = item.name.replace(/เบิกใช้:\s*/g, '').split('(')[0].trim();
-                createdNames.push(cleanCourseName);
-                
-                batch.set(activeRef, {
-                  courseId: item.id || '',
-                  courseDocId: item.courseDocId || item.id || '',
-                  courseName: cleanCourseName,
-                  courseNo: item.courseNo || item.code || '',
-                  customerId: selectedCustomer?.id || item.customerId || '',
-                  customerName: selectedCustomer?.computedName || selectedCustomer?.name || item.customerName || 'ลูกค้าทั่วไป',
-                  customerPhone: selectedCustomer?.computedPhone || selectedCustomer?.phone || item.customerPhone || '-',
-                  customerHn: selectedCustomer?.hnCode || '',
-                  qty: Number(item.qty) || 1,
-                  branch: String(globalBranch || 'เฉวง'),
-                  status: 'รอรับบริการ',
-                  startTime: null,
-                  beforePhotos: [],
-                  afterPhotos: [],
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString()
-                });
-              });
-
-              await batch.commit();
-
-              // Clear usage items from cart
-              setCart(prev => prev.filter(i => i.type !== 'usage'));
-              showToast(`✓ ส่งรายการ "${createdNames.join(', ')}" ไปที่หน้าหลักพนักงาน (แถบใช้คอสรับบริการ) เรียบร้อยแล้ว!`, 'success');
-            } catch (err) {
-              console.error('Failed to send to staff dashboard:', err);
-              showToast('เกิดข้อผิดพลาดในการส่งไปยังหน้าพนักงาน', 'error');
-            } finally {
-              setIsProcessing(false);
-            }
-          };
-
-          return (
-            <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] bg-slate-900/95 text-white backdrop-blur-md px-4 sm:px-6 py-3 rounded-2xl shadow-2xl flex items-center justify-between gap-3 sm:gap-6 border border-slate-700 animate-in slide-in-from-bottom-5 max-w-[95vw]">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-orange-500 flex items-center justify-center text-white font-black shadow-sm shrink-0">
-                  <Scissors size={18} />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5 flex-wrap">
-                    <span>เลือกตัดยอด {cart.filter(i => i.type === 'usage').length} คอร์ส</span>
-                    <span className="text-[10px] bg-teal-500 text-white font-black px-1.5 py-0.2 rounded-full">
-                      รวม {cart.filter(i => i.type === 'usage').reduce((s, i) => s + (Number(i.qty) || 1), 0)} ครั้ง
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-slate-300 truncate max-w-[200px] sm:max-w-xs">
-                    {cart.filter(i => i.type === 'usage').map(i => i.name.replace(/เบิกใช้:\s*/g, '').split('(')[0]).join(', ')}
-                  </div>
-                </div>
+        {cart.some(i => i.type === 'usage') && !showPaymentModal && (
+          <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] bg-slate-900/95 text-white backdrop-blur-md px-5 py-3 rounded-2xl shadow-2xl flex items-center justify-between gap-4 sm:gap-6 border border-slate-700 animate-in slide-in-from-bottom-5 w-[92vw] max-w-md">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center text-white font-black shadow-sm shrink-0">
+                <Scissors size={20} />
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={handleSendToStaffDashboard}
-                  disabled={isProcessing}
-                  className="px-3.5 py-2.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-600 hover:to-teal-600 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shadow-emerald-500/25"
-                >
-                  <span>📤 ส่งไปหน้าหลักพนักงาน (แถบใช้คอส)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCheckoutStep(1);
-                    setShowPaymentModal(true);
-                  }}
-                  className="px-3 py-2.5 bg-white/15 hover:bg-white/25 text-white font-bold text-xs rounded-xl border border-white/20 active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
-                  title="ตัดยอดทันทีที่เคาน์เตอร์ POS"
-                >
-                  <span>ตัดยอดที่นี่</span>
-                  <ChevronRight size={14} />
-                </button>
+              <div className="min-w-0">
+                <div className="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5 whitespace-nowrap">
+                  <span>เลือกตัดยอด {cart.filter(i => i.type === 'usage').length} คอร์ส</span>
+                  <span className="text-[10px] bg-teal-500 text-white font-black px-1.5 py-0.2 rounded-full">
+                    รวม {cart.filter(i => i.type === 'usage').reduce((s, i) => s + (Number(i.qty) || 1), 0)} ครั้ง
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-300 truncate max-w-[180px] sm:max-w-xs whitespace-nowrap">
+                  {cart.filter(i => i.type === 'usage').map(i => i.name.replace(/เบิกใช้:\s*/g, '').split('(')[0]).join(', ')}
+                </div>
               </div>
             </div>
-          );
-        })()}
+            <button
+              type="button"
+              onClick={() => {
+                setCheckoutStep(1);
+                setShowPaymentModal(true);
+              }}
+              className="px-4 py-2.5 bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 hover:from-orange-600 hover:to-amber-600 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shadow-orange-500/25 shrink-0 whitespace-nowrap"
+            >
+              <span>ดำเนินการตัดยอด</span>
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Right: Cart & Checkout */}
