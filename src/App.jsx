@@ -7,7 +7,7 @@ import {
   Printer, ShoppingBag, ArrowLeft, HeartPulse, ChevronRight, 
   CalendarPlus, UserPlus, Sparkles, Trash2, AlertTriangle, Layers, Database,
   Camera, Image as ImageIcon, ShieldCheck, ShieldAlert, RefreshCcw, PenTool, Edit3,
-  Bell, List, LayoutGrid, ScanLine, CalendarDays, ChevronLeft, ChevronUp, ChevronDown, BarChart3, Store, UserCheck, Wallet, Loader2, Scissors, Ticket, Gift,
+  Bell, List, LayoutGrid, ScanLine, CalendarDays, ChevronLeft, ChevronUp, ChevronDown, BarChart3, Store, UserCheck, Wallet, Loader2, Scissors, Ticket, Gift, CreditCard, RefreshCw,
   Send, MessageSquare, ToggleLeft, ToggleRight, TestTube, ExternalLink, Zap, Target, Droplet, Syringe, Pill, Truck, Star,
   Filter, RotateCcw, Lock, Unlock, CalendarClock, Save
 } from 'lucide-react';
@@ -38,7 +38,7 @@ import { QRCodeSVG } from 'qrcode.react';
 
 // --- FIREBASE IMPORTS ---
 import { signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, deleteField, writeBatch, query, where, getDocs, setDoc, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, deleteField, writeBatch, query, where, getDocs, getDoc, setDoc, orderBy, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytesResumable, uploadBytes, getDownloadURL, deleteObject, uploadString } from 'firebase/storage';
 import { auth, db, getCol, getDocRef, storage } from './config/firebase';
 import html2canvas from 'html2canvas';
@@ -359,11 +359,15 @@ export default function App() {
     gender: 'หญิง',
     dob: '',
     age: '',
+    citizenId: '',
     issue: '',
     photoFile: null,
     photoPreview: null,
     photoBase64: null,
     aiSkinScanResult: null,
+    idCardPhotoFile: null,
+    idCardPhotoPreview: null,
+    idCardPhotoBase64: null,
     addressNo: '',
     subDistrict: '',
     district: '',
@@ -371,8 +375,11 @@ export default function App() {
     zipcode: ''
   });
   const [isAnalyzingSkin, setIsAnalyzingSkin] = useState(false);
+  const [isScanningIdCard, setIsScanningIdCard] = useState(false);
   const customerCameraInputRef = useRef(null);
   const customerFileInputRef = useRef(null);
+  const idCardCameraInputRef = useRef(null);
+  const idCardFileInputRef = useRef(null);
   
   // 🌟 เพิ่มสถานะสำหรับระบบแก้ไขข้อมูลลูกค้า 🌟
   const [isEditCustomerOpen, setIsEditCustomerOpen] = useState(false);
@@ -4392,6 +4399,194 @@ const flexMessage = {
     });
   };
 
+  // 🪪 AI Thai National ID Card OCR Reader 🪪
+  const handleAnalyzeIdCard = async (base64Data) => {
+    if (!base64Data) return;
+    try {
+      setIsScanningIdCard(true);
+      showToast('กำลังส่งภาพบัตรประชาชนให้ Iris AI อ่านข้อมูล...', 'info');
+
+      // Fetch API Key from Firestore app_settings/ai or fallback
+      let apiKey = 'AIzaSyAm-AmxT2TM01XMfsYpkGTf3CWgziAag-Q';
+      try {
+        const aiSnap = await getDoc(getDocRef('app_settings', 'ai'));
+        if (aiSnap.exists() && aiSnap.data().geminiApiKey) {
+          apiKey = aiSnap.data().geminiApiKey;
+        }
+      } catch (e) {
+        // use fallback apiKey
+      }
+
+      const prompt = `คุณคือระบบ AI OCR อัจฉริยะสำหรับอ่านข้อมูลจากบัตรประจำตัวประชาชนไทย (Thai National ID Card)
+จงอ่านข้อมูลจากภาพบัตรประชาชนนี้อย่างละเอียด ถูกต้อง และแม่นยำที่สุด
+หากส่วนใดในภาพไม่ชัดเจน หรือไม่มีระบุ ให้ใส่ค่าว่าง ("") อย่าแต่งข้อมูลขึ้นมาเอง
+
+กฎการแปลงข้อมูล:
+1. citizenId: เลขประจำตัวประชาชน 13 หลัก ตัวเลขติดกันเท่านั้น ไม่มีขีดคั่น
+2. title: คำนำหน้า เช่น นาย, นาง, นางสาว, น.ส., เด็กชาย, เด็กหญิง
+3. firstName: ชื่อตัวภาษาไทยเท่านั้น ไม่รวมคำนำหน้า
+4. lastName: นามสกุลภาษาไทยเท่านั้น
+5. firstNameEn: ชื่อตัวภาษาอังกฤษ
+6. lastNameEn: นามสกุลภาษาอังกฤษ
+7. gender: เพศ ("หญิง" หรือ "ชาย") หากไม่ระบุชัดเจน ให้อนุมานจากคำนำหน้า (นาย = ชาย, นาง/นางสาว/น.ส. = หญิง)
+8. dob: วัน/เดือน/ปีเกิด ในรูปแบบ วว/ดด/ปปปป (พ.ศ.) เช่น "15/05/2536" (หากเป็นชื่อเดือนภาษาไทย เช่น 15 พ.ค. 2536 ให้แปลงชื่อเดือนเป็นตัวเลข 2 หลักเสมอ เช่น 15/05/2536)
+9. birthYearBe: ตัวเลขปีเกิด พ.ศ. เช่น 2536
+10. age: อายุเป็นตัวเลขจำนวนเต็ม คำนวณจากปีเกิด พ.ศ. เทียบกับปีปัจจุบัน พ.ศ. 2569 (เช่น 2569 - 2536 = 33)
+11. addressNo: บ้านเลขที่, หมู่ที่, ซอย, ถนน
+12. subDistrict: ตำบล หรือ แขวง (ตัดคำว่า ตำบล/แขวง ออกหรือใส่ให้เรียบร้อย)
+13. district: อำเภอ หรือ เขต (ตัดคำว่า อำเภอ/เขต ออกหรือใส่ให้เรียบร้อย)
+14. province: จังหวัด (ตัดคำว่า จังหวัด ออกหรือใส่ชื่อจังหวัด เช่น สุราษฎร์ธานี, กรุงเทพมหานคร)
+15. zipcode: รหัสไปรษณีย์ 5 หลัก (ถ้าในบัตรไม่ระบุ ให้ค้นหา/อนุมานจากตำบล อำเภอ จังหวัด)
+16. fullAddress: ที่อยู่เต็มตามที่ปรากฏในบัตร
+
+ตอบกลับเป็น JSON เท่านั้น โครงสร้างดังนี้:
+{
+  "citizenId": "1849900123456",
+  "title": "นางสาว",
+  "firstName": "สมหญิง",
+  "lastName": "ใจดี",
+  "firstNameEn": "Somying",
+  "lastNameEn": "Jaidee",
+  "gender": "หญิง",
+  "dob": "15/05/2536",
+  "birthYearBe": 2536,
+  "age": 33,
+  "addressNo": "123/45 หมู่ 2",
+  "subDistrict": "บ่อผุด",
+  "district": "เกาะสมุย",
+  "province": "สุราษฎร์ธานี",
+  "zipcode": "84320",
+  "fullAddress": "123/45 หมู่ 2 ต.บ่อผุด อ.เกาะสมุย จ.สุราษฎร์ธานี"
+}`;
+
+      const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+      const cleanMime = (base64Data.includes('data:') && base64Data.includes(';'))
+        ? base64Data.split(';')[0].replace('data:', '')
+        : 'image/jpeg';
+
+      const requestPayload = {
+        contents: [
+          {
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType: cleanMime,
+                  data: cleanBase64
+                }
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.1
+        }
+      };
+
+      let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestPayload)
+      });
+
+      if (!response.ok) {
+        // Fallback to gemini-flash-latest
+        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestPayload)
+        });
+      }
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error?.message || `HTTP ${response.status}`);
+      }
+
+      const resData = await response.json();
+      const rawText = resData.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawText) throw new Error('AI ไม่ได้ตอบกลับข้อมูลบัตร');
+
+      const cleanedText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsedData = JSON.parse(cleanedText);
+
+      setNewCustomerForm(prev => {
+        const updatedFirstName = parsedData.firstName ? String(parsedData.firstName).trim() : prev.firstName;
+        const updatedLastName = parsedData.lastName ? String(parsedData.lastName).trim() : prev.lastName;
+        const fullName = `${updatedFirstName} ${updatedLastName}`.trim();
+        
+        let gender = prev.gender;
+        if (parsedData.gender) {
+          gender = parsedData.gender.includes('ชาย') ? 'ชาย' : 'หญิง';
+        } else if (parsedData.title) {
+          gender = parsedData.title.includes('นาย') ? 'ชาย' : 'หญิง';
+        }
+
+        let age = prev.age;
+        if (parsedData.age) {
+          age = String(parsedData.age);
+        } else if (parsedData.birthYearBe) {
+          const currentYearBE = new Date().getFullYear() + 543;
+          age = String(Math.max(0, currentYearBE - Number(parsedData.birthYearBe)));
+        }
+
+        return {
+          ...prev,
+          firstName: updatedFirstName,
+          lastName: updatedLastName,
+          name: fullName,
+          gender: gender,
+          dob: parsedData.dob ? String(parsedData.dob).trim() : prev.dob,
+          age: age,
+          citizenId: parsedData.citizenId ? String(parsedData.citizenId).replace(/\D/g, '') : prev.citizenId,
+          addressNo: parsedData.addressNo ? String(parsedData.addressNo).trim() : prev.addressNo,
+          subDistrict: parsedData.subDistrict ? String(parsedData.subDistrict).trim() : prev.subDistrict,
+          district: parsedData.district ? String(parsedData.district).trim() : prev.district,
+          province: parsedData.province ? String(parsedData.province).trim() : prev.province,
+          zipcode: parsedData.zipcode ? String(parsedData.zipcode).trim() : prev.zipcode
+        };
+      });
+
+      const extractedName = parsedData.firstName ? `คุณ${parsedData.firstName} ${parsedData.lastName || ''}` : '';
+      showToast(`✨ AI อ่านบัตรประชาชนสำเร็จ! ${extractedName} (กรอกข้อมูลให้อัตโนมัติแล้ว)`, 'success');
+
+    } catch (err) {
+      console.error('ID Card AI Analysis error:', err);
+      showToast('ไม่สามารถอ่านบัตรด้วย AI ได้: ' + err.message, 'error');
+    } finally {
+      setIsScanningIdCard(false);
+    }
+  };
+
+  const handleIdCardPhotoSelected = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsScanningIdCard(true);
+      const compressedBlob = await compressImage(file, 1600, 1600, 0.90);
+      const idCardPhotoFile = new File([compressedBlob], `idcard_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      const previewUrl = URL.createObjectURL(compressedBlob);
+      const base64Data = await blobToBase64(compressedBlob);
+
+      setNewCustomerForm(prev => ({
+        ...prev,
+        idCardPhotoFile,
+        idCardPhotoPreview: previewUrl,
+        idCardPhotoBase64: base64Data
+      }));
+
+      // Immediately trigger Gemini ID Card OCR analysis!
+      await handleAnalyzeIdCard(base64Data);
+    } catch (err) {
+      console.error('ID Card photo error:', err);
+      showToast('ไม่สามารถประมวลผลรูปภาพบัตรได้: ' + err.message, 'error');
+      setIsScanningIdCard(false);
+    } finally {
+      if (e.target) e.target.value = '';
+    }
+  };
+
   // 🌟 AI Skin Analysis from Customer Photo 🌟
   const handleAnalyzeCustomerPhoto = async (base64Data) => {
     if (!base64Data) return;
@@ -4523,6 +4718,17 @@ const flexMessage = {
         }
       }
 
+      let uploadedIdCardUrl = '';
+      if (newCustomerForm.idCardPhotoFile) {
+        try {
+          const idCardStorageRef = ref(storage, `customer_id_cards/${cleanPhone}_${Date.now()}.jpg`);
+          await uploadBytes(idCardStorageRef, newCustomerForm.idCardPhotoFile);
+          uploadedIdCardUrl = await getDownloadURL(idCardStorageRef);
+        } catch (uploadErr) {
+          console.warn('Customer ID card upload error:', uploadErr);
+        }
+      }
+
       const skinAnalysis = analyzeSkinIssue(newCustomerForm.issue);
 
       const docData = { 
@@ -4536,6 +4742,10 @@ const flexMessage = {
         gender: newCustomerForm.gender || 'หญิง',
         dob: newCustomerForm.dob || '',
         age: newCustomerForm.age || '',
+        citizenId: newCustomerForm.citizenId || '',
+        "เลขประจำตัวประชาชน": newCustomerForm.citizenId || '',
+        idCardUrl: uploadedIdCardUrl || '',
+        idCardPhotoUrl: uploadedIdCardUrl || '',
         "ปัญหาผิวหน้า": String(newCustomerForm.issue || ''), 
         issue: String(newCustomerForm.issue || ''),
         imageUrl: uploadedPhotoUrl || '',
@@ -4567,8 +4777,9 @@ const flexMessage = {
       setIsAddCustomerOpen(false); 
       setNewCustomerForm({ 
         firstName: '', lastName: '', name: '', nickname: '',
-        phone: '', gender: 'หญิง', dob: '', age: '', issue: '',
+        phone: '', gender: 'หญิง', dob: '', age: '', citizenId: '', issue: '',
         photoFile: null, photoPreview: null, photoBase64: null, aiSkinScanResult: null,
+        idCardPhotoFile: null, idCardPhotoPreview: null, idCardPhotoBase64: null,
         addressNo: '', subDistrict: '', district: '', province: '', zipcode: ''
       }); 
       
@@ -9029,6 +9240,126 @@ const flexMessage = {
             <span>กรอกข้อมูลลูกค้าให้ครบถ้วนเพื่อสร้างประวัติในระบบและสะสมยอดสิทธิประโยชน์</span>
           </div>
 
+          {/* 🪪 AI Thai National ID Card OCR Scanner 🪪 */}
+          <div className="bg-gradient-to-r from-blue-50/90 via-sky-50/70 to-indigo-50/90 border-2 border-sky-200/90 rounded-2xl p-3 sm:p-3.5 shadow-2xs relative overflow-hidden">
+            <div className="flex items-center gap-3">
+              {/* ID Card Thumbnail / Preview */}
+              <div className="relative shrink-0">
+                <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-2xl bg-white border-2 border-sky-200 shadow-xs overflow-hidden flex items-center justify-center relative">
+                  {newCustomerForm.idCardPhotoPreview ? (
+                    <img 
+                      src={newCustomerForm.idCardPhotoPreview} 
+                      alt="ID Card preview" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-sky-50/70 flex flex-col items-center justify-center text-sky-600 p-1 text-center">
+                      <CreditCard size={22} className="text-sky-600 mb-0.5" />
+                      <span className="text-[9px] font-bold text-sky-700 leading-tight">บัตร ปชช.</span>
+                    </div>
+                  )}
+
+                  {isScanningIdCard && (
+                    <div className="absolute inset-0 bg-sky-950/75 backdrop-blur-[1px] flex flex-col items-center justify-center text-white p-1 text-center">
+                      <Loader2 size={20} className="animate-spin text-sky-300 mb-0.5" />
+                      <span className="text-[9px] font-black text-sky-200">AI อ่านบัตร...</span>
+                    </div>
+                  )}
+                </div>
+
+                {newCustomerForm.idCardPhotoPreview && !isScanningIdCard && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewCustomerForm(prev => ({
+                        ...prev,
+                        idCardPhotoFile: null,
+                        idCardPhotoPreview: null,
+                        idCardPhotoBase64: null
+                      }));
+                    }}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-rose-500 hover:bg-rose-600 text-white rounded-full flex items-center justify-center shadow-md active:scale-90 transition-transform cursor-pointer"
+                    title="ลบรูปบัตร"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              {/* Text & Buttons */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                  <span className="text-xs font-black text-slate-800 flex items-center gap-1">
+                    <Sparkles size={14} className="text-sky-600" /> สแกนบัตรประชาชนด้วย AI
+                  </span>
+                  {newCustomerForm.citizenId ? (
+                    <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.2 rounded-full border border-emerald-200">
+                      อ่านข้อมูลสำเร็จ ✨
+                    </span>
+                  ) : (
+                    <span className="bg-sky-100 text-sky-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-sky-200">
+                      กรอกฟอร์มอัตโนมัติ
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 leading-tight mb-2">
+                  ถ่ายรูปบัตรประชาชน AI จะช่วยอ่านชื่อ นามสกุล เพศ วันเกิด อายุ และที่อยู่อัตโนมัติทันที
+                </p>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={isScanningIdCard}
+                    onClick={() => idCardCameraInputRef.current?.click()}
+                    className="px-2.5 py-1.5 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white text-xs font-bold rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Camera size={14} />
+                    <span>{newCustomerForm.idCardPhotoPreview ? 'ถ่ายบัตรใหม่' : 'ถ่ายรูปบัตรประชาชน'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isScanningIdCard}
+                    onClick={() => idCardFileInputRef.current?.click()}
+                    className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 shadow-2xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <ImageIcon size={14} className="text-sky-600" />
+                    <span>{newCustomerForm.idCardPhotoPreview ? 'เปลี่ยนรูป' : 'เลือกรูปบัตร'}</span>
+                  </button>
+
+                  {newCustomerForm.idCardPhotoBase64 && !isScanningIdCard && (
+                    <button
+                      type="button"
+                      onClick={() => handleAnalyzeIdCard(newCustomerForm.idCardPhotoBase64)}
+                      className="px-2 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 text-xs font-bold rounded-xl border border-sky-200 transition-all flex items-center gap-1 active:scale-95 cursor-pointer"
+                      title="ให้ AI อ่านบัตรใหม่อีกครั้ง"
+                    >
+                      <RefreshCw size={13} className="text-sky-600" />
+                      <span>สแกนซ้ำ</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Hidden file inputs for ID Card Camera and Gallery */}
+            <input 
+              ref={idCardCameraInputRef}
+              type="file" 
+              accept="image/*" 
+              capture="environment" 
+              className="hidden" 
+              onChange={handleIdCardPhotoSelected}
+            />
+            <input 
+              ref={idCardFileInputRef}
+              type="file" 
+              accept="image/*" 
+              className="hidden" 
+              onChange={handleIdCardPhotoSelected}
+            />
+          </div>
+
           {/* 🌟 Customer Profile Photo & Instant AI Face/Skin Scan 🌟 */}
           <div className="bg-gradient-to-r from-teal-50/90 via-indigo-50/60 to-purple-50/90 border-2 border-teal-150 rounded-2xl p-3 sm:p-3.5 shadow-2xs relative overflow-hidden">
             <div className="flex items-center gap-3 sm:gap-4">
@@ -9202,6 +9533,28 @@ const flexMessage = {
                 <p className="text-amber-600 text-[10px] mt-1 font-bold">กรอกให้ครบ 10 หลัก (ปัจจุบัน {newCustomerForm.phone.length} หลัก)</p>
               )}
             </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span className="flex items-center gap-1.5"><CreditCard size={14} className="text-sky-600"/> เลขประจำตัวประชาชน (13 หลัก)</span>
+              {newCustomerForm.citizenId && (
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${newCustomerForm.citizenId.length === 13 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>
+                  {newCustomerForm.citizenId.length === 13 ? '✓ ครบ 13 หลัก' : `${newCustomerForm.citizenId.length}/13 หลัก`}
+                </span>
+              )}
+            </label>
+            <input 
+              type="text"
+              maxLength={17}
+              placeholder="X-XXXX-XXXXX-XX-X"
+              value={newCustomerForm.citizenId || ''}
+              onChange={e => {
+                const val = e.target.value.replace(/\D/g, '');
+                if (val.length <= 13) setNewCustomerForm({...newCustomerForm, citizenId: val});
+              }}
+              className="w-full border-2 border-gray-100 bg-gray-50/50 rounded-xl p-3 text-sm outline-none focus:border-sky-400 focus:bg-white transition-all font-mono font-bold text-gray-800 tracking-wider"
+            />
           </div>
 
           <div className="grid grid-cols-3 gap-3">
