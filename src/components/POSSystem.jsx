@@ -1941,11 +1941,14 @@ export default function POSSystem({
         if ((code.toLowerCase() === 'acmm' || name.includes('เคลียร์สิว')) && cat !== 'acne_clear') {
           counts.acne_clear = (counts.acne_clear || 0) + 1;
         }
-        if ((code.includes('ACNE') || name.includes('สิว/ฝ้า')) && cat !== 'acne_sets') {
+        if ((code.includes('ACNE') || code.includes('ACTIVE') || name.includes('สิว/ฝ้า') || name.includes('แอคทีฟ')) && cat !== 'acne_sets') {
           counts.acne_sets = (counts.acne_sets || 0) + 1;
         }
         if ((code.includes('IPL') || name.includes('IPL')) && cat !== 'ipl') {
           counts.ipl = (counts.ipl || 0) + 1;
+        }
+        if ((code.includes('MACH') || name.includes('เครื่อง')) && cat !== 'machine') {
+          counts.machine = (counts.machine || 0) + 1;
         }
         if (Array.isArray(c.promoOptions) && c.promoOptions.length > 0 && cat !== 'promo') {
           counts.promo = (counts.promo || 0) + 1;
@@ -5637,10 +5640,13 @@ export default function POSSystem({
                         return category === 'acne_clear' || c.id === 'acmm' || String(getFuzzyKey(c, ["รหัสคอส", "col_1"])).toLowerCase() === 'acmm' || String(getFuzzyKey(c, ["ชื่อคอส", "col_4"])).includes('เคลียร์สิว');
                       }
                       if (multiCourseTab === 'acne_sets') {
-                        return category === 'acne_sets' || c.id === 'PROMO-ACNE-MELASMA' || String(getFuzzyKey(c, ["รหัสคอส", "col_1"])).includes('ACNE') || String(getFuzzyKey(c, ["ชื่อคอส", "col_4"])).includes('สิว/ฝ้า');
+                        return category === 'acne_sets' || c.id === 'PROMO-ACNE-MELASMA' || c.id === 'PROMO-ACTIVESKIN' || String(getFuzzyKey(c, ["รหัสคอส", "col_1"])).includes('ACTIVE') || String(getFuzzyKey(c, ["รหัสคอส", "col_1"])).includes('ACNE') || String(getFuzzyKey(c, ["ชื่อคอส", "col_4"])).includes('สิว/ฝ้า');
                       }
                       if (multiCourseTab === 'ipl') {
-                        return category === 'ipl' || c.id === 'PROMO-IPL-HAIR' || String(getFuzzyKey(c, ["รหัสคอส", "col_1"])).includes('IPL') || String(getFuzzyKey(c, ["ชื่อคอส", "col_4"])).includes('IPL');
+                        return category === 'ipl' || c.id === 'PROMO-IPL-HAIR' || c.id === 'PROMO-IPL-ARMPIT' || String(getFuzzyKey(c, ["รหัสคอส", "col_1"])).includes('IPL') || String(getFuzzyKey(c, ["ชื่อคอส", "col_4"])).includes('IPL');
+                      }
+                      if (multiCourseTab === 'machine') {
+                        return category === 'machine' || c.id === 'PROMO-FACIAL-MACHINES' || String(getFuzzyKey(c, ["รหัสคอส", "col_1"])).includes('MACH') || String(getFuzzyKey(c, ["ชื่อคอส", "col_4"])).includes('เครื่อง');
                       }
                       return category === multiCourseTab;
                     })
