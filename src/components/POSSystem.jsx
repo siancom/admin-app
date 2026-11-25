@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { AlertTriangle,
   Scissors, Search, Info, ShoppingCart, Package, Layers, User, Trash2, UserPlus,
   Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink,
-  Flame, TrendingUp, Tag, Droplet, Zap, Target, Heart, Edit3, AlertCircle, RefreshCw
+  Flame, TrendingUp, Tag, Droplet, Zap, Target, Heart, Edit3, AlertCircle, RefreshCw, PenTool
 } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, getDocs, query, where, writeBatch, orderBy, limit, collection, arrayUnion } from 'firebase/firestore';
@@ -1112,6 +1112,7 @@ export default function POSSystem({
   const [manualVoucherCode, setManualVoucherCode] = useState('');
   const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [customerSignature, setCustomerSignature] = useState(null);
+  const [staffSignature, setStaffSignature] = useState(null);
   const [splitPayment, setSplitPayment] = useState({ cash: 0, transfer: 0, cod: 0, credit: 0, omise_promptpay: 0 });
   const [showOmiseQrModal, setShowOmiseQrModal] = useState(false);
   const [showTransferChoiceModal, setShowTransferChoiceModal] = useState(false);
@@ -3924,8 +3925,8 @@ export default function POSSystem({
         else if (item.type === 'usage') {
           // History for course usage
           const historyRef = doc(getCol('histories'));
-          const custSignatureUrl = custSigRef.current?.toDataURL() || null;
-          const staffSignatureUrl = staffSigRef.current?.toDataURL() || null;
+          const custSignatureUrl = custSigRef.current?.toDataURL() || customerSignature || null;
+          const staffSignatureUrl = staffSigRef.current?.toDataURL() || staffSignature || null;
           const finalQty = item.qty;
 
           const selectedServicesList = (usedServices && usedServices.length > 0)
@@ -4096,8 +4097,8 @@ export default function POSSystem({
 
           // Add History
           const historyRef = doc(getCol('histories'));
-          const custSignatureUrl = custSigRef.current?.toDataURL() || null;
-          const staffSignatureUrl = staffSigRef.current?.toDataURL() || null;
+          const custSignatureUrl = custSigRef.current?.toDataURL() || customerSignature || null;
+          const staffSignatureUrl = staffSigRef.current?.toDataURL() || staffSignature || null;
           const courseRefNo = String(getFuzzyKey(item.originalCourse, ["เลขที่ใบคอส", "col_2", "col_3", "courseNo"]) || '');
 
           batch.set(historyRef, {
@@ -4555,8 +4556,8 @@ export default function POSSystem({
       const queueNo = String(todayBranchOrders.length + 1).padStart(3, '0');
 
       // Read signatures here (only for receipt display — NOT stored in Firestore batch)
-      const custSignatureUrl = custSigRef.current?.toDataURL() || null;
-      const staffSignatureUrl = staffSigRef.current?.toDataURL() || null;
+      const custSignatureUrl = custSigRef.current?.toDataURL() || customerSignature || null;
+      const staffSignatureUrl = staffSigRef.current?.toDataURL() || staffSignature || null;
 
       if (custSigRef.current) {
         const ctx = custSigRef.current.getContext('2d');
@@ -4568,6 +4569,8 @@ export default function POSSystem({
         ctx?.clearRect(0, 0, staffSigRef.current.width, staffSigRef.current.height);
         delete staffSigRef.current.dataset.isSigned;
       }
+      setCustomerSignature(null);
+      setStaffSignature(null);
 
       setReceiptData({
         orderNo,
@@ -7863,9 +7866,8 @@ export default function POSSystem({
           </div>
 
           {/* STEP 1: Order Details, Staff, Service/Claim & Signatures */}
-          {checkoutStep === 1 && (
-            <div className="space-y-4">
-              {hasCourseUsage && (
+          <div className={`space-y-4 ${checkoutStep === 1 ? '' : 'hidden'}`}>
+            {hasCourseUsage && (
                 <div>
                   <div className="text-sm font-semibold text-slate-700 mb-2">เข้าใช้เตียง (สำหรับ Walk-in)</div>
                   <select
@@ -8196,6 +8198,35 @@ export default function POSSystem({
                       </div>
                     )}
 
+                    {/* ✍️ ลายเซ็นลูกค้า & ลายเซ็นพนักงาน (จัดการรูปและลายเซ็นที่เดียวในจุดนี้) */}
+                    <div className="mt-3 pt-3 border-t border-white/20 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-white flex items-center gap-1.5">
+                          <PenTool size={13} className="text-amber-300" />
+                          <span>ลายเซ็นยืนยันรับบริการ & ผู้ให้บริการ:</span>
+                        </span>
+                        <span className="text-[10px] text-white/75 font-medium">เซ็นชื่อเพื่อยืนยันการรับบริการ</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div className="bg-white rounded-xl p-1.5 shadow-sm text-slate-800">
+                          <SignaturePad 
+                            canvasRef={custSigRef} 
+                            label="✍️ ลายเซ็นลูกค้า (ผู้รับบริการ)" 
+                            height={85}
+                            onSigned={(dataUrl) => setCustomerSignature(dataUrl)}
+                          />
+                        </div>
+                        <div className="bg-white rounded-xl p-1.5 shadow-sm text-slate-800">
+                          <SignaturePad 
+                            canvasRef={staffSigRef} 
+                            label={`✍️ ลายเซ็นพนักงาน${paymentStaff ? ` (${paymentStaff})` : ''}`} 
+                            height={85}
+                            onSigned={(dataUrl) => setStaffSignature(dataUrl)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Quick check-in action: just checked in and want to close modal to treat customer */}
                     {paymentPhotos.before.length > 0 && (
                       <div className="mt-2.5 pt-2 border-t border-white/15 flex items-center justify-between gap-2 flex-wrap">
@@ -8215,6 +8246,9 @@ export default function POSSystem({
                       </div>
                     )}
                   </div>
+
+                  {/* Staff Selection & Hand Fee in Step 1 for Course Usage */}
+                  {hasUsageOrClaim && renderStaffSelection(true)}
 
                   {/* Service Selection (Only for usage) */}
                   {cart.some(i => i.type === 'usage') && (() => {
@@ -9128,11 +9162,9 @@ export default function POSSystem({
                 </div>
               )}
             </div>
-          )}
 
           {/* STEP 2: Payment Screen */}
-          {checkoutStep === 2 && !isRequisitionMode && (
-            <div className="space-y-3">
+          <div className={`space-y-3 ${checkoutStep === 2 && !isRequisitionMode ? '' : 'hidden'}`}>
               {/* Top Summary Banner */}
               {hasUsageOrClaim && total <= 0 ? (
                 <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 text-white p-2.5 sm:p-3 rounded-2xl flex items-center justify-between shadow-xs">
@@ -9382,114 +9414,26 @@ export default function POSSystem({
                 </div>
               ) : null}
 
-              {/* Service Photos Capture & Signatures Unified in Step 2 */}
+              {/* Service Proof Summary in Step 2 */}
               {(hasUsageOrClaim || cart.some(i => i.type === 'service')) && (
-                <div className="space-y-2.5 pt-1 border-t border-slate-200/80">
-                  {/* Photo Capture & Review Strip */}
-                  <div className="p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                        <Camera size={14} className="text-indigo-600" />
-                        <span>รูปถ่ายหลักฐานการให้บริการ (ก่อน / หลังทำ)</span>
-                      </label>
-                      <span className="text-[10px] text-slate-500 font-medium">
-                        {paymentPhotos.before.length} ก่อนทำ • {paymentPhotos.after.length} หลังทำ
+                <div className="p-3 bg-violet-50/70 border border-violet-200 rounded-2xl flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-violet-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                      <Camera size={14} />
+                    </div>
+                    <div>
+                      <span className="font-bold text-violet-950 block">บันทึกรูปและลายเซ็นเรียบร้อยแล้ว</span>
+                      <span className="text-[10px] text-violet-600 font-medium">
+                        Before: {paymentPhotos.before.length} รูป • After: {paymentPhotos.after.length} รูป • มีลายเซ็นรับบริการครบถ้วน
                       </span>
                     </div>
-
-                    {/* Camera Upload Buttons */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          capture="environment"
-                          multiple
-                          className="hidden"
-                          id="step2-upload-before"
-                          onChange={handleUploadBeforePhoto}
-                        />
-                        <label
-                          htmlFor="step2-upload-before"
-                          className={`w-full py-2 px-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs border transition-all active:scale-95 ${
-                            paymentPhotos.before.length > 0
-                              ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
-                              : 'bg-white border-dashed border-indigo-300 text-indigo-600 hover:bg-indigo-50/50'
-                          }`}
-                        >
-                          <Camera size={13} />
-                          <span>{paymentPhotos.before.length > 0 ? `+ Before (${paymentPhotos.before.length})` : 'ถ่ายรูปก่อนทำ (Before)'}</span>
-                        </label>
-                      </div>
-
-                      <div>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          capture="environment"
-                          multiple
-                          className="hidden"
-                          id="step2-upload-after"
-                          onChange={handleUploadAfterPhoto}
-                        />
-                        <label
-                          htmlFor="step2-upload-after"
-                          className={`w-full py-2 px-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs border transition-all active:scale-95 ${
-                            paymentPhotos.after.length > 0
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                              : 'bg-white border-dashed border-emerald-300 text-emerald-600 hover:bg-emerald-50/50'
-                          }`}
-                        >
-                          <Camera size={13} />
-                          <span>{paymentPhotos.after.length > 0 ? `+ After (${paymentPhotos.after.length})` : 'ถ่ายรูปหลังทำ (After)'}</span>
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* Thumbnails with delete option */}
-                    {(paymentPhotos.before.length > 0 || paymentPhotos.after.length > 0) && (
-                      <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5 pb-0.5">
-                        {paymentPhotos.before.map((img, idx) => (
-                          <div key={`s2-b-${idx}`} className="relative shrink-0 group">
-                            <img src={img} alt="Before" className="w-11 h-11 object-cover rounded-lg border border-indigo-300 shadow-2xs" />
-                            <span className="absolute bottom-0 inset-x-0 bg-indigo-900/85 text-[8px] text-center text-white font-bold py-0.5 rounded-b-lg">Before</span>
-                            <button
-                              type="button"
-                              onClick={() => setPaymentPhotos(p => ({ ...p, before: p.before.filter((_, i) => i !== idx) }))}
-                              className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-xs hover:bg-rose-600"
-                              title="ลบรูป"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                        {paymentPhotos.after.map((img, idx) => (
-                          <div key={`s2-a-${idx}`} className="relative shrink-0 group">
-                            <img src={img} alt="After" className="w-11 h-11 object-cover rounded-lg border border-emerald-300 shadow-2xs" />
-                            <span className="absolute bottom-0 inset-x-0 bg-emerald-900/85 text-[8px] text-center text-white font-bold py-0.5 rounded-b-lg">After</span>
-                            <button
-                              type="button"
-                              onClick={() => setPaymentPhotos(p => ({ ...p, after: p.after.filter((_, i) => i !== idx) }))}
-                              className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-xs hover:bg-rose-600"
-                              title="ลบรูป"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
-
-                  {/* Signatures: Customer & Staff side-by-side or stacked on mobile */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <SignaturePad canvasRef={custSigRef} label="ลายเซ็นลูกค้า" height={90} />
-                    <SignaturePad canvasRef={staffSigRef} label={`ลายเซ็นพนักงาน${paymentStaff ? ` (${paymentStaff})` : ''}`} height={90} />
-                  </div>
+                  <span className="text-[11px] font-bold text-emerald-700 bg-white border border-emerald-200 px-2.5 py-0.5 rounded-lg shadow-2xs">
+                    ✓ พร้อมตัดยอด
+                  </span>
                 </div>
               )}
             </div>
-          )}
 
           {/* Footer Navigation & Actions */}
           <div className="flex gap-3 pt-4 border-t border-slate-100 mt-4">
@@ -9510,6 +9454,31 @@ export default function POSSystem({
                     className="flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg active:scale-95"
                   >
                     {isProcessing ? 'กำลังประมวลผล...' : <><CheckCircle size={20} /> ยืนยันการเบิกสินค้า (PO)</>}
+                  </button>
+                ) : total <= 0 && hasUsageOrClaim ? (
+                  <button 
+                    id="btn-confirm-usage-step1"
+                    onClick={() => {
+                      if (!paymentStaff) return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ให้บริการ', 'error');
+                      const isCustSigned = custSigRef.current?.dataset?.isSigned === "true" || !!customerSignature;
+                      const isStaffSigned = staffSigRef.current?.dataset?.isSigned === "true" || !!staffSignature;
+                      if (!isCustSigned || !isStaffSigned) {
+                        return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
+                      }
+                      handleCheckout();
+                    }}
+                    disabled={isProcessing}
+                    className="flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 bg-orange-500 hover:bg-orange-600 text-white shadow-orange-200"
+                  >
+                    {isProcessing ? (
+                      <><span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span> กำลังประมวลผล...</>
+                    ) : (
+                      <>
+                        <Scissors size={20} />
+                        <span>ยืนยันตัดคอร์ส</span>
+                        <span className="bg-white/20 px-2 py-0.5 rounded-lg text-sm font-black">฿0</span>
+                      </>
+                    )}
                   </button>
                 ) : (
                   <button 
@@ -9552,7 +9521,9 @@ export default function POSSystem({
                   onClick={() => {
                       if (!paymentStaff) return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ให้บริการ', 'error');
                       if (hasUsageOrClaim) {
-                          if (custSigRef.current?.dataset?.isSigned !== "true" || staffSigRef.current?.dataset?.isSigned !== "true") {
+                          const isCustSigned = custSigRef.current?.dataset?.isSigned === "true" || !!customerSignature;
+                          const isStaffSigned = staffSigRef.current?.dataset?.isSigned === "true" || !!staffSignature;
+                          if (!isCustSigned || !isStaffSigned) {
                               return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
                           }
                       }
