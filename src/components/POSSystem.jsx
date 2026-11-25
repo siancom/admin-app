@@ -2158,6 +2158,63 @@ export default function POSSystem({
     });
   }, [courses, selectedCustomer, searchTerm]);
 
+  // 🌟 ประวัติคอร์สทั้งหมดของลูกค้า (สำหรับฟังก์ชัน "ต่อคอสเดิม" ในหน้าให้บริการ/ตัดคอร์ส)
+  const customerAllCourses = useMemo(() => {
+    if (!selectedCustomer) return [];
+    const isWalkIn = Boolean(selectedCustomer.isWalkIn);
+    const phone = String(selectedCustomer.computedPhone || getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]) || '').trim();
+    const cleanPhone = phone.replace(/\D/g, '');
+    const name = String(selectedCustomer.computedName || getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]) || '').trim().toLowerCase();
+
+    return courses.filter(c => {
+      const courseName = String(getFuzzyKey(c, ["ชื่อคอส", "ชื่อคอร์ส", "col_8"]) || '').toLowerCase();
+      const isCreditCourse = courseName.includes('วงเงิน') || courseName.includes('เติมเงิน') || courseName.includes('เครดิต') || courseName.includes('voucher') || courseName.includes('บัตรกำนัล') || courseName.includes('ฝากเงิน');
+      if (isCreditCourse) return false;
+
+      const cPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').trim();
+      const cCleanPhone = cPhone.replace(/\D/g, '');
+      const cBuyer = String(getFuzzyKey(c, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "col_9", "col_2"]) || '').trim().toLowerCase();
+      const isCourseWalkIn = c.isWalkIn === true || cBuyer.includes('walk-in') || cBuyer.includes('วอคอิน') || cBuyer.includes('ทั่วไป') || cPhone === '-' || !cPhone;
+
+      if (cleanPhone.length >= 6 && cCleanPhone.length >= 6 && cleanPhone === cCleanPhone) return true;
+      if (phone && phone !== '-' && cPhone === phone) return true;
+      if (name && !name.includes('ลูกค้าทั่วไป') && cBuyer === name) return true;
+      if (isWalkIn) return isCourseWalkIn;
+      return false;
+    });
+  }, [courses, selectedCustomer]);
+
+  // 🌟 รายการคอร์สและสินค้าสำหรับค้นหา/เลือกเพิ่มใน Modal ตัดคอร์ส
+  const filteredModalMasterCourses = useMemo(() => {
+    if (!masterCourses || !Array.isArray(masterCourses)) return [];
+    const search = modalServiceSearch.trim().toLowerCase();
+    return masterCourses.filter(mc => {
+      const name = String(getFuzzyKey(mc, ["ชื่อคอส", "col_4"]) || mc.name || '').toLowerCase();
+      const code = String(getFuzzyKey(mc, ["รหัสคอส", "col_1", "รหัส"]) || mc.code || '').toLowerCase();
+      if (!search) return true;
+      return name.includes(search) || code.includes(search);
+    });
+  }, [masterCourses, modalServiceSearch]);
+
+  const filteredModalProducts = useMemo(() => {
+    if (!products || !Array.isArray(products)) return [];
+    const search = modalServiceSearch.trim().toLowerCase();
+    return products.filter(p => {
+      const name = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || p.name || '').toLowerCase();
+      const code = String(getFuzzyKey(p, ["รหัสสินค้า", "col_1"]) || p.code || '').toLowerCase();
+      if (!search) return true;
+      return name.includes(search) || code.includes(search);
+    });
+  }, [products, modalServiceSearch]);
+
+  const extraPaidItems = useMemo(() => {
+    return cart.filter(i => i.type !== 'usage' && i.type !== 'claim_item' && (Number(i.price) > 0 || i.type === 'service' || i.type === 'product' || i.type === 'course'));
+  }, [cart]);
+
+  const extraPaidItemsTotal = useMemo(() => {
+    return extraPaidItems.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.qty) || 1), 0);
+  }, [extraPaidItems]);
+
   const filteredPendingPayments = useMemo(() => {
     if (!selectedCustomer) return [];
     const phone = String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]) || '').trim();
@@ -7864,13 +7921,72 @@ export default function POSSystem({
                         </div>
                       )}
 
+                      {/* 🛒 รายการที่ซื้อเพิ่มในบิลนี้ (สินค้า / คอร์ส / ลงเครื่องเพิ่ม) */}
+                      {extraPaidItems.length > 0 && (
+                        <div className="p-3 bg-gradient-to-r from-pink-50 via-rose-50 to-pink-50 border border-pink-200/90 rounded-2xl shadow-sm space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 text-xs font-black text-pink-900">
+                              <ShoppingCart size={15} className="text-pink-600" />
+                              <span>รายการที่ซื้อเพิ่มในบิลนี้ ({extraPaidItems.reduce((s, i) => s + (Number(i.qty) || 1), 0)} ชิ้น):</span>
+                            </div>
+                            <div className="text-xs font-black text-pink-700 bg-white border border-pink-300 px-2.5 py-0.5 rounded-full shadow-2xs">
+                              ยอดเรียกเก็บเพิ่ม: +฿{extraPaidItemsTotal.toLocaleString()}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {extraPaidItems.map(item => {
+                              const itemTotal = (Number(item.price) || 0) * (Number(item.qty) || 1);
+                              const icon = item.type === 'service' ? '⚡' : item.type === 'product' ? '🛍️' : '🎫';
+                              return (
+                                <div key={item.id} className="flex items-center gap-2 bg-white px-2.5 py-1.5 rounded-xl border border-pink-200 text-xs font-bold text-slate-800 shadow-2xs">
+                                  <span className="text-sm">{icon}</span>
+                                  <div className="min-w-0 max-w-[170px]">
+                                    <div className="truncate text-slate-800 leading-tight">{item.name}</div>
+                                    <div className="text-[10px] text-pink-600 font-extrabold">฿{itemTotal.toLocaleString()} {item.qty > 1 ? `(@฿${Number(item.price).toLocaleString()})` : ''}</div>
+                                  </div>
+                                  <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 ml-1">
+                                    <button 
+                                      type="button" 
+                                      onClick={() => updateCartQty(item.id, item.type, -1)}
+                                      className="w-5 h-5 flex items-center justify-center rounded bg-white hover:bg-slate-200 text-slate-700 font-black text-xs"
+                                    >
+                                      -
+                                    </button>
+                                    <span className="w-4 text-center text-xs font-black text-slate-800">{item.qty}</span>
+                                    <button 
+                                      type="button" 
+                                      onClick={() => updateCartQty(item.id, item.type, 1)}
+                                      className="w-5 h-5 flex items-center justify-center rounded bg-white hover:bg-slate-200 text-slate-700 font-black text-xs"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                  <button 
+                                    type="button" 
+                                    onClick={() => removeFromCart(item.id, item.type)}
+                                    className="text-slate-400 hover:text-red-500 p-1 rounded-md hover:bg-red-50 ml-0.5"
+                                    title="ลบรายการนี้"
+                                  >
+                                    <X size={13} />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Category Filter Pills */}
-                      <div className="flex gap-1.5 overflow-x-auto pb-0.5 hide-scrollbar text-[11px] font-bold">
+                      <div className="flex gap-1.5 overflow-x-auto pb-1 hide-scrollbar text-[11px] font-bold">
                         {courseSpecificItems.length > 0 && (
                           <button
                             type="button"
                             onClick={() => setSingleCourseTabModal('course')}
-                            className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'course' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            className={`px-3 py-1.5 rounded-xl shrink-0 transition-all flex items-center gap-1.5 ${
+                              singleCourseTabModal === 'course' 
+                                ? 'bg-teal-600 text-white shadow-xs' 
+                                : 'bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200/60'
+                            }`}
                           >
                             🎯 ในคอร์สลูกค้า ({courseSpecificItems.length})
                           </button>
@@ -7878,21 +7994,66 @@ export default function POSSystem({
                         <button
                           type="button"
                           onClick={() => setSingleCourseTabModal('machine')}
-                          className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'machine' ? 'bg-pink-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                          className={`px-3 py-1.5 rounded-xl shrink-0 transition-all flex items-center gap-1.5 ${
+                            singleCourseTabModal === 'machine' 
+                              ? 'bg-pink-600 text-white shadow-xs' 
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          }`}
                         >
-                          ⚡ ลงเครื่องรายครั้ง (12 เครื่อง)
+                          ⚡ ลงเครื่อง (12 เครื่อง)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSingleCourseTabModal('renew')}
+                          className={`px-3 py-1.5 rounded-xl shrink-0 transition-all flex items-center gap-1.5 ${
+                            singleCourseTabModal === 'renew' 
+                              ? 'bg-amber-500 text-white shadow-xs' 
+                              : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200/60'
+                          }`}
+                        >
+                          <RefreshCw size={12} /> ต่อคอสเดิม ({customerAllCourses.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSingleCourseTabModal('buy_course')}
+                          className={`px-3 py-1.5 rounded-xl shrink-0 transition-all flex items-center gap-1.5 ${
+                            singleCourseTabModal === 'buy_course' 
+                              ? 'bg-indigo-600 text-white shadow-xs' 
+                              : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200/60'
+                          }`}
+                        >
+                          <Ticket size={12} /> ซื้อคอสเพิ่ม ({masterCourses.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSingleCourseTabModal('products')}
+                          className={`px-3 py-1.5 rounded-xl shrink-0 transition-all flex items-center gap-1.5 ${
+                            singleCourseTabModal === 'products' 
+                              ? 'bg-emerald-600 text-white shadow-xs' 
+                              : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200/60'
+                          }`}
+                        >
+                          <Package size={12} /> ซื้อสินค้า ({products.length})
                         </button>
                         <button
                           type="button"
                           onClick={() => setSingleCourseTabModal('basic')}
-                          className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'basic' ? 'bg-teal-600 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                          className={`px-3 py-1.5 rounded-xl shrink-0 transition-all flex items-center gap-1.5 ${
+                            singleCourseTabModal === 'basic' 
+                              ? 'bg-cyan-600 text-white shadow-xs' 
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
                         >
-                          💆 บริการพื้นฐาน / ทรีตเมนต์
+                          💆 บริการพื้นฐาน
                         </button>
                         <button
                           type="button"
                           onClick={() => setSingleCourseTabModal('all')}
-                          className={`px-3 py-1.5 rounded-lg shrink-0 transition-all ${singleCourseTabModal === 'all' ? 'bg-slate-800 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                          className={`px-3 py-1.5 rounded-xl shrink-0 transition-all flex items-center gap-1.5 ${
+                            singleCourseTabModal === 'all' 
+                              ? 'bg-slate-800 text-white shadow-xs' 
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
                         >
                           📋 ค้นหาทั้งหมด
                         </button>
@@ -7900,32 +8061,156 @@ export default function POSSystem({
 
                       {/* Section Content based on selected tab / search */}
                       {modalServiceSearch.trim() !== '' ? (
-                        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto p-1 border border-slate-100 rounded-xl">
-                          {[...MACHINE_TREATMENT_ADDONS, ...STANDARD_FACIAL_SERVICES, ...masterCourses]
-                            .filter(item => {
-                              const name = String(getFuzzyKey(item, ["ชื่อคอส", "col_4"]) || item.name || '').toLowerCase();
-                              return name.includes(modalServiceSearch.toLowerCase());
-                            })
-                            .slice(0, 30)
-                            .map((srv, idx) => {
-                              const name = String(getFuzzyKey(srv, ["ชื่อคอส", "col_4"]) || srv.name);
-                              const isSelected = isServiceSelected(name);
-                              return (
-                                <button
-                                  type="button"
-                                  key={srv.id || idx}
-                                  onClick={() => toggleServiceName(name, srv)}
-                                  className={`p-2 rounded-lg border text-left cursor-pointer transition-all flex items-start gap-2 ${
-                                    isSelected ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 bg-white text-slate-700 hover:border-indigo-200'
-                                  }`}
-                                >
-                                  <div className={`mt-0.5 shrink-0 w-3.5 h-3.5 rounded border flex items-center justify-center ${isSelected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'}`}>
-                                    {isSelected && <Check size={10} strokeWidth={3} />}
+                        <div className="space-y-2 max-h-60 overflow-y-auto p-1 border border-slate-100 rounded-2xl">
+                          <div className="text-[10px] font-bold text-slate-400 px-1">ผลการค้นหาสำหรับ "{modalServiceSearch}":</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {(() => {
+                              const s = modalServiceSearch.toLowerCase().trim();
+                              const matchedMachines = MACHINE_TREATMENT_ADDONS.filter(m => m.name.toLowerCase().includes(s));
+                              const matchedBasic = STANDARD_FACIAL_SERVICES.filter(m => m.name.toLowerCase().includes(s));
+                              const matchedCourses = (masterCourses || []).filter(mc => {
+                                const name = String(getFuzzyKey(mc, ["ชื่อคอส", "col_4"]) || mc.name || '').toLowerCase();
+                                const code = String(getFuzzyKey(mc, ["รหัสคอส", "col_1", "รหัส"]) || mc.code || '').toLowerCase();
+                                return name.includes(s) || code.includes(s);
+                              });
+                              const matchedProds = (products || []).filter(p => {
+                                const name = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2"]) || p.name || '').toLowerCase();
+                                const code = String(getFuzzyKey(p, ["รหัสสินค้า", "col_1"]) || p.code || '').toLowerCase();
+                                return name.includes(s) || code.includes(s);
+                              });
+
+                              if (matchedMachines.length === 0 && matchedBasic.length === 0 && matchedCourses.length === 0 && matchedProds.length === 0) {
+                                return (
+                                  <div className="col-span-2 p-6 text-center text-xs text-slate-400">
+                                    ไม่พบรายการที่ตรงกับคำค้นหา
                                   </div>
-                                  <span className="text-xs truncate">{name}</span>
-                                </button>
+                                );
+                              }
+
+                              return (
+                                <>
+                                  {/* Machines in search */}
+                                  {matchedMachines.map(addon => {
+                                    const isSelected = isServiceSelected(addon.name);
+                                    const cartPaidItem = cart.find(i => (i.id === `addon_${addon.id}` || i.id === addon.id) && i.type === 'service');
+                                    const priceNum = Number(addon.price) || 0;
+                                    return (
+                                      <div key={addon.id} className="p-2 rounded-xl border border-pink-200 bg-white shadow-2xs flex items-center justify-between gap-2">
+                                        <div 
+                                          className="flex items-center gap-2 cursor-pointer flex-1 min-w-0"
+                                          onClick={() => toggleServiceName(addon.name, addon)}
+                                        >
+                                          <div className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 ${isSelected ? 'bg-pink-600 text-white' : 'border border-slate-300'}`}>
+                                            {isSelected && <Check size={10} strokeWidth={3} />}
+                                          </div>
+                                          <div className="truncate">
+                                            <div className="text-xs font-bold text-slate-800 truncate">⚡ {addon.name}</div>
+                                            <div className="text-[10px] text-slate-400">ลงเครื่อง ฿{priceNum}</div>
+                                          </div>
+                                        </div>
+                                        {cartPaidItem ? (
+                                          <span className="text-[10px] font-bold text-pink-700 bg-pink-50 px-2 py-0.5 rounded-md border border-pink-200 shrink-0">
+                                            ในบิล x{cartPaidItem.qty}
+                                          </span>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              addToCart({ id: `addon_${addon.id}`, name: addon.name, price: priceNum, originalPrice: priceNum }, 'service');
+                                              if (!isSelected) toggleServiceName(addon.name, addon);
+                                              showToast(`เพิ่ม "${addon.name}" (+฿${priceNum}) ลงในบิลแล้ว`, 'success');
+                                            }}
+                                            className="px-2 py-1 rounded-lg text-[10px] font-bold bg-pink-50 hover:bg-pink-600 hover:text-white text-pink-700 border border-pink-200 shrink-0 shadow-2xs"
+                                          >
+                                            + ซื้อเพิ่ม ฿{priceNum}
+                                          </button>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+
+                                  {/* Products in search */}
+                                  {matchedProds.slice(0, 10).map(prod => {
+                                    const pName = String(getFuzzyKey(prod, ["ชื่อสินค้า", "col_2"]) || prod.name || '');
+                                    const pPrice = computeFinalPrice(prod, isVipCustomer);
+                                    const cartProd = cart.find(i => i.id === prod.id && i.type === 'product');
+                                    return (
+                                      <div key={prod.id} className="p-2 rounded-xl border border-emerald-200 bg-white shadow-2xs flex items-center justify-between gap-2">
+                                        <div className="truncate flex-1 min-w-0">
+                                          <div className="text-xs font-bold text-slate-800 truncate">🛍️ {pName}</div>
+                                          <div className="text-[10px] text-emerald-700 font-bold">฿{pPrice.toLocaleString()}</div>
+                                        </div>
+                                        {cartProd ? (
+                                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">
+                                            ในบิล x{cartProd.qty}
+                                          </span>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              addToCart(prod, 'product');
+                                              showToast(`เพิ่ม "${pName}" ลงในบิลแล้ว`, 'success');
+                                            }}
+                                            className="px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-700 border border-emerald-200 shrink-0 shadow-2xs"
+                                          >
+                                            + ซื้อสินค้า
+                                          </button>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+
+                                  {/* Courses in search */}
+                                  {matchedCourses.slice(0, 10).map(mc => {
+                                    const mcName = String(getFuzzyKey(mc, ["ชื่อคอส", "col_4"]) || mc.name || '');
+                                    const mcPrice = parseNumber(getFuzzyKey(mc, ["ราคา", "col_5", "ราคาขาย"])) || 0;
+                                    const hasOptions = Array.isArray(mc.promoOptions) && mc.promoOptions.length > 0;
+                                    return (
+                                      <div key={mc.id} className="p-2 rounded-xl border border-indigo-200 bg-white shadow-2xs flex items-center justify-between gap-2">
+                                        <div className="truncate flex-1 min-w-0">
+                                          <div className="text-xs font-bold text-slate-800 truncate">🎫 {mcName}</div>
+                                          <div className="text-[10px] text-indigo-700 font-bold">฿{mcPrice.toLocaleString()}</div>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (hasOptions) {
+                                              setSelectedCourseForPromoModal(mc);
+                                            } else {
+                                              addToCart(mc, 'course');
+                                              showToast(`เพิ่มคอร์ส "${mcName}" ลงในบิลแล้ว`, 'success');
+                                            }
+                                          }}
+                                          className="px-2 py-1 rounded-lg text-[10px] font-bold bg-indigo-50 hover:bg-indigo-600 hover:text-white text-indigo-700 border border-indigo-200 shrink-0 shadow-2xs"
+                                        >
+                                          + {hasOptions ? 'เลือกโปร' : 'ซื้อคอร์ส'}
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+
+                                  {/* Basic services in search */}
+                                  {matchedBasic.map(srv => {
+                                    const isSelected = isServiceSelected(srv.name);
+                                    return (
+                                      <div 
+                                        key={srv.id} 
+                                        onClick={() => toggleServiceName(srv.name, srv)}
+                                        className={`p-2 rounded-xl border cursor-pointer transition-all flex items-center gap-2 ${
+                                          isSelected ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 bg-white text-slate-700'
+                                        }`}
+                                      >
+                                        <div className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 ${isSelected ? 'bg-indigo-600 text-white' : 'border border-slate-300'}`}>
+                                          {isSelected && <Check size={10} strokeWidth={3} />}
+                                        </div>
+                                        <span className="text-xs truncate">💆 {srv.name}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </>
                               );
-                            })}
+                            })()}
+                          </div>
                         </div>
                       ) : singleCourseTabModal === 'course' && courseSpecificItems.length > 0 ? (
                         <div className="p-3 bg-gradient-to-r from-teal-50 to-emerald-50 rounded-xl border border-teal-200/80">
@@ -7966,42 +8251,337 @@ export default function POSSystem({
                           </div>
                         </div>
                       ) : singleCourseTabModal === 'machine' ? (
-                        <div className="p-3 bg-gradient-to-r from-pink-500/10 via-rose-500/10 to-purple-500/10 rounded-xl border border-pink-200">
-                          <div className="flex items-center justify-between mb-2">
+                        <div className="p-3 bg-gradient-to-r from-pink-500/10 via-rose-500/10 to-purple-500/10 rounded-2xl border border-pink-200 space-y-2.5">
+                          <div className="flex items-center justify-between">
                             <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                              <Sparkles size={14} className="text-pink-600" /> ลงเครื่องรายครั้ง (12 รายการ):
+                              <Sparkles size={14} className="text-pink-600" /> ลงเครื่องรายครั้ง (12 เครื่อง):
                             </span>
-                            <span className="text-[10px] text-pink-600 font-bold bg-white px-2 py-0.5 rounded-full border border-pink-200 shadow-2xs">
-                              แตะเพื่อบันทึกเครื่องที่ทำ
+                            <span className="text-[10px] text-pink-700 font-bold bg-white px-2 py-0.5 rounded-full border border-pink-200 shadow-2xs">
+                              แตะชื่อเพื่อติ๊กบริการ หรือกดปุ่ม "+ ซื้อเพิ่ม" เพื่อคิดเงิน
                             </span>
                           </div>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                             {MACHINE_TREATMENT_ADDONS.map((addon) => {
                               const isSelected = isServiceSelected(addon.name);
+                              const cartPaidItem = cart.find(i => (i.id === `addon_${addon.id}` || i.id === addon.id) && i.type === 'service');
+                              const priceNum = Number(addon.price) || 0;
+
                               return (
-                                <button
+                                <div
                                   key={addon.id}
-                                  type="button"
-                                  onClick={() => toggleServiceName(addon.name, addon)}
-                                  className={`p-2 rounded-xl text-left border transition-all flex items-start gap-1.5 ${
+                                  className={`p-2.5 rounded-xl border transition-all flex flex-col justify-between gap-2 ${
                                     isSelected 
-                                      ? 'bg-pink-600 text-white border-pink-600 shadow-xs' 
-                                      : 'bg-white text-slate-700 border-pink-100 hover:border-pink-300 hover:bg-pink-50/50'
+                                      ? 'bg-pink-50/90 border-pink-400 shadow-2xs' 
+                                      : 'bg-white text-slate-700 border-pink-100 hover:border-pink-300'
                                   }`}
                                 >
-                                  <div className={`mt-0.5 shrink-0 w-3 h-3 rounded flex items-center justify-center ${isSelected ? 'bg-white text-pink-600' : 'border border-slate-300'}`}>
-                                    {isSelected && <Check size={8} strokeWidth={4} />}
+                                  <div 
+                                    className="flex items-start gap-2 cursor-pointer select-none"
+                                    onClick={() => toggleServiceName(addon.name, addon)}
+                                    title="แตะเพื่อเลือก/ยกเลิกเครื่องที่ทำ"
+                                  >
+                                    <div className={`mt-0.5 shrink-0 w-4 h-4 rounded-md flex items-center justify-center transition-all ${
+                                      isSelected ? 'bg-pink-600 text-white shadow-2xs' : 'border border-slate-300 bg-white'
+                                    }`}>
+                                      {isSelected && <Check size={10} strokeWidth={3} />}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className={`text-xs font-bold leading-tight ${isSelected ? 'text-pink-900' : 'text-slate-800'}`}>
+                                        {addon.name}
+                                      </div>
+                                      <div className="text-[10px] text-slate-400 mt-0.5">ราคาปกติ ฿{priceNum.toLocaleString()}</div>
+                                    </div>
                                   </div>
-                                  <div className="min-w-0 flex-1">
-                                    <div className="text-xs font-bold leading-tight truncate">{addon.name}</div>
-                                    <div className={`text-[9px] ${isSelected ? 'text-pink-100' : 'text-slate-400'}`}>฿{addon.price}</div>
+
+                                  {/* Quick Add as Paid Service Button */}
+                                  <div className="pt-1.5 border-t border-pink-100/70 flex items-center justify-between gap-1">
+                                    {cartPaidItem ? (
+                                      <div className="flex items-center justify-between w-full bg-pink-100/80 rounded-lg px-2 py-1 text-pink-800">
+                                        <span className="text-[10px] font-black">
+                                          ในบิล (+฿{(priceNum * cartPaidItem.qty).toLocaleString()})
+                                        </span>
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => updateCartQty(cartPaidItem.id, 'service', -1)}
+                                            className="w-5 h-5 flex items-center justify-center bg-white rounded text-pink-700 font-black hover:bg-pink-200"
+                                          >
+                                            -
+                                          </button>
+                                          <span className="w-4 text-center font-black text-xs">{cartPaidItem.qty}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => updateCartQty(cartPaidItem.id, 'service', 1)}
+                                            className="w-5 h-5 flex items-center justify-center bg-white rounded text-pink-700 font-black hover:bg-pink-200"
+                                          >
+                                            +
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          addToCart({ 
+                                            id: `addon_${addon.id}`, 
+                                            name: addon.name, 
+                                            price: priceNum, 
+                                            originalPrice: priceNum 
+                                          }, 'service');
+                                          if (!isSelected) toggleServiceName(addon.name, addon);
+                                          showToast(`เพิ่ม "${addon.name}" (+฿${priceNum.toLocaleString()}) ลงในบิลแล้ว`, 'success');
+                                        }}
+                                        className="w-full py-1 px-2 rounded-lg text-[10px] font-bold text-pink-700 bg-pink-50 hover:bg-pink-600 hover:text-white border border-pink-200 transition-all flex items-center justify-center gap-1 active:scale-95 shadow-2xs"
+                                      >
+                                        <Plus size={11} /> ซื้อลงเครื่องเพิ่ม ฿{priceNum.toLocaleString()}
+                                      </button>
+                                    )}
                                   </div>
-                                </button>
+                                </div>
                               );
                             })}
                           </div>
                         </div>
-                      ) : (
+                      ) : singleCourseTabModal === 'renew' ? (
+                        <div className="p-3 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-yellow-500/10 rounded-2xl border border-amber-200 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-amber-900 flex items-center gap-1.5">
+                              <RefreshCw size={14} className="text-amber-600" /> คอร์สเดิมของลูกค้า ({customerAllCourses.length} รายการ):
+                            </span>
+                            <span className="text-[10px] text-amber-700 font-medium">
+                              กดต่อคอร์สเพื่อเพิ่มลงบิลทันที
+                            </span>
+                          </div>
+
+                          {customerAllCourses.length === 0 ? (
+                            <div className="p-6 text-center bg-white rounded-xl border border-amber-100 text-xs text-slate-500">
+                              ยังไม่มีประวัติคอร์สเดิมของลูกค้ารายนี้ในระบบ<br />
+                              <span className="text-slate-400 text-[11px]">สามารถเลือกซื้อคอร์สใหม่ได้ที่แท็บ "🎫 ซื้อคอสเพิ่ม"</span>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-0.5">
+                              {customerAllCourses.map((c) => {
+                                const cName = String(getFuzzyKey(c, ["ชื่อคอส", "ชื่อคอร์ส", "col_8", "col_4"]) || c.name || '').replace(/เบิกใช้:\s*/g, '');
+                                const cNo = String(getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"]) || '');
+                                const remainQty = Number(c.computedRemainQty ?? 0);
+                                const totalQty = Number(getFuzzyKey(c, ["จำนวนครั้ง", "col_7", "col_6"]) || 0);
+                                const cPrice = parseNumber(getFuzzyKey(c, ["ราคา", "col_5", "ราคาขาย"])) || 0;
+                                
+                                const matchedMaster = masterCourses.find(mc => {
+                                  const mcName = String(getFuzzyKey(mc, ["ชื่อคอส", "col_4"]) || mc.name || '').trim().toLowerCase();
+                                  const cleanCName = cName.trim().toLowerCase();
+                                  return mcName && cleanCName && (mcName === cleanCName || mcName.includes(cleanCName) || cleanCName.includes(mcName));
+                                });
+
+                                const cartRenewItem = cart.find(i => (i.id === `renew_${c.id}` || i.id === c.id || (matchedMaster && (i.courseId === matchedMaster.id || i.id === matchedMaster.id))) && i.type === 'course');
+
+                                return (
+                                  <div key={c.id} className="p-3 bg-white rounded-xl border border-amber-200/80 shadow-2xs flex flex-col justify-between gap-2 hover:border-amber-300 transition-all">
+                                    <div>
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div className="font-bold text-slate-800 text-xs leading-tight">{cName}</div>
+                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
+                                          remainQty > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'
+                                        }`}>
+                                          {remainQty > 0 ? `เหลือ ${remainQty}/${totalQty} ครั้ง` : 'หมดแล้ว'}
+                                        </span>
+                                      </div>
+                                      <div className="text-[10px] text-slate-400 mt-1 flex items-center justify-between">
+                                        <span>เลขที่: {cNo || c.id}</span>
+                                        <span className="font-bold text-amber-700">฿{cPrice.toLocaleString()}</span>
+                                      </div>
+                                    </div>
+
+                                    <div className="pt-1.5 border-t border-slate-100 flex items-center justify-end">
+                                      {cartRenewItem ? (
+                                        <div className="flex items-center gap-1 text-xs font-bold text-amber-800 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200">
+                                          <Check size={12} className="text-amber-600" /> อยู่ในบิลแล้ว ({cartRenewItem.qty} คอร์ส)
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (matchedMaster && Array.isArray(matchedMaster.promoOptions) && matchedMaster.promoOptions.length > 0) {
+                                              setSelectedCourseForPromoModal(matchedMaster);
+                                            } else if (matchedMaster) {
+                                              addToCart(matchedMaster, 'course');
+                                              showToast(`เพิ่มต่อคอร์ส "${cName}" ลงในบิลแล้ว`, 'success');
+                                            } else {
+                                              addToCart({
+                                                id: `renew_${c.id || Date.now()}`,
+                                                name: `ต่อคอร์ส: ${cName}`,
+                                                "ชื่อคอส": cName,
+                                                "col_4": cName,
+                                                "ราคา": cPrice,
+                                                "col_5": cPrice,
+                                                "จำนวนครั้ง": totalQty || 1,
+                                                "col_7": totalQty || 1,
+                                              }, 'course');
+                                              showToast(`เพิ่มต่อคอร์ส "${cName}" ลงในบิลแล้ว`, 'success');
+                                            }
+                                          }}
+                                          className="w-full py-1.5 px-2.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-xs flex items-center justify-center gap-1 active:scale-95 transition-all"
+                                        >
+                                          <RefreshCw size={12} /> ต่อคอร์สเดิม (฿{cPrice.toLocaleString()})
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ) : singleCourseTabModal === 'buy_course' ? (
+                        <div className="p-3 bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 rounded-2xl border border-indigo-200 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-indigo-900 flex items-center gap-1.5">
+                              <Ticket size={14} className="text-indigo-600" /> คอร์สทั้งหมด ({filteredModalMasterCourses.length} รายการ):
+                            </span>
+                            <span className="text-[10px] text-indigo-700 font-medium">
+                              แตะแพ็กเกจหรือกดซื้อเพื่อเพิ่มลงบิล
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-0.5">
+                            {filteredModalMasterCourses.slice(0, 30).map((mc) => {
+                              const mcName = String(getFuzzyKey(mc, ["ชื่อคอส", "col_4"]) || mc.name || '');
+                              const mcCode = String(getFuzzyKey(mc, ["รหัสคอส", "col_1", "รหัส"]) || mc.code || '');
+                              const mcPrice = parseNumber(getFuzzyKey(mc, ["ราคา", "col_5", "ราคาขาย"])) || 0;
+                              const mcSessions = getFuzzyKey(mc, ["จำนวนครั้ง", "col_7", "col_6"]) || 1;
+                              const mcFreeGift = mc.freeGift || (mc.promoOptions?.find(o => o.freeGift)?.freeGift) || '';
+                              const hasOptions = Array.isArray(mc.promoOptions) && mc.promoOptions.length > 0;
+
+                              return (
+                                <div key={mc.id} className="p-2.5 bg-white rounded-xl border border-indigo-100 hover:border-indigo-300 shadow-2xs flex flex-col justify-between gap-1.5 transition-all">
+                                  <div>
+                                    <div className="flex items-start justify-between gap-1.5">
+                                      <div className="font-bold text-slate-800 text-xs leading-tight">{mcName}</div>
+                                      {mcCode && <span className="text-[9px] font-mono bg-slate-100 text-slate-600 px-1 py-0.5 rounded shrink-0">{mcCode}</span>}
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500">
+                                      <span>{mcSessions} ครั้ง</span>
+                                      {mcFreeGift && (
+                                        <span className="text-pink-600 font-bold bg-pink-50 px-1.5 py-0.2 rounded border border-pink-100 flex items-center gap-0.5">
+                                          🎁 ฟรี {mcFreeGift}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {hasOptions ? (
+                                    <div className="pt-1.5 border-t border-slate-100 space-y-1">
+                                      <div className="text-[10px] text-indigo-600 font-bold">เลือกแพ็กเกจ:</div>
+                                      <div className="flex flex-wrap gap-1">
+                                        {mc.promoOptions.map(opt => (
+                                          <button
+                                            key={opt.id || opt.name}
+                                            type="button"
+                                            onClick={() => {
+                                              addToCart(mc, 'course', null, opt);
+                                              showToast(`เพิ่ม "${opt.name}" ลงในบิลแล้ว`, 'success');
+                                            }}
+                                            className="px-2 py-1 rounded-lg text-[10px] font-bold bg-indigo-50 hover:bg-indigo-600 hover:text-white text-indigo-700 border border-indigo-200 transition-all active:scale-95 flex items-center gap-1 shadow-2xs"
+                                          >
+                                            <span>{opt.name}</span>
+                                            <span className="font-extrabold">฿{Number(opt.price).toLocaleString()}</span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between">
+                                      <span className="text-xs font-black text-indigo-600">฿{mcPrice.toLocaleString()}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          addToCart(mc, 'course');
+                                          showToast(`เพิ่มคอร์ส "${mcName}" ลงในบิลแล้ว`, 'success');
+                                        }}
+                                        className="py-1 px-2.5 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-2xs flex items-center gap-1 active:scale-95 transition-all"
+                                      >
+                                        <Plus size={11} /> ซื้อคอร์สนี้
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : singleCourseTabModal === 'products' ? (
+                        <div className="p-3 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-green-500/10 rounded-2xl border border-emerald-200 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-emerald-900 flex items-center gap-1.5">
+                              <Package size={14} className="text-emerald-600" /> สินค้าหน้าร้าน ({filteredModalProducts.length} รายการ):
+                            </span>
+                            <span className="text-[10px] text-emerald-700 font-medium">
+                              เลือกสินค้าเพิ่มลงบิล
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-0.5">
+                            {filteredModalProducts.slice(0, 30).map((prod) => {
+                              const pName = String(getFuzzyKey(prod, ["ชื่อสินค้า", "col_2"]) || prod.name || '');
+                              const pPrice = computeFinalPrice(prod, isVipCustomer);
+                              const branchStock = getBranchStock(prod, globalBranch);
+                              const cartProd = cart.find(i => i.id === prod.id && i.type === 'product');
+
+                              return (
+                                <div key={prod.id} className="p-2.5 bg-white rounded-xl border border-emerald-100 hover:border-emerald-300 shadow-2xs flex flex-col justify-between gap-1.5 transition-all">
+                                  <div>
+                                    <div className="font-bold text-slate-800 text-xs leading-tight truncate">{pName}</div>
+                                    <div className="flex items-center justify-between mt-1 text-[10px]">
+                                      <span className="font-black text-emerald-700 text-xs">฿{pPrice.toLocaleString()}</span>
+                                      <span className={branchStock > 0 ? "text-slate-400 font-medium" : "text-amber-600 font-bold"}>
+                                        คงเหลือ {branchStock} ชิ้น
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="pt-1.5 border-t border-slate-100 flex items-center justify-end">
+                                    {cartProd ? (
+                                      <div className="flex items-center justify-between w-full bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-0.5">
+                                        <span className="text-[10px] font-black text-emerald-800">
+                                          ในบิล (+฿{(pPrice * cartProd.qty).toLocaleString()})
+                                        </span>
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => updateCartQty(cartProd.id, 'product', -1)}
+                                            className="w-5 h-5 flex items-center justify-center bg-white rounded text-emerald-800 font-black hover:bg-emerald-200 text-xs"
+                                          >
+                                            -
+                                          </button>
+                                          <span className="w-4 text-center font-black text-xs text-emerald-900">{cartProd.qty}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => updateCartQty(cartProd.id, 'product', 1)}
+                                            className="w-5 h-5 flex items-center justify-center bg-white rounded text-emerald-800 font-black hover:bg-emerald-200 text-xs"
+                                          >
+                                            +
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          addToCart(prod, 'product');
+                                          showToast(`เพิ่ม "${pName}" ลงในบิลแล้ว`, 'success');
+                                        }}
+                                        className="w-full py-1.5 px-2.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-600 hover:text-white border border-emerald-200 shadow-2xs flex items-center justify-center gap-1 active:scale-95 transition-all"
+                                      >
+                                        <Plus size={11} /> เพิ่มลงบิล (฿{pPrice.toLocaleString()})
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : singleCourseTabModal === 'basic' ? (
                         <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-bold text-slate-800">
@@ -8024,6 +8604,58 @@ export default function POSSystem({
                                 </button>
                               );
                             })}
+                          </div>
+                        </div>
+                      ) : (
+                        /* singleCourseTabModal === 'all' */
+                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                          <div className="text-xs font-black text-slate-800">📋 บริการและคอร์สทั้งหมด:</div>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setSingleCourseTabModal('machine')}
+                              className="p-3 bg-white rounded-xl border border-pink-200 hover:border-pink-400 text-left transition-all group"
+                            >
+                              <div className="text-base mb-1">⚡</div>
+                              <div className="text-xs font-bold text-slate-800 group-hover:text-pink-600">ลงเครื่องรายครั้ง</div>
+                              <div className="text-[10px] text-slate-400">12 เครื่องยอดนิยม</div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSingleCourseTabModal('buy_course')}
+                              className="p-3 bg-white rounded-xl border border-indigo-200 hover:border-indigo-400 text-left transition-all group"
+                            >
+                              <div className="text-base mb-1">🎫</div>
+                              <div className="text-xs font-bold text-slate-800 group-hover:text-indigo-600">ซื้อคอสเพิ่ม</div>
+                              <div className="text-[10px] text-slate-400">{masterCourses.length} รายการ</div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSingleCourseTabModal('products')}
+                              className="p-3 bg-white rounded-xl border border-emerald-200 hover:border-emerald-400 text-left transition-all group"
+                            >
+                              <div className="text-base mb-1">🛍️</div>
+                              <div className="text-xs font-bold text-slate-800 group-hover:text-emerald-600">ซื้อสินค้า</div>
+                              <div className="text-[10px] text-slate-400">{products.length} รายการ</div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSingleCourseTabModal('renew')}
+                              className="p-3 bg-white rounded-xl border border-amber-200 hover:border-amber-400 text-left transition-all group"
+                            >
+                              <div className="text-base mb-1">🔄</div>
+                              <div className="text-xs font-bold text-slate-800 group-hover:text-amber-600">ต่อคอสเดิม</div>
+                              <div className="text-[10px] text-slate-400">{customerAllCourses.length} รายการ</div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSingleCourseTabModal('basic')}
+                              className="p-3 bg-white rounded-xl border border-cyan-200 hover:border-cyan-400 text-left transition-all group"
+                            >
+                              <div className="text-base mb-1">💆</div>
+                              <div className="text-xs font-bold text-slate-800 group-hover:text-cyan-600">บริการพื้นฐาน</div>
+                              <div className="text-[10px] text-slate-400">ทรีตเมนต์/มาร์คหน้า</div>
+                            </button>
                           </div>
                         </div>
                       )}
@@ -8324,8 +8956,11 @@ export default function POSSystem({
                            return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ขายคอร์ส', 'error');
                        }
                        // If payment not initialized yet, default to transfer or total
-                       if (!splitPayment.cash && !splitPayment.transfer && !splitPayment.cod && !splitPayment.credit) {
+                       const currentCovered = (Number(splitPayment.cash) || 0) + (Number(splitPayment.transfer) || 0) + (Number(splitPayment.cod) || 0) + (Number(splitPayment.credit) || 0);
+                       if (total > 0 && currentCovered === 0) {
                            setSplitPayment({ cash: 0, transfer: total, cod: 0, credit: 0 });
+                       } else if (total > 0 && currentCovered < total && splitPayment.transfer > 0) {
+                           setSplitPayment(prev => ({ ...prev, transfer: Math.max(0, total - (Number(prev.cash) || 0) - (Number(prev.cod) || 0) - (Number(prev.credit) || 0)) }));
                        }
                        setCheckoutStep(2);
                     }}
