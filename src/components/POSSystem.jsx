@@ -8649,10 +8649,9 @@ export default function POSSystem({
                                       </div>
                                       <div className="text-[10px] text-slate-400 mt-1 flex items-center justify-between">
                                         <span>เลขที่: {cNo || c.id}</span>
-                                        <span className="font-bold text-amber-700">฿{cPrice.toLocaleString()}</span>
+                                        <span>฿{cPrice.toLocaleString()}</span>
                                       </div>
                                     </div>
-
                                     <div className="pt-1.5 border-t border-slate-100 flex items-center justify-end">
                                       {cartRenewItem ? (
                                         <div className="flex items-center gap-1 text-xs font-bold text-amber-800 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200">
@@ -9474,10 +9473,10 @@ export default function POSSystem({
     })()}
 
     {/* 📸 Dedicated Modal: จัดการรูปถ่ายและลายเซ็นรับบริการ (แยกออกมาอีกโมดัล) */}
-    <div className={`fixed inset-0 z-[80] items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm print:hidden ${showServiceProofModal ? 'flex' : 'hidden'}`}>
-      <div className="bg-white rounded-3xl p-5 sm:p-6 w-full max-w-xl shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+    <div className={`fixed inset-0 z-[80] items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm print:hidden ${showServiceProofModal ? 'flex' : 'hidden'}`}>
+      <div className="bg-white rounded-3xl p-4 sm:p-6 w-full max-w-2xl shadow-2xl flex flex-col max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
         {/* Modal Header */}
-        <div className="flex justify-between items-center pb-3 border-b border-slate-100 mb-4">
+        <div className="flex justify-between items-center pb-3 border-b border-slate-100 mb-3.5">
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white flex items-center justify-center shadow-md shrink-0">
               <Camera size={20} />
@@ -9487,7 +9486,7 @@ export default function POSSystem({
                 จัดการรูปถ่ายและลายเซ็นรับบริการ
               </h3>
               <p className="text-[11px] text-slate-500 font-medium">
-                บันทึกหลักฐานภาพถ่าย Before/After และลายเซ็นลูกค้า & พนักงาน
+                บันทึกภาพ Before/After สองฝั่งชัดเจน พร้อมกรอบรีวิวผลการรักษา
               </p>
             </div>
           </div>
@@ -9503,113 +9502,258 @@ export default function POSSystem({
         {/* Modal Body */}
         <div className="space-y-4">
           {/* Status & Timer Card */}
-          <div className="bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 rounded-2xl p-4 text-white shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative overflow-hidden">
+          <div className="bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-600 rounded-2xl p-3.5 sm:p-4 text-white shadow-sm relative overflow-hidden">
             <div className="absolute right-0 top-0 w-32 h-32 bg-white/10 rounded-full blur-xl -mr-8 -mt-8 pointer-events-none" />
-            <div className="min-w-0 relative z-10">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs sm:text-sm font-black tracking-wide">
-                  {paymentPhotos.before.length > 0 ? '🟢 เริ่มให้บริการแล้ว (กำลังทำทรีตเมนต์)' : '📸 ถ่ายรูปแรก Before เพื่อเริ่มจับเวลา'}
-                </span>
-                {paymentPhotos.before.length > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-400 text-emerald-950 shadow-xs animate-pulse">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-950 animate-ping" />
-                    {(() => {
-                      const firstUsage = cart.find(i => i.type === 'usage');
-                      const cInfo = firstUsage ? activeServiceCourses[firstUsage.id] : null;
-                      return cInfo?.startTime ? getServiceElapsedStr(cInfo.startTime) : 'กำลังให้บริการ';
-                    })()}
+            <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs sm:text-sm font-black tracking-wide">
+                    {paymentPhotos.before.length > 0 ? '🟢 เริ่มให้บริการแล้ว (กำลังทำทรีตเมนต์)' : '📸 เช็คอินและถ่ายรูปผลลัพธ์การให้บริการ'}
                   </span>
-                )}
+                  {paymentPhotos.before.length > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-400 text-emerald-950 shadow-xs animate-pulse">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-950 animate-ping" />
+                      {(() => {
+                        const firstUsage = cart.find(i => i.type === 'usage');
+                        const cInfo = firstUsage ? activeServiceCourses[firstUsage.id] : null;
+                        return cInfo?.startTime ? getServiceElapsedStr(cInfo.startTime) : 'กำลังให้บริการ';
+                      })()}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-white/80 mt-1 leading-snug">
+                  ถ่ายรูป Before ก่อนทำ และรูป After หลังทำ เพื่อดูผลลัพธ์และเก็บเป็นกรอบรีวิวผลการรักษา
+                </p>
               </div>
-              <p className="text-[11px] text-white/80 mt-0.5 leading-snug">
-                {paymentPhotos.before.length > 0
-                  ? `บันทึกรูปก่อนทำแล้ว (${paymentPhotos.before.length} รูป) • สามารถถ่ายรูป After เพิ่มได้เมื่อทำเสร็จ`
-                  : 'แตะปุ่มด้านขวาเพื่อเปิดกล้องถ่ายรูป Before'}
-              </p>
-            </div>
 
-            {/* Photo Upload Buttons */}
-            <div className="flex items-center gap-2 shrink-0 relative z-10">
-              <input 
-                type="file" 
-                accept="image/*" 
-                capture="environment" 
-                multiple 
-                className="hidden" 
-                id="modal-upload-before" 
-                onChange={handleUploadBeforePhoto} 
-              />
-              <label 
-                htmlFor="modal-upload-before" 
-                className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all ${
-                  paymentPhotos.before.length > 0 
-                    ? 'bg-white/20 hover:bg-white/30 text-white border border-white/30' 
-                    : 'bg-white text-indigo-700 hover:bg-indigo-50 shadow-md ring-2 ring-white/50'
-                }`}
-              >
-                <Camera size={14} />
-                <span>{paymentPhotos.before.length > 0 ? `+ Before (${paymentPhotos.before.length})` : 'ถ่ายรูปก่อนทำ (Before)'}</span>
-              </label>
-
-              <input 
-                type="file" 
-                accept="image/*" 
-                capture="environment" 
-                multiple 
-                className="hidden" 
-                id="modal-upload-after" 
-                onChange={handleUploadAfterPhoto} 
-              />
-              <label 
-                htmlFor="modal-upload-after" 
-                className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 transition-all ${
-                  paymentPhotos.after.length > 0 
-                    ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-md' 
-                    : 'bg-white/15 hover:bg-white/25 text-white/90 border border-white/20'
-                }`}
-              >
-                <Camera size={14} />
-                <span>{paymentPhotos.after.length > 0 ? `+ After (${paymentPhotos.after.length})` : 'ถ่ายรูปหลังทำ (After)'}</span>
-              </label>
+              {/* Summary Pill */}
+              <div className="shrink-0 flex items-center gap-1.5 text-[10px] font-bold bg-white/15 px-3 py-1.5 rounded-xl border border-white/20">
+                <span>Before: {paymentPhotos.before.length}</span>
+                <span>•</span>
+                <span>After: {paymentPhotos.after.length}</span>
+              </div>
             </div>
           </div>
 
-          {/* Photo Preview Strip */}
-          {(paymentPhotos.before.length > 0 || paymentPhotos.after.length > 0) && (
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl">
-              <div className="text-[11px] font-bold text-slate-600 mb-2 flex items-center justify-between">
-                <span>รูปถ่ายหลักฐาน ({paymentPhotos.before.length + paymentPhotos.after.length} รูป):</span>
-                <span className="text-[10px] text-slate-400">Before: {paymentPhotos.before.length} • After: {paymentPhotos.after.length}</span>
+          {/* 🌟 2-COLUMN PHOTO SECTION: จัดรูปสองฝั่งให้ชัดเป็นระเบียบ (Left: Before, Right: After) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            {/* ฝั่งซ้าย: รูปก่อนทำ (BEFORE) */}
+            <div className="bg-slate-50/90 border-2 border-indigo-200/90 rounded-2xl p-3.5 flex flex-col justify-between shadow-2xs">
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center text-xs font-black shadow-xs">
+                      B
+                    </div>
+                    <div>
+                      <div className="text-xs font-black text-slate-800">รูปก่อนทำ (Before)</div>
+                      <div className="text-[10px] text-indigo-700 font-semibold">
+                        {paymentPhotos.before.length > 0 ? `บันทึกแล้ว ${paymentPhotos.before.length} รูป` : 'ควรถ่ายก่อนเริ่มทำบริการ'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    capture="environment" 
+                    multiple 
+                    className="hidden" 
+                    id="modal-upload-before" 
+                    onChange={handleUploadBeforePhoto} 
+                  />
+                  <label 
+                    htmlFor="modal-upload-before" 
+                    className="px-2.5 py-1.5 rounded-xl text-[11px] font-black bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1 cursor-pointer shadow-xs active:scale-95 transition-all"
+                  >
+                    <Camera size={13} />
+                    <span>{paymentPhotos.before.length > 0 ? '+ เพิ่มรูป' : 'ถ่ายรูป Before'}</span>
+                  </label>
+                </div>
+
+                {/* Before Preview Frame */}
+                {paymentPhotos.before.length === 0 ? (
+                  <label 
+                    htmlFor="modal-upload-before" 
+                    className="w-full h-40 rounded-xl border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-white hover:bg-indigo-50/40 flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all group"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-indigo-50 group-hover:bg-indigo-100 text-indigo-600 flex items-center justify-center transition-colors">
+                      <Camera size={20} />
+                    </div>
+                    <span className="text-xs font-bold text-indigo-900">แตะเพื่อถ่ายรูป Before</span>
+                    <span className="text-[10px] text-slate-400">ถ่ายรูปผิวก่อนเริ่มทำทรีตเมนต์</span>
+                  </label>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Main big preview (first image) */}
+                    <div className="relative rounded-xl overflow-hidden border-2 border-indigo-300 shadow-xs bg-slate-900 aspect-4/3 group">
+                      <img src={paymentPhotos.before[0]} alt="Before" className="w-full h-full object-cover" />
+                      <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-indigo-950/90 backdrop-blur-xs text-[10px] font-black text-white shadow-xs border border-white/20">
+                        BEFORE (ก่อนทำ)
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={() => setPaymentPhotos(p => ({ ...p, before: p.before.filter((_, i) => i !== 0) }))}
+                        className="absolute top-2 right-2 w-6 h-6 bg-rose-600 hover:bg-rose-700 text-white rounded-full flex items-center justify-center text-xs font-black shadow-md cursor-pointer transition-transform active:scale-90"
+                        title="ลบรูป"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    {/* Additional thumbnails if more than 1 */}
+                    {paymentPhotos.before.length > 1 && (
+                      <div className="flex gap-1.5 overflow-x-auto pb-1">
+                        {paymentPhotos.before.slice(1).map((img, idx) => (
+                          <div key={`b-sub-${idx}`} className="relative shrink-0 w-12 h-12 rounded-lg overflow-hidden border border-indigo-200 group">
+                            <img src={img} alt="Before" className="w-full h-full object-cover" />
+                            <button 
+                              type="button" 
+                              onClick={() => setPaymentPhotos(p => ({ ...p, before: p.before.filter((_, i) => i !== idx + 1) }))}
+                              className="absolute -top-1 -right-1 w-4 h-4 bg-rose-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shadow-xs cursor-pointer"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                {paymentPhotos.before.map((img, idx) => (
-                  <div key={`modal-b-${idx}`} className="relative shrink-0 group">
-                    <img src={img} alt="Before" className="w-16 h-16 object-cover rounded-xl border-2 border-indigo-400 shadow-xs" />
-                    <span className="absolute bottom-0 inset-x-0 bg-indigo-950/85 text-[8px] text-center text-white font-bold py-0.5 rounded-b-xl">Before</span>
-                    <button 
-                      type="button" 
-                      onClick={() => setPaymentPhotos(p => ({ ...p, before: p.before.filter((_, i) => i !== idx) }))}
-                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold shadow-xs hover:bg-red-600 cursor-pointer"
-                      title="ลบรูป"
-                    >
-                      ×
-                    </button>
+            </div>
+
+            {/* ฝั่งขวา: รูปหลังทำ (AFTER) */}
+            <div className="bg-slate-50/90 border-2 border-emerald-200/90 rounded-2xl p-3.5 flex flex-col justify-between shadow-2xs">
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs font-black shadow-xs">
+                      A
+                    </div>
+                    <div>
+                      <div className="text-xs font-black text-slate-800">รูปหลังทำ (After)</div>
+                      <div className="text-[10px] text-emerald-700 font-semibold">
+                        {paymentPhotos.after.length > 0 ? `บันทึกแล้ว ${paymentPhotos.after.length} รูป` : 'ถ่ายเมื่อทำทรีตเมนต์เสร็จ'}
+                      </div>
+                    </div>
                   </div>
-                ))}
-                {paymentPhotos.after.map((img, idx) => (
-                  <div key={`modal-a-${idx}`} className="relative shrink-0 group">
-                    <img src={img} alt="After" className="w-16 h-16 object-cover rounded-xl border-2 border-emerald-400 shadow-xs" />
-                    <span className="absolute bottom-0 inset-x-0 bg-emerald-950/85 text-[8px] text-center text-white font-bold py-0.5 rounded-b-xl">After</span>
-                    <button 
-                      type="button" 
-                      onClick={() => setPaymentPhotos(p => ({ ...p, after: p.after.filter((_, i) => i !== idx) }))}
-                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold shadow-xs hover:bg-red-600 cursor-pointer"
-                      title="ลบรูป"
-                    >
-                      ×
-                    </button>
+
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    capture="environment" 
+                    multiple 
+                    className="hidden" 
+                    id="modal-upload-after" 
+                    onChange={handleUploadAfterPhoto} 
+                  />
+                  <label 
+                    htmlFor="modal-upload-after" 
+                    className="px-2.5 py-1.5 rounded-xl text-[11px] font-black bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1 cursor-pointer shadow-xs active:scale-95 transition-all"
+                  >
+                    <Camera size={13} />
+                    <span>{paymentPhotos.after.length > 0 ? '+ เพิ่มรูป' : 'ถ่ายรูป After'}</span>
+                  </label>
+                </div>
+
+                {/* After Preview Frame */}
+                {paymentPhotos.after.length === 0 ? (
+                  <label 
+                    htmlFor="modal-upload-after" 
+                    className="w-full h-40 rounded-xl border-2 border-dashed border-emerald-200 hover:border-emerald-400 bg-white hover:bg-emerald-50/40 flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all group"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-emerald-50 group-hover:bg-emerald-100 text-emerald-600 flex items-center justify-center transition-colors">
+                      <Sparkles size={20} />
+                    </div>
+                    <span className="text-xs font-bold text-emerald-900">แตะเพื่อถ่ายรูป After</span>
+                    <span className="text-[10px] text-slate-400">ถ่ายรูปหลังทำเพื่อเปรียบเทียบผลลัพธ์</span>
+                  </label>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Main big preview (first image) */}
+                    <div className="relative rounded-xl overflow-hidden border-2 border-emerald-300 shadow-xs bg-slate-900 aspect-4/3 group">
+                      <img src={paymentPhotos.after[0]} alt="After" className="w-full h-full object-cover" />
+                      <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-emerald-950/90 backdrop-blur-xs text-[10px] font-black text-white shadow-xs border border-white/20">
+                        AFTER (หลังทำ)
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={() => setPaymentPhotos(p => ({ ...p, after: p.after.filter((_, i) => i !== 0) }))}
+                        className="absolute top-2 right-2 w-6 h-6 bg-rose-600 hover:bg-rose-700 text-white rounded-full flex items-center justify-center text-xs font-black shadow-md cursor-pointer transition-transform active:scale-90"
+                        title="ลบรูป"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    {/* Additional thumbnails if more than 1 */}
+                    {paymentPhotos.after.length > 1 && (
+                      <div className="flex gap-1.5 overflow-x-auto pb-1">
+                        {paymentPhotos.after.slice(1).map((img, idx) => (
+                          <div key={`a-sub-${idx}`} className="relative shrink-0 w-12 h-12 rounded-lg overflow-hidden border border-emerald-200 group">
+                            <img src={img} alt="After" className="w-full h-full object-cover" />
+                            <button 
+                              type="button" 
+                              onClick={() => setPaymentPhotos(p => ({ ...p, after: p.after.filter((_, i) => i !== idx + 1) }))}
+                              className="absolute -top-1 -right-1 w-4 h-4 bg-rose-600 text-white rounded-full flex items-center justify-center text-[10px] font-black shadow-xs cursor-pointer"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ))}
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* 🌟 3. กรอบรีวิวผลการรักษา (Before & After Clinic Review Frame) */}
+          {paymentPhotos.before.length > 0 && paymentPhotos.after.length > 0 && (
+            <div className="p-3.5 bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950 rounded-2xl text-white shadow-lg border border-purple-400/40 relative overflow-hidden animate-in fade-in duration-300">
+              <div className="flex items-center justify-between mb-2.5">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles size={14} className="text-amber-300 animate-spin" />
+                  <span className="text-xs font-black tracking-wide text-amber-200">
+                    กรอบรีวิวเปรียบเทียบผลลัพธ์ (Before & After Review Card)
+                  </span>
+                </div>
+                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-white/10 text-white/90 border border-white/20">
+                  Iris Clinic
+                </span>
+              </div>
+
+              {/* Side-by-side Review Frame */}
+              <div className="grid grid-cols-2 gap-2 relative rounded-xl overflow-hidden p-1 bg-black/40 border border-white/10">
+                <div className="relative aspect-4/3 rounded-lg overflow-hidden">
+                  <img src={paymentPhotos.before[0]} alt="Review Before" className="w-full h-full object-cover" />
+                  <div className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded bg-black/80 backdrop-blur-xs text-[9px] font-black tracking-wider text-amber-200 border border-amber-300/30">
+                    BEFORE
+                  </div>
+                </div>
+
+                <div className="relative aspect-4/3 rounded-lg overflow-hidden">
+                  <img src={paymentPhotos.after[0]} alt="Review After" className="w-full h-full object-cover" />
+                  <div className="absolute bottom-1.5 right-1.5 px-2 py-0.5 rounded bg-emerald-950/85 backdrop-blur-xs text-[9px] font-black tracking-wider text-emerald-200 border border-emerald-300/30">
+                    AFTER
+                  </div>
+                </div>
+
+                {/* Center comparison badge */}
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white text-slate-900 font-black text-[10px] flex items-center justify-center shadow-lg border-2 border-purple-500">
+                  VS
+                </div>
+              </div>
+
+              <div className="mt-2 flex items-center justify-between text-[10px] text-white/70">
+                <div className="truncate font-medium">
+                  {selectedCustomer?.computedName || selectedCustomer?.name || 'ลูกค้าผู้รับบริการ'} • {String(cart.find(i => i.type === 'usage')?.name || 'คอร์สทรีตเมนต์').replace(/เบิกใช้:\s*/g, '')}
+                </div>
+                <div className="shrink-0 font-mono">
+                  {new Date().toLocaleDateString('th-TH')}
+                </div>
               </div>
             </div>
           )}
