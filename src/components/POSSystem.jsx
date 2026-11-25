@@ -5346,12 +5346,15 @@ export default function POSSystem({
         <div className="block lg:hidden mb-2 relative z-50">
            {selectedCustomer ? (
               <>
-              <div className="flex items-center justify-between bg-indigo-50 p-3 rounded-xl border border-indigo-200 shadow-sm">
-                 <div className="flex items-start gap-3 w-full">
-                    <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-white flex items-center justify-center border border-indigo-100">
+              <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-indigo-200 shadow-2xs hover:shadow-xs transition-all">
+                {/* Line 1: Avatar + Name + Badges + Actions */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    {/* Avatar (compact 34px) */}
+                    <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full overflow-hidden shrink-0 bg-indigo-50 border border-indigo-200 flex items-center justify-center shadow-2xs">
                       {selectedCustomer.isWalkIn ? (
                         <div className={`w-full h-full ${isVipCustomer ? 'bg-gradient-to-r from-amber-500 to-yellow-500' : 'bg-gradient-to-r from-amber-500 to-orange-500'} text-white flex items-center justify-center`}>
-                          <WalkingPersonIcon size={20} className="text-white" />
+                          <WalkingPersonIcon size={16} className="text-white" />
                         </div>
                       ) : (() => {
                         const picData = getProfilePicData(selectedCustomer, customers);
@@ -5365,158 +5368,178 @@ export default function POSSystem({
                             />
                           );
                         }
-                        return <User size={16} className="text-indigo-500" />;
+                        return <User size={15} className="text-indigo-600" />;
                       })()}
                     </div>
-                    <div className="flex-1 min-w-0">
-                       <div className="font-bold text-slate-800 text-sm flex items-center gap-1.5 flex-wrap truncate">
-                           <span className="truncate">{selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]))}</span>
-                           {selectedCustomer.isWalkIn && (
-                             <span className="bg-orange-100 text-orange-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-orange-200 shrink-0">
-                               <WalkingPersonIcon size={11} className="text-orange-600" /> Walk-in
-                             </span>
-                           )}
-                           {isVipCustomer ? (
-                             <span className="bg-gradient-to-r from-amber-500 to-yellow-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs shrink-0">
-                               <Award size={10} className="text-yellow-200" /> สิทธิ์บัตรสมาชิก
-                             </span>
-                           ) : (
-                             <span className="bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200 shrink-0">
-                               ทั่วไป
-                             </span>
-                           )}
-                           {onViewCustomerProfile && !selectedCustomer.isWalkIn && (
-                              <button 
-                                onClick={() => {
-                                  onViewCustomerProfile(selectedCustomer);
-                                }}
-                                className="ml-auto text-[10px] bg-white hover:bg-indigo-100 text-indigo-600 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 font-bold border border-indigo-100 shrink-0"
-                              >
-                                <User size={10} />
-                                ดูประวัติ
-                              </button>
-                           )}
-                       </div>
-                       <div className="text-xs text-slate-500 mb-1">{selectedCustomer.computedPhone || String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]))}</div>
 
-                       {/* Status Toggle: ลูกค้าทั่วไป (สีส้ม) vs มีสิทธิ์ส่วนลดบัตรสมาชิก (สีเขียว) */}
-                       <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 mt-1.5">
-                         <button
-                           type="button"
-                           onClick={() => {
-                             setSelectedCustomer(prev => ({
-                               ...prev,
-                               hasMemberCard: false,
-                               isApproved: false,
-                               isMemberDiscount: false
-                             }));
-                             showToast('เลือกสถานะ: ลูกค้าทั่วไป (ราคาปกติ)', 'info');
-                           }}
-                           className={`flex-1 py-1 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                             !isVipCustomer
-                               ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-2xs font-black'
-                               : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-                           }`}
-                         >
-                           <WalkingPersonIcon size={12} className={!isVipCustomer ? "text-white" : "text-orange-500"} />
-                           <span>ทั่วไป</span>
-                         </button>
-                         <button
-                           type="button"
-                           onClick={() => {
-                             setSelectedCustomer(prev => ({
-                               ...prev,
-                               hasMemberCard: true,
-                               isApproved: true,
-                               isMemberDiscount: true
-                             }));
-                             showToast('เลือกสถานะ: มีสิทธิ์ส่วนลดบัตรสมาชิก (VIP Price) ⭐', 'success');
-                           }}
-                           className={`flex-1 py-1 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                             isVipCustomer
-                               ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-2xs font-black'
-                               : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-                           }`}
-                         >
-                           <Award size={12} className={isVipCustomer ? "text-yellow-200" : "text-emerald-600"} />
-                           <span>บัตรสมาชิก ⭐</span>
-                         </button>
-                       </div>
+                    {/* Name, Phone, and Edit button */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-black text-slate-800 text-xs sm:text-sm truncate">
+                          {selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]))}
+                        </span>
 
-                       {/* Action button to edit/specify name */}
-                       <button
-                         type="button"
-                         onClick={() => {
-                           setWalkInFormData({
-                             name: selectedCustomer.isWalkIn && selectedCustomer.computedName?.includes('ลูกค้าทั่วไป') ? '' : (selectedCustomer.computedName || selectedCustomer["ชื่อ"] || ''),
-                             phone: selectedCustomer.computedPhone === '-' ? '' : (selectedCustomer.computedPhone || selectedCustomer["เบอร์โทร"] || ''),
-                             isMember: Boolean(isVipCustomer),
-                             issue: selectedCustomer.computedIssue || selectedCustomer.issue || '',
-                             saveToDb: true
-                           });
-                           setIsWalkInEditModalOpen(true);
-                         }}
-                         className="mt-1.5 w-full py-1.5 px-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-2xs"
-                       >
-                         <Edit size={12} className="text-indigo-600" />
-                         <span>{selectedCustomer.isWalkIn ? 'ระบุชื่อ-เบอร์ลูกค้า (อัปเดตข้อมูล)' : 'แก้ไขชื่อ-เบอร์ลูกค้า'}</span>
-                       </button>
+                        {selectedCustomer.isWalkIn ? (
+                          <span className="bg-orange-100 text-orange-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-orange-200 shrink-0">
+                            Walk-in
+                          </span>
+                        ) : isVipCustomer ? (
+                          <span className="bg-gradient-to-r from-amber-500 to-yellow-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full shadow-2xs shrink-0 flex items-center gap-0.5">
+                            <Award size={9} className="text-yellow-200" /> สมาชิก
+                          </span>
+                        ) : null}
 
-                       {!selectedCustomer.isWalkIn && (
-                         <div className="text-[10px] text-slate-500 w-full mt-1.5">
-                             <div className="flex justify-between mb-0.5">
-                                 <span>ยอดสะสม: ฿{vipStats.amount.toLocaleString()}</span>
-                                 {!isVipCustomer && <span>ขาด ฿{(5000 - vipStats.amount).toLocaleString()}</span>}
-                             </div>
-                             {!isVipCustomer && (
-                                 <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                                     <div className="bg-indigo-500 h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (vipStats.amount / 5000) * 100)}%` }}></div>
-                                 </div>
-                             )}
-                         </div>
-                       )}
-                       <div className="flex gap-2 mt-1">
-                          {customerPendingBalance > 0 && (
-                             <div className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full inline-block">ค้างชำระ ฿{customerPendingBalance.toLocaleString()}</div>
-                           )}
-                           {customerCreditBalance > 0 && (
-                             <div className="text-[10px] font-bold text-indigo-600 bg-orange-50 border border-orange-100 px-2 py-0.5 rounded-full inline-block">เครดิต ฿{customerCreditBalance.toLocaleString()}</div>
-                           )}
-                       </div>
+                        {/* Quick Edit Name/Phone icon button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWalkInFormData({
+                              name: selectedCustomer.isWalkIn && selectedCustomer.computedName?.includes('ลูกค้าทั่วไป') ? '' : (selectedCustomer.computedName || selectedCustomer["ชื่อ"] || ''),
+                              phone: selectedCustomer.computedPhone === '-' ? '' : (selectedCustomer.computedPhone || selectedCustomer["เบอร์โทร"] || ''),
+                              isMember: Boolean(isVipCustomer),
+                              issue: selectedCustomer.computedIssue || selectedCustomer.issue || '',
+                              saveToDb: true
+                            });
+                            setIsWalkInEditModalOpen(true);
+                          }}
+                          className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors cursor-pointer"
+                          title="แก้ไขชื่อ-เบอร์ลูกค้า"
+                        >
+                          <Edit size={11} />
+                        </button>
+                      </div>
 
-                       {/* 🌟 AI Skin Match Recommendation Banner 🌟 */}
-                       {(selectedCustomer.computedIssue || selectedCustomer.issue) && (
-                         <div className="mt-2 p-2 bg-gradient-to-r from-indigo-50/90 via-purple-50/80 to-teal-50/90 border border-indigo-100 rounded-xl flex items-center justify-between gap-1.5 text-xs shadow-2xs">
-                           <div className="min-w-0 flex-1 flex items-center gap-1.5 truncate">
-                             <Sparkles size={13} className="text-indigo-600 shrink-0" />
-                             <span className="text-[11px] text-slate-700 truncate">
-                               <strong className="text-indigo-900 font-bold">ปัญหาผิว:</strong> {selectedCustomer.computedIssue || selectedCustomer.issue}
-                             </span>
-                           </div>
-                           {(() => {
-                             const ai = analyzeSkinIssue(selectedCustomer.computedIssue || selectedCustomer.issue);
-                             if (!ai || !ai.courses.length) return null;
-                             const topCourse = ai.courses[0];
-                             return (
-                               <button 
-                                 type="button"
-                                 onClick={() => {
-                                   setActiveTab('courses');
-                                   setCourseSearch(topCourse.searchKey || '');
-                                 }}
-                                 className="text-[10px] font-black bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-0.5 rounded-lg shrink-0 shadow-xs active:scale-95 transition-all flex items-center gap-1"
-                                 title={`ค้นหาคอร์ส ${topCourse.name}`}
-                               >
-                                 <span>AI: {topCourse.shortName}</span>
-                                 <ChevronRight size={10} />
-                               </button>
-                             );
-                           })()}
-                         </div>
-                       )}
+                      <div className="text-[11px] text-slate-500 font-mono -mt-0.5 truncate">
+                        {selectedCustomer.computedPhone || String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]))}
+                      </div>
                     </div>
-                 </div>
-                 <button onClick={() => setSelectedCustomer(null)} className="p-2 text-slate-400 hover:text-red-500 bg-white rounded-full shadow-sm border border-indigo-100 self-start ml-2 shrink-0"><X size={16} /></button>
+                  </div>
+
+                  {/* Right actions: ดูประวัติ + Clear */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {onViewCustomerProfile && !selectedCustomer.isWalkIn && (
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          onViewCustomerProfile(selectedCustomer);
+                        }}
+                        className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 font-bold border border-indigo-100 cursor-pointer shadow-2xs"
+                        title="ดูประวัติลูกค้า"
+                      >
+                        <User size={10} />
+                        <span className="hidden xs:inline">ดูประวัติ</span>
+                      </button>
+                    )}
+
+                    <button 
+                      type="button"
+                      onClick={() => setSelectedCustomer(null)} 
+                      className="w-6 h-6 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors cursor-pointer"
+                      title="เปลี่ยนลูกค้า"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Line 2: Member Toggle Pill + Credit / Pending Badges + Accumulated */}
+                <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between gap-1.5 flex-wrap text-xs">
+                  {/* Member Toggle Pill (Compact & stylish) */}
+                  <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200/80 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCustomer(prev => ({
+                          ...prev,
+                          hasMemberCard: false,
+                          isApproved: false,
+                          isMemberDiscount: false
+                        }));
+                        showToast('เลือกสถานะ: ลูกค้าทั่วไป (ราคาปกติ)', 'info');
+                      }}
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                        !isVipCustomer
+                          ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-2xs font-black'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      <WalkingPersonIcon size={10} className={!isVipCustomer ? "text-white" : "text-orange-500"} />
+                      <span>ทั่วไป</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCustomer(prev => ({
+                          ...prev,
+                          hasMemberCard: true,
+                          isApproved: true,
+                          isMemberDiscount: true
+                        }));
+                        showToast('เลือกสถานะ: มีสิทธิ์ส่วนลดบัตรสมาชิก (VIP Price) ⭐', 'success');
+                      }}
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                        isVipCustomer
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-2xs font-black'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      <Award size={10} className={isVipCustomer ? "text-yellow-200" : "text-emerald-600"} />
+                      <span>บัตรสมาชิก ⭐</span>
+                    </button>
+                  </div>
+
+                  {/* Financial / VIP Badges: ยอดสะสม • เครดิต • ค้างชำระ */}
+                  <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+                    {!selectedCustomer.isWalkIn && (
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        สะสม: <strong className="text-slate-700 font-bold">฿{vipStats.amount.toLocaleString()}</strong>
+                      </span>
+                    )}
+
+                    {customerCreditBalance > 0 && (
+                      <span className="inline-flex items-center gap-1 bg-amber-50 text-indigo-700 border border-amber-200/80 px-2 py-0.5 rounded-full text-[10px] font-black shadow-2xs">
+                        เครดิต ฿{customerCreditBalance.toLocaleString()}
+                      </span>
+                    )}
+
+                    {customerPendingBalance > 0 && (
+                      <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-full text-[10px] font-black shadow-2xs animate-pulse">
+                        ค้าง ฿{customerPendingBalance.toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* AI Skin Issue hint (if available, compact inline) */}
+                {(selectedCustomer.computedIssue || selectedCustomer.issue) && (
+                  <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center justify-between gap-1 text-[10px] text-slate-600">
+                    <div className="min-w-0 flex items-center gap-1 truncate">
+                      <Sparkles size={11} className="text-indigo-600 shrink-0" />
+                      <span className="truncate">
+                        <strong className="text-indigo-900">ปัญหาผิว:</strong> {selectedCustomer.computedIssue || selectedCustomer.issue}
+                      </span>
+                    </div>
+                    {(() => {
+                      const ai = analyzeSkinIssue(selectedCustomer.computedIssue || selectedCustomer.issue);
+                      if (!ai || !ai.courses.length) return null;
+                      const topCourse = ai.courses[0];
+                      return (
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            setActiveTab('courses');
+                            setCourseSearch(topCourse.searchKey || '');
+                          }}
+                          className="text-[9px] font-black text-indigo-700 hover:text-indigo-900 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0 flex items-center gap-0.5"
+                        >
+                          <span>AI: {topCourse.shortName}</span>
+                          <ChevronRight size={10} />
+                        </button>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
               {renderCustomerContext()}
               </>
@@ -6951,199 +6974,212 @@ export default function POSSystem({
           <div className="relative">
             {selectedCustomer ? (
               <>
-              <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-indigo-200 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center overflow-hidden shrink-0 border border-indigo-200 shadow-sm">
-                    {selectedCustomer.isWalkIn ? (
-                      <div className={`w-full h-full ${isVipCustomer ? 'bg-gradient-to-r from-amber-500 to-yellow-500' : 'bg-gradient-to-r from-amber-500 to-orange-500'} text-white flex items-center justify-center`}>
-                        <WalkingPersonIcon size={20} className="text-white" />
-                      </div>
-                    ) : (() => {
-                      const picData = getProfilePicData(selectedCustomer, customers);
-                      if (picData && picData.primary) {
-                        return (
-                          <img 
-                            src={picData.primary} 
-                            onError={(e) => handleProfileImgError(e, picData.fallback)}
-                            alt="Profile"
-                            className="w-full h-full object-cover"
-                          />
-                        );
-                      }
-                      return <User size={20} />;
-                    })()}
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-semibold text-slate-800 flex items-center flex-wrap gap-2">
-                        {selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]))}
-                        {selectedCustomer.isWalkIn && (
-                          <span className="bg-orange-100 text-orange-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-orange-200">
-                            <WalkingPersonIcon size={12} className="text-orange-600" /> Walk-in
-                          </span>
-                        )}
-                        {isVipCustomer ? (
-                          <span className="bg-gradient-to-r from-amber-500 to-yellow-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
-                            <Award size={11} className="text-yellow-200" /> สิทธิ์บัตรสมาชิก
-                          </span>
-                        ) : (
-                          <span className="bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200">
-                            ทั่วไป
-                          </span>
-                        )}
-                        {orderChannel === 'shopee' && <span className="bg-orange-100 text-orange-600 text-[10px] font-bold px-1.5 py-0.5 rounded border border-orange-200 ml-1">ส่วนลดพิเศษ</span>}
-                        {(selectedCustomer.isApproved || vipStats.isVip) && (
-                          <button 
-                            onClick={() => onOpenVipForm(selectedCustomer)}
-                            className="bg-orange-500 hover:bg-orange-600 transition-colors text-white px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 active:scale-95 shadow-sm"
-                            title="ดู/สร้างใบสมัคร VIP"
-                          >
-                            <Award size={10} /> ใบสมัคร VIP
-                          </button>
-                        )}
-                        {onViewCustomerProfile && !selectedCustomer.isWalkIn && (
-                          <button 
-                            onClick={() => {
-                              onViewCustomerProfile(selectedCustomer);
-                              setIsMobileCartOpen(false);
-                            }}
-                            className="ml-auto text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 font-bold"
-                          >
-                            <User size={12} />
-                            ดูประวัติ
-                          </button>
-                        )}
-                    </div>
-                    <div className="text-sm text-slate-500 mb-1">{selectedCustomer.computedPhone || String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]))}</div>
-                    
-                    {/* Status Toggle: ลูกค้าทั่วไป (สีส้ม) vs มีสิทธิ์ส่วนลดบัตรสมาชิก (สีเขียว) */}
-                    <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 mt-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedCustomer(prev => ({
-                            ...prev,
-                            hasMemberCard: false,
-                            isApproved: false,
-                            isMemberDiscount: false
-                          }));
-                          showToast('เลือกสถานะ: ลูกค้าทั่วไป (ราคาปกติ)', 'info');
-                        }}
-                        className={`flex-1 py-1 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                          !isVipCustomer
-                            ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-2xs font-black'
-                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-                        }`}
-                      >
-                        <WalkingPersonIcon size={12} className={!isVipCustomer ? "text-white" : "text-orange-500"} />
-                        <span>ทั่วไป</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedCustomer(prev => ({
-                            ...prev,
-                            hasMemberCard: true,
-                            isApproved: true,
-                            isMemberDiscount: true
-                          }));
-                          showToast('เลือกสถานะ: มีสิทธิ์ส่วนลดบัตรสมาชิก (VIP Price) ⭐', 'success');
-                        }}
-                        className={`flex-1 py-1 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                          isVipCustomer
-                            ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-2xs font-black'
-                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-                        }`}
-                      >
-                        <Award size={12} className={isVipCustomer ? "text-yellow-200" : "text-emerald-600"} />
-                        <span>บัตรสมาชิก ⭐</span>
-                      </button>
+              <div className="bg-white p-3 rounded-2xl border border-indigo-200 shadow-2xs hover:shadow-xs transition-all">
+                {/* Line 1: Avatar + Name + Badges + Actions */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    {/* Avatar (compact 34px) */}
+                    <div className="w-9 h-9 rounded-full overflow-hidden shrink-0 bg-indigo-50 border border-indigo-200 flex items-center justify-center shadow-2xs">
+                      {selectedCustomer.isWalkIn ? (
+                        <div className={`w-full h-full ${isVipCustomer ? 'bg-gradient-to-r from-amber-500 to-yellow-500' : 'bg-gradient-to-r from-amber-500 to-orange-500'} text-white flex items-center justify-center`}>
+                          <WalkingPersonIcon size={16} className="text-white" />
+                        </div>
+                      ) : (() => {
+                        const picData = getProfilePicData(selectedCustomer, customers);
+                        if (picData && picData.primary) {
+                          return (
+                            <img 
+                              src={picData.primary} 
+                              onError={(e) => handleProfileImgError(e, picData.fallback)}
+                              alt="Profile"
+                              className="w-full h-full object-cover"
+                            />
+                          );
+                        }
+                        return <User size={15} className="text-indigo-600" />;
+                      })()}
                     </div>
 
-                    {/* Action button to edit/specify name */}
+                    {/* Name, Phone, and Edit button */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-black text-slate-800 text-sm truncate">
+                          {selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]))}
+                        </span>
+
+                        {selectedCustomer.isWalkIn ? (
+                          <span className="bg-orange-100 text-orange-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-orange-200 shrink-0">
+                            Walk-in
+                          </span>
+                        ) : isVipCustomer ? (
+                          <span className="bg-gradient-to-r from-amber-500 to-yellow-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full shadow-2xs shrink-0 flex items-center gap-0.5">
+                            <Award size={9} className="text-yellow-200" /> สมาชิก
+                          </span>
+                        ) : null}
+
+                        {/* Quick Edit Name/Phone icon button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWalkInFormData({
+                              name: selectedCustomer.isWalkIn && selectedCustomer.computedName?.includes('ลูกค้าทั่วไป') ? '' : (selectedCustomer.computedName || selectedCustomer["ชื่อ"] || ''),
+                              phone: selectedCustomer.computedPhone === '-' ? '' : (selectedCustomer.computedPhone || selectedCustomer["เบอร์โทร"] || ''),
+                              isMember: Boolean(isVipCustomer),
+                              issue: selectedCustomer.computedIssue || selectedCustomer.issue || '',
+                              saveToDb: true
+                            });
+                            setIsWalkInEditModalOpen(true);
+                          }}
+                          className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors cursor-pointer"
+                          title="แก้ไขชื่อ-เบอร์ลูกค้า"
+                        >
+                          <Edit size={11} />
+                        </button>
+                      </div>
+
+                      <div className="text-[11px] text-slate-500 font-mono -mt-0.5 truncate">
+                        {selectedCustomer.computedPhone || String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right actions: VIP Form + ดูประวัติ + Clear */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {(selectedCustomer.isApproved || vipStats.isVip) && (
+                      <button 
+                        type="button"
+                        onClick={() => onOpenVipForm(selectedCustomer)}
+                        className="text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg border border-amber-200/80 transition-all cursor-pointer shadow-2xs"
+                        title="ดู/สร้างใบสมัคร VIP"
+                      >
+                        VIP
+                      </button>
+                    )}
+
+                    {onViewCustomerProfile && !selectedCustomer.isWalkIn && (
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          onViewCustomerProfile(selectedCustomer);
+                          setIsMobileCartOpen(false);
+                        }}
+                        className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 font-bold border border-indigo-100 cursor-pointer shadow-2xs"
+                        title="ดูประวัติลูกค้า"
+                      >
+                        <User size={10} />
+                        <span>ดูประวัติ</span>
+                      </button>
+                    )}
+
+                    <button 
+                      type="button"
+                      onClick={() => setSelectedCustomer(null)} 
+                      className="w-6 h-6 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors cursor-pointer"
+                      title="เปลี่ยนลูกค้า"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Line 2: Member Toggle Pill + Credit / Pending Badges + Accumulated */}
+                <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between gap-1.5 flex-wrap text-xs">
+                  {/* Member Toggle Pill (Compact & stylish) */}
+                  <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200/80 shrink-0">
                     <button
                       type="button"
                       onClick={() => {
-                        setWalkInFormData({
-                          name: selectedCustomer.isWalkIn && selectedCustomer.computedName?.includes('ลูกค้าทั่วไป') ? '' : (selectedCustomer.computedName || selectedCustomer["ชื่อ"] || ''),
-                          phone: selectedCustomer.computedPhone === '-' ? '' : (selectedCustomer.computedPhone || selectedCustomer["เบอร์โทร"] || ''),
-                          isMember: Boolean(isVipCustomer),
-                          issue: selectedCustomer.computedIssue || selectedCustomer.issue || '',
-                          saveToDb: true
-                        });
-                        setIsWalkInEditModalOpen(true);
+                        setSelectedCustomer(prev => ({
+                          ...prev,
+                          hasMemberCard: false,
+                          isApproved: false,
+                          isMemberDiscount: false
+                        }));
+                        showToast('เลือกสถานะ: ลูกค้าทั่วไป (ราคาปกติ)', 'info');
                       }}
-                      className="mt-1.5 w-full py-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-2xs"
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                        !isVipCustomer
+                          ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-2xs font-black'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
                     >
-                      <Edit size={12} className="text-indigo-600" />
-                      <span>{selectedCustomer.isWalkIn ? 'ระบุชื่อ-เบอร์ลูกค้า (อัปเดตข้อมูล)' : 'แก้ไขชื่อ-เบอร์ลูกค้า'}</span>
+                      <WalkingPersonIcon size={10} className={!isVipCustomer ? "text-white" : "text-orange-500"} />
+                      <span>ทั่วไป</span>
                     </button>
 
-                    {!selectedCustomer.isWalkIn ? (
-                      <div className="text-[10px] text-slate-500 w-full max-w-xs mt-1.5">
-                          <div className="flex justify-between mb-0.5">
-                              <span>ยอดสะสม: ฿{vipStats.amount.toLocaleString()}</span>
-                              {!isVipCustomer && <span>ขาด ฿{(5000 - vipStats.amount).toLocaleString()}</span>}
-                          </div>
-                          {!isVipCustomer && (
-                              <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                                  <div className="bg-indigo-500 h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (vipStats.amount / 5000) * 100)}%` }}></div>
-                              </div>
-                          )}
-                      </div>
-                    ) : (
-                      <div className="text-xs text-emerald-700 font-bold mt-1.5">ลูกค้าทั่วไปหน้าร้าน (สามารถระบุชื่อ-เบอร์เพื่อสะสมยอดได้)</div>
-                    )}
-                    <div className="flex gap-2 mt-2">
-                      {customerCreditBalance > 0 && (
-                        <div className="inline-flex items-center gap-1.5 bg-orange-50 text-orange-600 border border-orange-100 px-2 py-1 rounded-lg text-xs font-bold shadow-sm">
-                          <CreditCard size={14} /> 
-                          เครดิต: <span className="text-indigo-600 font-black">฿{customerCreditBalance.toLocaleString()}</span>
-                        </div>
-                      )}
-                      {customerPendingBalance > 0 && (
-                        <div className="bg-red-100 px-3 py-1.5 rounded-lg flex flex-col justify-center animate-pulse">
-                          <span className="text-[10px] font-bold text-red-500">ยอดค้างชำระรวม</span>
-                          <span className="text-red-600 font-black">฿{customerPendingBalance.toLocaleString()}</span>
-                        </div>
-                      )}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCustomer(prev => ({
+                          ...prev,
+                          hasMemberCard: true,
+                          isApproved: true,
+                          isMemberDiscount: true
+                        }));
+                        showToast('เลือกสถานะ: มีสิทธิ์ส่วนลดบัตรสมาชิก (VIP Price) ⭐', 'success');
+                      }}
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                        isVipCustomer
+                          ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-2xs font-black'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      <Award size={10} className={isVipCustomer ? "text-yellow-200" : "text-emerald-600"} />
+                      <span>บัตรสมาชิก ⭐</span>
+                    </button>
+                  </div>
 
-                    {/* 🌟 AI Skin Match Recommendation Banner 🌟 */}
-                    {(selectedCustomer.computedIssue || selectedCustomer.issue) && (
-                      <div className="mt-2.5 p-2 bg-gradient-to-r from-indigo-50/90 via-purple-50/80 to-teal-50/90 border border-indigo-100 rounded-xl flex items-center justify-between gap-1.5 text-xs shadow-2xs">
-                        <div className="min-w-0 flex-1 flex items-center gap-1.5 truncate">
-                          <Sparkles size={13} className="text-indigo-600 shrink-0" />
-                          <div className="truncate">
-                            <span className="text-[11px] font-black text-indigo-950">ปัญหาผิว: </span>
-                            <span className="text-[11px] font-medium text-slate-700">{selectedCustomer.computedIssue || selectedCustomer.issue}</span>
-                          </div>
-                        </div>
-                        {(() => {
-                          const ai = analyzeSkinIssue(selectedCustomer.computedIssue || selectedCustomer.issue);
-                          if (!ai || !ai.courses.length) return null;
-                          const topCourse = ai.courses[0];
-                          return (
-                            <button 
-                              type="button"
-                              onClick={() => {
-                                setActiveTab('courses');
-                                setCourseSearch(topCourse.searchKey || '');
-                              }}
-                              className="text-[10px] font-black bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-0.5 rounded-lg shrink-0 shadow-xs active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
-                              title={`ค้นหาคอร์ส ${topCourse.name}`}
-                            >
-                              <span>AI: {topCourse.shortName}</span>
-                              <ChevronRight size={10} />
-                            </button>
-                          );
-                        })()}
-                      </div>
+                  {/* Financial / VIP Badges: ยอดสะสม • เครดิต • ค้างชำระ */}
+                  <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+                    {!selectedCustomer.isWalkIn && (
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        สะสม: <strong className="text-slate-700 font-bold">฿{vipStats.amount.toLocaleString()}</strong>
+                      </span>
+                    )}
+
+                    {customerCreditBalance > 0 && (
+                      <span className="inline-flex items-center gap-1 bg-amber-50 text-indigo-700 border border-amber-200/80 px-2 py-0.5 rounded-full text-[10px] font-black shadow-2xs">
+                        เครดิต ฿{customerCreditBalance.toLocaleString()}
+                      </span>
+                    )}
+
+                    {customerPendingBalance > 0 && (
+                      <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-full text-[10px] font-black shadow-2xs animate-pulse">
+                        ค้าง ฿{customerPendingBalance.toLocaleString()}
+                      </span>
                     )}
                   </div>
                 </div>
-                <button onClick={() => setSelectedCustomer(null)} className="w-10 h-10 rounded-full bg-white text-slate-400 flex items-center justify-center hover:text-red-500 shadow-sm border border-indigo-100">
-                  <X size={20} />
-                </button>
+
+                {/* AI Skin Issue hint (if available, compact inline) */}
+                {(selectedCustomer.computedIssue || selectedCustomer.issue) && (
+                  <div className="mt-1.5 pt-1.5 border-t border-slate-100 flex items-center justify-between gap-1 text-[10px] text-slate-600">
+                    <div className="min-w-0 flex items-center gap-1 truncate">
+                      <Sparkles size={11} className="text-indigo-600 shrink-0" />
+                      <span className="truncate">
+                        <strong className="text-indigo-900">ปัญหาผิว:</strong> {selectedCustomer.computedIssue || selectedCustomer.issue}
+                      </span>
+                    </div>
+                    {(() => {
+                      const ai = analyzeSkinIssue(selectedCustomer.computedIssue || selectedCustomer.issue);
+                      if (!ai || !ai.courses.length) return null;
+                      const topCourse = ai.courses[0];
+                      return (
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            setActiveTab('courses');
+                            setCourseSearch(topCourse.searchKey || '');
+                          }}
+                          className="text-[9px] font-black text-indigo-700 hover:text-indigo-900 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0 flex items-center gap-0.5"
+                        >
+                          <span>AI: {topCourse.shortName}</span>
+                          <ChevronRight size={10} />
+                        </button>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
               {renderCustomerContext()}
               </>
