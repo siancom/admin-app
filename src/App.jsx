@@ -315,7 +315,26 @@ export default function App() {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerModalTab, setCustomerModalTab] = useState('courses'); 
   const [posPreselectedCustomer, setPosPreselectedCustomer] = useState(null);
+  const [posPreselectedUsageCourses, setPosPreselectedUsageCourses] = useState([]);
+  const [posReturnToStaffAfterCheckout, setPosReturnToStaffAfterCheckout] = useState(false);
+  const [posPreselectedBeforePhotos, setPosPreselectedBeforePhotos] = useState([]);
   const [posPendingAfterLogin, setPosPendingAfterLogin] = useState(false);
+
+  const handleGoToPosDeduction = ({ customer, courses: targetCourses, beforePhotos }) => {
+    setPosPreselectedCustomer(customer);
+    setPosPreselectedUsageCourses(targetCourses || []);
+    setPosPreselectedBeforePhotos(beforePhotos || []);
+    setPosReturnToStaffAfterCheckout(true);
+    setActiveTab('pos');
+  };
+
+  const handleReturnToStaffDashboard = () => {
+    setPosReturnToStaffAfterCheckout(false);
+    setPosPreselectedUsageCourses([]);
+    setPosPreselectedBeforePhotos([]);
+    setActiveTab('dashboard');
+    setStaffDashboardTab('used_course');
+  };
   
   const [isPrintMode, setIsPrintMode] = useState(false);
   const [isPrintSingleCourseMode, setIsPrintSingleCourseMode] = useState(false);
@@ -6310,6 +6329,11 @@ const flexMessage = {
               }}
               posPreselectedCustomer={posPreselectedCustomer}
               clearPosPreselectedCustomer={() => setPosPreselectedCustomer(null)}
+              posPreselectedUsageCourses={posPreselectedUsageCourses}
+              clearPosPreselectedUsageCourses={() => setPosPreselectedUsageCourses([])}
+              posPreselectedBeforePhotos={posPreselectedBeforePhotos}
+              posReturnToStaffAfterCheckout={posReturnToStaffAfterCheckout}
+              onReturnToStaffDashboard={handleReturnToStaffDashboard}
               onGoToLogin={() => setShowBranchSelectForPos(true)}
               onGoBack={() => setActiveTab('dashboard')}
               onAddCustomer={() => setIsAddCustomerOpen(true)}
@@ -6541,6 +6565,7 @@ const flexMessage = {
                                       activeStaff={activeStaff}
                                       globalBranch={globalBranch}
                                       showToast={triggerToast}
+                                      onGoToPosDeduction={handleGoToPosDeduction}
                                     />
 
                                     <div className="pt-2">

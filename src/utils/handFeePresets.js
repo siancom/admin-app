@@ -6,3 +6,4 @@ export const HAND_FEE_PRESETS = [
   { id: 'laser_ipl', name: 'IPL / เลเซอร์', isBillCalculated: true, icon: Zap, desc: 'คำนวณตามบิล (10-20%)' },
   { id: 'mole_removal', name: 'จี้ไฝ / กระ / ติ่งเนื้อ', isBillCalculated: true, icon: Target, desc: 'คำนวณตามบิล (10-20%)' }
 ];
+

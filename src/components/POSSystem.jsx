@@ -572,7 +572,12 @@ export default function POSSystem({
   onQuickEodFinished = () => {},
   initialTab = null,
   onClearInitialTab = () => {},
-  activeServices = []
+  activeServices = [],
+  posPreselectedUsageCourses = [],
+  clearPosPreselectedUsageCourses = () => {},
+  posPreselectedBeforePhotos = [],
+  posReturnToStaffAfterCheckout = false,
+  onReturnToStaffDashboard = () => {}
 }) {
   // 🌟 โหมดส่งยอดด่วน — เปิดหน้า EOD ทันที (ไม่เด้ง SOD) และแจ้ง parent เมื่อปิดหน้าต่าง
   const quickEodActiveRef = useRef(!!autoOpenEod);
@@ -1439,6 +1444,24 @@ export default function POSSystem({
       if (clearPosPreselectedCustomer) clearPosPreselectedCustomer();
     }
   }, [posPreselectedCustomer, clearPosPreselectedCustomer]);
+
+  // Handle Preselected Usage Courses from Staff Dashboard (ตัดคอร์สจากหน้าหลักพนักงาน)
+  useEffect(() => {
+    if (posPreselectedUsageCourses && posPreselectedUsageCourses.length > 0) {
+      posPreselectedUsageCourses.forEach(c => {
+        addCourseToDeduction(c, 1);
+      });
+      if (posPreselectedBeforePhotos && posPreselectedBeforePhotos.length > 0) {
+        setPaymentPhotos(prev => ({
+          ...prev,
+          before: [...new Set([...(prev?.before || []), ...posPreselectedBeforePhotos])]
+        }));
+      }
+      setActiveTab('my_courses');
+      setIsMobileCartOpen(true);
+      if (clearPosPreselectedUsageCourses) clearPosPreselectedUsageCourses();
+    }
+  }, [posPreselectedUsageCourses, posPreselectedBeforePhotos, clearPosPreselectedUsageCourses]);
 
   // Handle Initial Tab (e.g. from Mole banner)
   useEffect(() => {
@@ -4490,6 +4513,34 @@ export default function POSSystem({
       } catch (err) {
         console.warn('Error updating completed active service state:', err);
       }
+
+      // 🌟 อัปเดตสถานะคิวใน active_services Firestore ให้เปลี่ยนเป็น "เรียบร้อย" เมื่อตัดยอด/จ่ายเงินสำเร็จ
+      (async () => {
+        try {
+          const snap = await getDocs(query(collection(db, 'active_services'), where('status', 'in', ['รอรับบริการ', 'กำลังให้บริการ'])));
+          const b = writeBatch(db);
+          let hasAny = false;
+          snap.forEach(docSnap => {
+            const data = docSnap.data();
+            const isMatch = usageItemsInCart.some(ci => 
+              data.courseId === ci.id || 
+              data.courseDocId === ci.id || 
+              (Array.isArray(data.courses) && data.courses.some(sc => sc.id === ci.id)) ||
+              (data.customerPhone && ci.originalItem && String(getFuzzyKey(ci.originalItem, ["เบอร์โทร", "col_1"])).trim() === String(data.customerPhone).trim())
+            );
+            if (isMatch) {
+              b.update(docSnap.ref, {
+                status: 'เรียบร้อย',
+                completedAt: new Date().toISOString()
+              });
+              hasAny = true;
+            }
+          });
+          if (hasAny) await b.commit();
+        } catch (e) {
+          console.warn('Error completing active_services from POS:', e);
+        }
+      })();
 
       setShowPaymentModal(false);
       setSelectedBed('');
@@ -9759,6 +9810,32 @@ export default function POSSystem({
                 พิมพ์ใบแปะหน้า (4x6 นิ้ว)
               </button>
             )}
+            {posReturnToStaffAfterCheckout && (
+              <button 
+                type="button"
+                onClick={() => {
+                  setReceiptData(null);
+                  setCart([]);
+                  setAppCreditPaidAmount(0);
+                  setActiveCustomerAppOrderIds([]);
+                  setSelectedCustomer(null);
+                  setCustomerSearch('');
+                  setGlobalDiscount(0);
+                  setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0 });
+                  setShippingAddress('');
+                  setPosTrackingNo('');
+                  setOrderChannel('instore');
+                  setActiveWcOrderId(null);
+                  setIsMobileCartOpen(false);
+                  setActiveTab('products');
+                  if (onReturnToStaffDashboard) onReturnToStaffDashboard();
+                }}
+                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white rounded-xl font-black shadow-lg shadow-teal-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <CheckCircle size={18} />
+                <span>ตัดยอด & ชำระเงินเรียบร้อย • กลับสู่หน้าหลักพนักงาน</span>
+              </button>
+            )}
             <button 
               onClick={() => {
                 setReceiptData(null);
@@ -9775,10 +9852,13 @@ export default function POSSystem({
                 setActiveWcOrderId(null);
                 setIsMobileCartOpen(false);
                 setActiveTab('products'); // 🌟 กลับหน้าขายครีมทุกครั้ง
+                if (posReturnToStaffAfterCheckout && onReturnToStaffDashboard) {
+                  onReturnToStaffDashboard();
+                }
               }}
               className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors"
             >
-              ทำรายการใหม่
+              {posReturnToStaffAfterCheckout ? 'กลับสู่หน้าหลักพนักงาน' : 'ทำรายการใหม่'}
             </button>
           </div>
         </div>
