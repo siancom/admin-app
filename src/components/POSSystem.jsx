@@ -1119,6 +1119,7 @@ export default function POSSystem({
   const [customerSignature, setCustomerSignature] = useState(null);
   const [staffSignature, setStaffSignature] = useState(null);
   const [showServiceProofModal, setShowServiceProofModal] = useState(false);
+  const [previewCustomerAvatarModal, setPreviewCustomerAvatarModal] = useState(null);
   const [splitPayment, setSplitPayment] = useState({ cash: 0, transfer: 0, cod: 0, credit: 0, omise_promptpay: 0 });
   const [showOmiseQrModal, setShowOmiseQrModal] = useState(false);
   const [showTransferChoiceModal, setShowTransferChoiceModal] = useState(false);
@@ -5359,40 +5360,58 @@ export default function POSSystem({
                 )}
 
                 {/* Line 1: Avatar + Name + Badges + Actions */}
-                <div className="flex items-center justify-between gap-2 relative z-10">
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    {/* Avatar with member-themed border */}
-                    <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full overflow-hidden shrink-0 bg-white flex items-center justify-center shadow-2xs ${
+                <div className="flex items-center justify-between gap-2.5 relative z-10">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    {/* Avatar with member-themed border (Enlarged & Sharp) */}
+                    <div 
+                      onClick={() => {
+                        const picData = getProfilePicData(selectedCustomer, customers);
+                        if (picData && picData.primary) {
+                          setPreviewCustomerAvatarModal({
+                            url: picData.primary,
+                            name: selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"])),
+                            phone: selectedCustomer.computedPhone || String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]))
+                          });
+                        }
+                      }}
+                      className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full overflow-hidden shrink-0 bg-white flex items-center justify-center shadow-md cursor-pointer transition-transform active:scale-95 group relative ${
                       isVipCustomer 
-                        ? 'border-2 border-emerald-400 ring-2 ring-emerald-100' 
+                        ? 'border-2 border-emerald-400 ring-2 ring-emerald-200/80 shadow-emerald-500/15' 
                         : selectedCustomer.isWalkIn 
-                          ? 'border-2 border-orange-300 ring-2 ring-orange-100' 
-                          : 'border-2 border-indigo-200'
-                    }`}>
+                          ? 'border-2 border-orange-300 ring-2 ring-orange-200/80 shadow-orange-500/15' 
+                          : 'border-2 border-indigo-200 ring-2 ring-indigo-100 shadow-indigo-500/15'
+                    }`}
+                      title="แตะเพื่อดูรูปขนาดใหญ่"
+                    >
                       {selectedCustomer.isWalkIn ? (
                         <div className={`w-full h-full ${isVipCustomer ? 'bg-gradient-to-r from-amber-500 to-yellow-500' : 'bg-gradient-to-r from-amber-500 to-orange-500'} text-white flex items-center justify-center`}>
-                          <WalkingPersonIcon size={16} className="text-white" />
+                          <WalkingPersonIcon size={26} className="text-white" />
                         </div>
                       ) : (() => {
                         const picData = getProfilePicData(selectedCustomer, customers);
                         if (picData && picData.primary) {
                           return (
-                            <img 
-                              src={picData.primary} 
-                              onError={(e) => handleProfileImgError(e, picData.fallback)}
-                              alt="Profile"
-                              className="w-full h-full object-cover"
-                            />
+                            <>
+                              <img 
+                                src={picData.primary} 
+                                onError={(e) => handleProfileImgError(e, picData.fallback)}
+                                alt="Profile"
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                              />
+                              <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <Maximize size={16} className="text-white drop-shadow" />
+                              </div>
+                            </>
                           );
                         }
-                        return <User size={15} className="text-indigo-600" />;
+                        return <User size={26} className="text-indigo-600" />;
                       })()}
                     </div>
 
                     {/* Name, Phone, and Edit button */}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-black text-slate-800 text-xs sm:text-sm truncate">
+                        <span className="font-black text-slate-800 text-sm sm:text-base truncate">
                           {selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]))}
                         </span>
 
@@ -5650,13 +5669,13 @@ export default function POSSystem({
                                  showToast('พบคอร์สคงเหลือ สามารถคลิกตัดคอร์สได้ทันที!', 'success');
                                }
                             }} className="px-4 py-3 hover:bg-indigo-50 cursor-pointer border-b border-slate-50 last:border-0 flex items-center gap-3">
-                               <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-slate-100 flex items-center justify-center border border-slate-200">
+                               <div className="w-12 h-12 rounded-full overflow-hidden shrink-0 bg-slate-100 flex items-center justify-center border border-slate-200 shadow-2xs">
                                  {(() => {
                                    const picData = getProfilePicData(c, customers);
                                    if (picData && picData.primary) {
                                      return <img src={picData.primary} onError={(e) => handleProfileImgError(e, picData.fallback)} alt="Profile" className="w-full h-full object-cover" />;
                                    }
-                                   return <User size={16} className="text-slate-400" />;
+                                   return <User size={22} className="text-slate-400" />;
                                  })()}
                                </div>
                                <div className="flex-1 min-w-0">
@@ -7057,40 +7076,58 @@ export default function POSSystem({
                 )}
 
                 {/* Line 1: Avatar + Name + Badges + Actions */}
-                <div className="flex items-center justify-between gap-2 relative z-10">
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    {/* Avatar (compact 34px) */}
-                    <div className={`w-9 h-9 rounded-full overflow-hidden shrink-0 bg-white flex items-center justify-center shadow-2xs ${
+                <div className="flex items-center justify-between gap-2.5 relative z-10">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    {/* Avatar (Enlarged & Sharp) */}
+                    <div 
+                      onClick={() => {
+                        const picData = getProfilePicData(selectedCustomer, customers);
+                        if (picData && picData.primary) {
+                          setPreviewCustomerAvatarModal({
+                            url: picData.primary,
+                            name: selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"])),
+                            phone: selectedCustomer.computedPhone || String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]))
+                          });
+                        }
+                      }}
+                      className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full overflow-hidden shrink-0 bg-white flex items-center justify-center shadow-md cursor-pointer transition-transform active:scale-95 group relative ${
                       isVipCustomer 
-                        ? 'border-2 border-emerald-400 ring-2 ring-emerald-100' 
+                        ? 'border-2 border-emerald-400 ring-2 ring-emerald-200/80 shadow-emerald-500/15' 
                         : selectedCustomer.isWalkIn 
-                          ? 'border-2 border-orange-300 ring-2 ring-orange-100' 
-                          : 'border-2 border-indigo-200'
-                    }`}>
+                          ? 'border-2 border-orange-300 ring-2 ring-orange-200/80 shadow-orange-500/15' 
+                          : 'border-2 border-indigo-200 ring-2 ring-indigo-100 shadow-indigo-500/15'
+                    }`}
+                      title="แตะเพื่อดูรูปขนาดใหญ่"
+                    >
                       {selectedCustomer.isWalkIn ? (
                         <div className={`w-full h-full ${isVipCustomer ? 'bg-gradient-to-r from-amber-500 to-yellow-500' : 'bg-gradient-to-r from-amber-500 to-orange-500'} text-white flex items-center justify-center`}>
-                          <WalkingPersonIcon size={16} className="text-white" />
+                          <WalkingPersonIcon size={26} className="text-white" />
                         </div>
                       ) : (() => {
                         const picData = getProfilePicData(selectedCustomer, customers);
                         if (picData && picData.primary) {
                           return (
-                            <img 
-                              src={picData.primary} 
-                              onError={(e) => handleProfileImgError(e, picData.fallback)}
-                              alt="Profile"
-                              className="w-full h-full object-cover"
-                            />
+                            <>
+                              <img 
+                                src={picData.primary} 
+                                onError={(e) => handleProfileImgError(e, picData.fallback)}
+                                alt="Profile"
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                              />
+                              <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <Maximize size={16} className="text-white drop-shadow" />
+                              </div>
+                            </>
                           );
                         }
-                        return <User size={15} className="text-indigo-600" />;
+                        return <User size={26} className="text-indigo-600" />;
                       })()}
                     </div>
 
                     {/* Name, Phone, and Edit button */}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-black text-slate-800 text-sm truncate">
+                        <span className="font-black text-slate-800 text-sm sm:text-base truncate">
                           {selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]))}
                         </span>
 
@@ -7357,7 +7394,7 @@ export default function POSSystem({
                             }}
                             className="px-4 py-3 hover:bg-indigo-50 cursor-pointer border-b border-slate-50 last:border-0 flex items-center gap-3"
                           >
-                            <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-slate-100 flex items-center justify-center border border-slate-200">
+                            <div className="w-12 h-12 rounded-full overflow-hidden shrink-0 bg-slate-100 flex items-center justify-center border border-slate-200 shadow-2xs">
                               {(() => {
                                 const picData = getProfilePicData(c, customers);
                                 if (picData && picData.primary) {
@@ -7370,7 +7407,7 @@ export default function POSSystem({
                                     />
                                   );
                                 }
-                                return <User size={16} className="text-slate-400" />;
+                                return <User size={22} className="text-slate-400" />;
                               })()}
                             </div>
                             <div className="flex-1 min-w-0">
@@ -9993,6 +10030,50 @@ export default function POSSystem({
         </div>
       </div>
     </div>
+
+    {/* 🔍 Lightbox Modal for Customer Avatar Preview (แตะดูรูปใหญ่ชัดๆ) */}
+    {previewCustomerAvatarModal && (
+      <div 
+        className="fixed inset-0 z-[120] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200 cursor-pointer print:hidden"
+        onClick={() => setPreviewCustomerAvatarModal(null)}
+      >
+        <div 
+          className="relative max-w-sm sm:max-w-md w-full bg-white rounded-3xl p-4 sm:p-5 shadow-2xl overflow-hidden cursor-default border border-slate-200/80 animate-in zoom-in-95 duration-200"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Close button */}
+          <button 
+            type="button"
+            onClick={() => setPreviewCustomerAvatarModal(null)} 
+            className="absolute top-4 right-4 z-20 w-9 h-9 bg-slate-900/60 hover:bg-slate-900 text-white rounded-full flex items-center justify-center transition-all cursor-pointer shadow-lg backdrop-blur-xs"
+            title="ปิด"
+          >
+            <X size={18} />
+          </button>
+
+          {/* Large Image Container */}
+          <div className="w-full aspect-square max-h-[65vh] rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center border border-slate-200 shadow-inner relative">
+            <img 
+              src={previewCustomerAvatarModal.url} 
+              alt={previewCustomerAvatarModal.name || "Customer"} 
+              className="w-full h-full object-contain"
+            />
+          </div>
+
+          {/* Customer info below image */}
+          <div className="mt-3.5 text-center">
+            <h3 className="font-black text-slate-800 text-base sm:text-lg">
+              {previewCustomerAvatarModal.name || "ลูกค้า"}
+            </h3>
+            {previewCustomerAvatarModal.phone && (
+              <p className="text-xs sm:text-sm text-slate-500 font-mono mt-0.5">
+                {previewCustomerAvatarModal.phone}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* Transfer Choice Modal */}
     {showTransferChoiceModal && (
