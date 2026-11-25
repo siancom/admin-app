@@ -7263,12 +7263,20 @@ export default function POSSystem({
                 setShowPaymentModal(true);
               }}
               disabled={cart.length === 0}
-              className={`flex-1 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${cart.length === 0 ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : (isRequisitionMode ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200')}`}
+              className={`flex-1 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${
+                cart.length === 0 
+                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
+                  : (isRequisitionMode 
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' 
+                      : (total <= 0 
+                          ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-orange-200' 
+                          : 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200'))
+              }`}
             >
               {isRequisitionMode ? (
                 <><Package size={24} /> สร้างใบเบิกสินค้า (PO)</>
               ) : cart.some(i => i.type === 'usage' || i.type === 'claim_item') ? (
-                <><CheckCircle size={24} /> {cart.some(i => i.type === 'usage') ? 'ดำเนินการตัดคอร์ส' : 'ดำเนินการเบิกสินค้า'}</>
+                <>{total <= 0 ? <Scissors size={24} /> : <CheckCircle size={24} />} {cart.some(i => i.type === 'usage') ? (total <= 0 ? 'ดำเนินการตัดคอส' : 'ดำเนินการตัดคอร์สและชำระเงิน') : 'ดำเนินการเบิกสินค้า'}</>
               ) : (
                 <><CheckCircle size={24} /> ดำเนินการชำระเงิน</>
               )}
@@ -7402,12 +7410,12 @@ export default function POSSystem({
                 )}
               </h2>
               {!isRequisitionMode && total > 0 && (
-                <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${checkoutStep === 1 ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
-                  ขั้นตอน {checkoutStep}/2
+                <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold bg-pink-50 text-pink-700 border border-pink-200 flex items-center gap-1`}>
+                  {hasCourseUsage ? <><Scissors size={12} /> ตัดคอร์ส + ชำระเงิน</> : `ขั้นตอน ${checkoutStep}/2`}
                 </span>
               )}
               {!isRequisitionMode && total <= 0 && (
-                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-teal-50 text-teal-700 border border-teal-200 flex items-center gap-1">
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-orange-50 text-orange-700 border border-orange-200 flex items-center gap-1">
                   <Scissors size={12} /> {hasCourseClaim && !hasCourseUsage ? 'เบิกของแถม' : 'ตัดคอสบริการ'}
                 </span>
               )}
@@ -7452,7 +7460,7 @@ export default function POSSystem({
                 </div>
               )}
 
-              {!isRequisitionMode && (
+              {!isRequisitionMode && !hasUsageOrClaim && (
                 <div>
                   <div className="text-sm font-semibold text-slate-700 mb-2">ช่องทางการสั่งซื้อ</div>
                   <div className="flex gap-2">
@@ -7464,7 +7472,7 @@ export default function POSSystem({
                 </div>
               )}
 
-              {!isRequisitionMode && orderChannel !== 'instore' && (
+              {!isRequisitionMode && !hasUsageOrClaim && orderChannel !== 'instore' && (
                 <div className="space-y-4">
                   <div>
                     <div className="text-sm font-semibold text-slate-700 mb-2 flex justify-between">
@@ -7535,8 +7543,8 @@ export default function POSSystem({
                 </div>
               )}
               
-              {/* Staff Selection */}
-              {renderStaffSelection(hasUsageOrClaim)}
+              {/* Staff Selection in Step 1 (for normal checkout) */}
+              {!hasUsageOrClaim && renderStaffSelection(false)}
 
               {/* Claimed Items Summary (For claim_item) */}
               {hasCourseClaim && (
@@ -8047,20 +8055,109 @@ export default function POSSystem({
           {/* STEP 2: Payment Screen */}
           {checkoutStep === 2 && !isRequisitionMode && (
             <div className="space-y-4">
-              <div className="text-center bg-gradient-to-b from-indigo-50/70 to-slate-50 p-4 rounded-2xl border border-indigo-100/60">
+              <div className={`text-center bg-gradient-to-b ${total <= 0 ? 'from-orange-50/70 via-amber-50/40 to-slate-50 border-orange-200/80' : 'from-pink-50/70 via-rose-50/40 to-slate-50 border-pink-200/80'} p-4 rounded-2xl border`}>
                 <div className="text-xs font-semibold text-slate-500 mb-0.5">ยอดสุทธิที่ต้องชำระ</div>
-                <div className="text-3xl font-extrabold text-indigo-600 tracking-tight">฿{total.toLocaleString()}</div>
+                <div className={`text-3xl font-extrabold ${total <= 0 ? 'text-orange-600' : 'text-pink-600'} tracking-tight`}>฿{total.toLocaleString()}</div>
                 <div className="mt-2 flex items-center justify-center gap-2 flex-wrap text-xs">
                   <span className="px-2.5 py-0.5 bg-white border border-slate-200 rounded-full text-slate-600 font-bold">
                     ช่องทาง: {orderChannel === 'instore' ? 'หน้าร้าน' : orderChannel === 'shopee' ? 'Shopee' : orderChannel === 'chat' ? 'ทางแชท' : 'ทางเว็บ'}
                   </span>
                   {paymentStaff && (
-                    <span className="px-2.5 py-0.5 bg-white border border-indigo-200 rounded-full text-indigo-700 font-bold truncate max-w-[200px]">
+                    <span className="px-2.5 py-0.5 bg-white border border-slate-200 rounded-full text-slate-700 font-bold truncate max-w-[200px]">
                       ผู้ทำรายการ: {paymentStaff}
                     </span>
                   )}
                 </div>
               </div>
+
+              {/* 🌟 เมื่อเป็นคอร์ส/บริการ ย้ายช่องทางสั่งซื้อ และพนักงาน/ค่ามือ มาไว้ที่หน้าสองนี้เพื่อลดความแน่นของหน้าแรก */}
+              {hasUsageOrClaim && (
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-700 mb-2">ช่องทางการสั่งซื้อ</div>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => { setOrderChannel('instore'); setSplitPayment(prev => ({ ...prev, transfer: total - prev.cash - prev.cod - prev.credit })); }} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${orderChannel === 'instore' ? (total <= 0 ? 'bg-orange-500 text-white shadow-md' : 'bg-pink-600 text-white shadow-md') : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>หน้าร้าน</button>
+                      <button type="button" onClick={() => { setOrderChannel('shopee'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${orderChannel === 'shopee' ? 'bg-orange-500 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ช้อปปี้</button>
+                      <button type="button" onClick={() => { setOrderChannel('chat'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${orderChannel === 'chat' ? 'bg-emerald-500 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ทางแชท</button>
+                      <button type="button" onClick={() => { setOrderChannel('web'); setSplitPayment({ cash: 0, transfer: 0, cod: total, credit: 0 }); }} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${orderChannel === 'web' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>ทางเว็บ</button>
+                    </div>
+                  </div>
+
+                  {orderChannel !== 'instore' && (
+                    <div className="space-y-4">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-700 mb-2 flex justify-between">
+                          <span>หมายเลขคำสั่งซื้อ / รหัสอ้างอิง</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            value={activeWcOrderId || ''}
+                            onChange={(e) => setActiveWcOrderId(e.target.value)}
+                            placeholder="เช่น 240822ABCD..." 
+                            className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => setScannerTarget('wcOrder')}
+                            className="bg-indigo-100 text-indigo-600 px-3 py-2 rounded-lg font-bold hover:bg-indigo-200 transition-colors flex items-center justify-center shrink-0"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {/* Shipping & Tracking Section */}
+                      <div>
+                          <div className="flex gap-2 mb-2">
+                            <div className="flex-1">
+                              <label className="block text-[11px] font-bold text-slate-500 mb-1">📮 เลขพัสดุ / ข้อมูลจัดส่ง</label>
+                              <div className="flex gap-1.5 flex-wrap sm:flex-nowrap">
+                                <input
+                                  type="text"
+                                  value={posTrackingNo}
+                                  onChange={(e) => setPosTrackingNo(e.target.value)}
+                                  placeholder="สแกนหรือพิมพ์เลขพัสดุ"
+                                  className="flex-1 min-w-0 border border-slate-200 rounded-xl p-2.5 text-sm font-mono font-bold tracking-wide focus:outline-none focus:border-sky-500 w-full"
+                                />
+                                <div className="flex gap-1.5 shrink-0">
+                                   <button
+                                     type="button"
+                                     onClick={() => setScannerTarget('trackingNo')}
+                                     title="เปิดกล้องสแกนเลขพัสดุ"
+                                     className="px-3 bg-sky-500 hover:bg-sky-600 text-white rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-sm active:scale-95 transition-all"
+                                   >
+                                     <QrCode size={16}/> สแกน
+                                   </button>
+                                   <button
+                                     type="button"
+                                     onClick={() => setIshipModal({ isOpen: true })}
+                                     title="จัดการที่อยู่ / เรียก iShip"
+                                     className="px-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl flex items-center gap-1.5 font-bold text-xs shadow-sm active:scale-95 transition-all"
+                                   >
+                                     <Truck size={16}/> iShip
+                                   </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Address Summary */}
+                          {shippingAddress && (
+                            <div className="bg-slate-50 rounded-lg p-2 text-[11px] text-slate-600 flex items-center border border-slate-100">
+                              <div className="truncate font-medium">
+                                <Truck size={12} className="inline mr-1 text-slate-400" /> {shippingAddress.replace(/\n/g, ' ')}
+                              </div>
+                            </div>
+                          )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Staff Selection & Hand Fee */}
+                  {renderStaffSelection(true)}
+                </div>
+              )}
 
               {total > 0 ? (
                 <div className="space-y-3">
@@ -8178,14 +8275,14 @@ export default function POSSystem({
                   ))}
                 </div>
               ) : (
-                <div className="p-5 bg-teal-50/80 border border-teal-200 rounded-2xl text-center space-y-2.5">
-                  <div className="w-12 h-12 bg-teal-100 text-teal-600 rounded-2xl flex items-center justify-center mx-auto shadow-xs">
+                <div className="p-4 bg-orange-50/80 border border-orange-200 rounded-2xl text-center space-y-2.5">
+                  <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center mx-auto shadow-xs">
                     <Scissors size={24} />
                   </div>
-                  <div className="font-black text-teal-900 text-base">
+                  <div className="font-black text-orange-950 text-base">
                     {hasCourseClaim && !hasCourseUsage ? 'ยืนยันการเบิกสินค้าจากคอร์ส' : 'ยืนยันการตัดคอสบริการ'}
                   </div>
-                  <p className="text-xs text-teal-700 font-medium leading-relaxed">
+                  <p className="text-xs text-orange-800 font-medium leading-relaxed">
                     ไม่มีค่าใช้จ่ายเพิ่มเติม (฿0) ข้อมูลบริการและลายเซ็นบันทึกเรียบร้อยแล้ว<br />
                     กดปุ่ม <strong>"ตัดคอส"</strong> ด้านล่างเพื่อยืนยันรายการและบันทึกประวัติ
                   </p>
@@ -8218,11 +8315,13 @@ export default function POSSystem({
                   <button 
                     type="button"
                     onClick={() => {
-                       if (!paymentStaff) return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ขายคอร์ส', 'error');
                        if (hasUsageOrClaim) {
                            if (custSigRef.current?.dataset?.isSigned !== "true" || staffSigRef.current?.dataset?.isSigned !== "true") {
-                               return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนยืนยัน', 'error');
+                               return showToast('กรุณาให้ลูกค้าและพนักงานเซ็นชื่อให้ครบถ้วนก่อนถัดไป', 'error');
                            }
+                       }
+                       if (!hasUsageOrClaim && !paymentStaff) {
+                           return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ขายคอร์ส', 'error');
                        }
                        // If payment not initialized yet, default to transfer or total
                        if (!splitPayment.cash && !splitPayment.transfer && !splitPayment.cod && !splitPayment.credit) {
@@ -8231,7 +8330,11 @@ export default function POSSystem({
                        setCheckoutStep(2);
                     }}
                     disabled={isProcessing}
-                    className="flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200"
+                    className={`flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${
+                      total <= 0
+                        ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-orange-200'
+                        : 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200'
+                    }`}
                   >
                     <span>{total <= 0 ? 'ถัดไป: ไปหน้าตัดคอส' : 'ถัดไป: ไปหน้าชำระเงิน'}</span>
                     <span className="bg-white/20 px-2 py-0.5 rounded-lg text-sm font-black">฿{total.toLocaleString()}</span>
@@ -8252,6 +8355,7 @@ export default function POSSystem({
                 <button 
                   id="btn-confirm-checkout"
                   onClick={() => {
+                      if (!paymentStaff) return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ให้บริการ', 'error');
                       if (splitPayment.transfer > 0 && !omiseChargeData) {
                           setShowTransferChoiceModal(true);
                       } else {
@@ -8263,10 +8367,8 @@ export default function POSSystem({
                     isProcessing 
                       ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
                       : (total <= 0 
-                          ? 'bg-teal-600 hover:bg-teal-700 text-white shadow-teal-200' 
-                          : (isRequisitionMode 
-                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' 
-                              : (hasCourseUsage ? 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200' : (hasCourseClaim ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-200' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200'))))
+                          ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-orange-200' 
+                          : 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200')
                   }`}
                 >
                   {isProcessing ? (
@@ -11192,7 +11294,7 @@ export default function POSSystem({
                       setSelectedCourseForUsage(null);
                    }}
                    disabled={selectedCourseForUsage.computedStatus === 'ใช้ครบแล้ว'}
-                   className={`w-full py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition-all ${selectedCourseForUsage.computedStatus === 'ใช้ครบแล้ว' ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-teal-600 hover:bg-teal-700 text-white shadow-md shadow-teal-200'}`}
+                   className={`w-full py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition-all ${selectedCourseForUsage.computedStatus === 'ใช้ครบแล้ว' ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600 text-white shadow-md shadow-orange-200'}`}
                  >
                    <Scissors size={18} /> ตัดคอร์สทำหน้า
                  </button>
