@@ -576,6 +576,8 @@ export default function POSSystem({
   posPreselectedUsageCourses = [],
   clearPosPreselectedUsageCourses = () => {},
   posPreselectedBeforePhotos = [],
+  posPreselectedStaffName = '',
+  activeStaff = null,
   posReturnToStaffAfterCheckout = false,
   onReturnToStaffDashboard = () => {}
 }) {
@@ -1567,12 +1569,18 @@ export default function POSSystem({
     return list;
   }, [clockedInEmployees, employees, globalBranch]);
 
-  // Auto-select staff if only 1 available and none selected yet
+  // Auto-select staff if none selected yet: prefer posPreselectedStaffName -> activeStaff -> sole available staff
   useEffect(() => {
-    if (!paymentStaff && availableStaffList.length === 1 && availableStaffList[0]?.name) {
-      setPaymentStaff(availableStaffList[0].name);
+    if (!paymentStaff) {
+      if (posPreselectedStaffName) {
+        setPaymentStaff(posPreselectedStaffName);
+      } else if (activeStaff?.name) {
+        setPaymentStaff(activeStaff.name);
+      } else if (availableStaffList.length === 1 && availableStaffList[0]?.name) {
+        setPaymentStaff(availableStaffList[0].name);
+      }
     }
-  }, [availableStaffList, paymentStaff]);
+  }, [availableStaffList, paymentStaff, posPreselectedStaffName, activeStaff]);
 
   const renderStaffSelection = (isServiceStep = false) => {
     return (
@@ -3717,9 +3725,15 @@ export default function POSSystem({
     }
     const hasCourse = cart.some(i => i.type === 'course' || i.type === 'single_course');
     const hasService = cart.some(i => i.type === 'service' || i.type === 'usage' || i.type === 'claim_item');
-    if (hasService && !paymentStaff) {
-      showToast('มีรายการตัดคอร์ส/เบิกสินค้าในตะกร้า โปรดเลือกพนักงานผู้ทำรายการ', 'error');
-      return;
+    let effectiveStaff = paymentStaff;
+    if (hasService && !effectiveStaff) {
+      effectiveStaff = posPreselectedStaffName || activeStaff?.name || (availableStaffList.length > 0 ? availableStaffList[0].name : '');
+      if (effectiveStaff) {
+        setPaymentStaff(effectiveStaff);
+      } else {
+        showToast('มีรายการตัดคอร์ส/เบิกสินค้าในตะกร้า โปรดเลือกพนักงานผู้ทำรายการ', 'error');
+        return;
+      }
     }
     if ((hasCourse || cart.some(i => i.type === 'claim_item')) && !selectedCustomer) {
       handleSelectWalkIn();
@@ -6699,22 +6713,30 @@ export default function POSSystem({
                               : isWaitingService
                                 ? 'border-amber-400 ring-2 ring-amber-300 shadow-amber-100 bg-amber-50/20'
                                 : isDeductSelected 
-                                  ? 'border-teal-400 ring-2 ring-teal-300 shadow-teal-100 bg-teal-50/25' 
+                                  ? 'border-purple-500 ring-2 ring-purple-400 shadow-purple-100 bg-purple-50/30 animate-pulse' 
                                   : 'border-teal-100'
                           }`}
                         >
                           <div className={`absolute top-0 left-0 w-1.5 h-full ${
-                            isInService ? 'bg-purple-600 animate-pulse' : isDeductSelected ? 'bg-teal-500' : c.computedStatus === 'ยังคงเหลือ' ? 'bg-teal-400' : 'bg-gray-300'
+                            isInService || isDeductSelected ? 'bg-purple-600 animate-pulse' : c.computedStatus === 'ยังคงเหลือ' ? 'bg-teal-400' : 'bg-gray-300'
                           }`}></div>
                           
                           <div className="flex-1 pl-2 pr-3 min-w-0 flex flex-col justify-center">
                             <div className="mb-1.5 flex flex-col items-start gap-0.5">
-                               {getFuzzyKey(c, ["รหัสคอส", "col_1"]) && (
-                                   <span className="bg-teal-50 text-teal-600 border border-teal-100 text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase inline-block">
-                                       {String(getFuzzyKey(c, ["รหัสคอส", "col_1"]))}
+                               <div className="flex items-center gap-1.5 flex-wrap">
+                                 {getFuzzyKey(c, ["รหัสคอส", "col_1"]) && (
+                                     <span className="bg-teal-50 text-teal-600 border border-teal-100 text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase inline-block">
+                                         {String(getFuzzyKey(c, ["รหัสคอส", "col_1"]))}
+                                     </span>
+                                 )}
+                                 {isDeductSelected && (
+                                   <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-purple-600 text-white animate-pulse shadow-2xs flex items-center gap-1">
+                                     <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping shrink-0" />
+                                     เลือกตัดยอดคอร์สนี้
                                    </span>
-                               )}
-                               <p className="font-bold text-teal-700 text-sm sm:text-base line-clamp-2 leading-tight" title={String(getFuzzyKey(c, ["ชื่อคอส", "col_8"]) || '-')}>
+                                 )}
+                               </div>
+                               <p className={`font-bold text-sm sm:text-base line-clamp-2 leading-tight ${isDeductSelected ? 'text-purple-950 font-black' : 'text-teal-700'}`} title={String(getFuzzyKey(c, ["ชื่อคอส", "col_8"]) || '-')}>
                                    {String(getFuzzyKey(c, ["ชื่อคอส", "col_8"]) || '-')}
                                </p>
                             </div>
@@ -6803,7 +6825,7 @@ export default function POSSystem({
 
                             <div className="text-right">
                                 <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5">ใช้ไป {c.computedUsedQty || 0}/{c.computedTotalQty || 1}</p>
-                                <p className="text-base sm:text-xl font-black text-teal-600 leading-none">เหลือ {c.computedRemainQty}</p>
+                                <p className={`text-base sm:text-xl font-black leading-none ${isDeductSelected ? 'text-purple-700 animate-pulse' : 'text-teal-600'}`}>เหลือ {c.computedRemainQty}</p>
                             </div>
 
                             {/* ปุ่มเลือกตัดยอดคอร์สนี้ทันที (รองรับเลือกตัดพร้อมกันหลายคอร์ส) */}
@@ -6816,12 +6838,12 @@ export default function POSSystem({
                                     removeFromCart(c.id, 'usage');
                                     showToast(`ยกเลิกเลือกตัดคอร์ส "${c.name || ''}" แล้ว`, 'info');
                                   }}
-                                  className="px-2 py-1 rounded-lg text-[10px] font-black bg-teal-600 hover:bg-rose-500 text-white flex items-center gap-1 shadow-2xs active:scale-95 transition-all cursor-pointer group/btn"
+                                  className="px-2 py-1 rounded-lg text-[10px] font-black bg-purple-600 hover:bg-rose-500 text-white flex items-center gap-1 shadow-2xs active:scale-95 transition-all cursor-pointer group/btn"
                                   title="แตะเพื่อยกเลิกการตัดคอร์สนี้"
                                 >
                                   <Check size={11} strokeWidth={3} className="group-hover/btn:hidden" />
                                   <X size={11} className="hidden group-hover/btn:inline" />
-                                  <span className="group-hover/btn:hidden">ในรายการตัดยอด ({cartUsageItem?.qty || 1})</span>
+                                  <span className="group-hover/btn:hidden">เลือกตัดยอดแล้ว ({cartUsageItem?.qty || 1})</span>
                                   <span className="hidden group-hover/btn:inline">ยกเลิก</span>
                                 </button>
                               ) : (
@@ -8216,40 +8238,46 @@ export default function POSSystem({
                             const cName = String(getFuzzyKey(ci.originalItem, ["ชื่อคอส", "col_8"]) || ci.name || '').replace(/เบิกใช้:\s*/g, '');
                             const cNo = String(getFuzzyKey(ci.originalItem, ["เลขที่ใบคอส", "col_2"]) || '');
                             return (
-                              <div key={ci.id} className="flex items-center justify-between bg-white px-3 py-2 rounded-xl border border-teal-100 shadow-2xs text-xs">
-                                <div className="min-w-0 pr-2">
-                                  <div className="font-bold text-slate-800 truncate">{cName}</div>
-                                  <div className="text-[10px] text-slate-400">เลขที่: {cNo || ci.id} • คงเหลือ {remainQty} ครั้ง</div>
+                              <div key={ci.id} className="flex items-center justify-between bg-purple-50/70 px-3.5 py-2.5 rounded-xl border-2 border-purple-400 shadow-sm ring-2 ring-purple-300/80 animate-pulse text-xs relative overflow-hidden transition-all">
+                                <div className="absolute top-0 left-0 w-1.5 h-full bg-purple-600"></div>
+                                <div className="min-w-0 pr-2 pl-1.5">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full bg-purple-600 animate-ping shrink-0" />
+                                    <div className="font-black text-purple-950 text-xs sm:text-sm truncate">{cName}</div>
+                                  </div>
+                                  <div className="text-[10px] text-purple-700 font-medium mt-0.5">
+                                    เลขที่: {cNo || ci.id} • คงเหลือ {remainQty} ครั้ง • <span className="font-bold text-purple-900 bg-purple-100 px-1.5 py-0.2 rounded">เลือกตัดยอดคอร์สนี้</span>
+                                  </div>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
-                                  <span className="text-xs text-slate-500 font-medium">ตัด:</span>
-                                  <div className="flex items-center border border-teal-200 rounded-lg bg-teal-50/50 overflow-hidden">
+                                  <span className="text-xs text-purple-900 font-black">ตัด:</span>
+                                  <div className="flex items-center border border-purple-300 rounded-lg bg-white shadow-2xs overflow-hidden">
                                     <button
                                       type="button"
                                       onClick={() => updateCartQty(ci.id, 'usage', -1)}
                                       disabled={ci.qty <= 1}
-                                      className="w-7 h-7 flex items-center justify-center text-teal-700 hover:bg-teal-100 disabled:opacity-30 disabled:hover:bg-transparent font-black"
+                                      className="w-7 h-7 flex items-center justify-center text-purple-700 hover:bg-purple-100 disabled:opacity-30 disabled:hover:bg-transparent font-black cursor-pointer"
                                     >
                                       -
                                     </button>
-                                    <span className="w-8 text-center font-black text-teal-800 text-xs">
+                                    <span className="w-8 text-center font-black text-purple-950 text-xs">
                                       {ci.qty}
                                     </span>
                                     <button
                                       type="button"
                                       onClick={() => updateCartQty(ci.id, 'usage', 1)}
                                       disabled={ci.qty >= remainQty}
-                                      className="w-7 h-7 flex items-center justify-center text-teal-700 hover:bg-teal-100 disabled:opacity-30 disabled:hover:bg-transparent font-black"
+                                      className="w-7 h-7 flex items-center justify-center text-purple-700 hover:bg-purple-100 disabled:opacity-30 disabled:hover:bg-transparent font-black cursor-pointer"
                                     >
                                       +
                                     </button>
                                   </div>
-                                  <span className="text-xs font-bold text-teal-700 mr-1">ครั้ง</span>
+                                  <span className="text-xs font-black text-purple-900 mr-1">ครั้ง</span>
                                   <button
                                     type="button"
                                     onClick={() => removeFromCart(ci.id, 'usage')}
                                     title="นำคอร์สนี้ออกจากการตัดยอด"
-                                    className="w-6 h-6 rounded-md bg-slate-100 hover:bg-rose-100 text-slate-400 hover:text-rose-600 flex items-center justify-center transition-colors cursor-pointer"
+                                    className="w-6 h-6 rounded-md bg-white hover:bg-rose-100 text-slate-400 hover:text-rose-600 border border-purple-200 flex items-center justify-center transition-colors cursor-pointer"
                                   >
                                     <X size={13} />
                                   </button>
@@ -9330,7 +9358,12 @@ export default function POSSystem({
                   <button 
                     id="btn-confirm-usage-step1"
                     onClick={() => {
-                      if (!paymentStaff) return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ให้บริการ', 'error');
+                      let staffToUse = paymentStaff;
+                      if (!staffToUse) {
+                        staffToUse = posPreselectedStaffName || activeStaff?.name || (availableStaffList.length > 0 ? availableStaffList[0].name : '');
+                        if (staffToUse) setPaymentStaff(staffToUse);
+                      }
+                      if (!staffToUse) return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ให้บริการ', 'error');
                       const isCustSigned = custSigRef.current?.dataset?.isSigned === "true" || !!customerSignature;
                       const isStaffSigned = staffSigRef.current?.dataset?.isSigned === "true" || !!staffSignature;
                       if (!isCustSigned || !isStaffSigned) {
@@ -9391,7 +9424,12 @@ export default function POSSystem({
                 <button 
                   id="btn-confirm-checkout"
                   onClick={() => {
-                      if (!paymentStaff) return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ให้บริการ', 'error');
+                      let staffToUse = paymentStaff;
+                      if (!staffToUse) {
+                        staffToUse = posPreselectedStaffName || activeStaff?.name || (availableStaffList.length > 0 ? availableStaffList[0].name : '');
+                        if (staffToUse) setPaymentStaff(staffToUse);
+                      }
+                      if (!staffToUse) return showToast('กรุณาเลือกพนักงานผู้ทำรายการ / ให้บริการ', 'error');
                       if (hasUsageOrClaim) {
                           const isCustSigned = custSigRef.current?.dataset?.isSigned === "true" || !!customerSignature;
                           const isStaffSigned = staffSigRef.current?.dataset?.isSigned === "true" || !!staffSignature;

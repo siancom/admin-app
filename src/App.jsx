@@ -318,12 +318,14 @@ export default function App() {
   const [posPreselectedUsageCourses, setPosPreselectedUsageCourses] = useState([]);
   const [posReturnToStaffAfterCheckout, setPosReturnToStaffAfterCheckout] = useState(false);
   const [posPreselectedBeforePhotos, setPosPreselectedBeforePhotos] = useState([]);
+  const [posPreselectedStaffName, setPosPreselectedStaffName] = useState('');
   const [posPendingAfterLogin, setPosPendingAfterLogin] = useState(false);
 
-  const handleGoToPosDeduction = ({ customer, courses: targetCourses, beforePhotos }) => {
+  const handleGoToPosDeduction = ({ customer, courses: targetCourses, beforePhotos, staffName }) => {
     setPosPreselectedCustomer(customer);
     setPosPreselectedUsageCourses(targetCourses || []);
     setPosPreselectedBeforePhotos(beforePhotos || []);
+    setPosPreselectedStaffName(staffName || activeStaff?.name || '');
     setPosReturnToStaffAfterCheckout(true);
     setActiveTab('pos');
   };
@@ -332,6 +334,7 @@ export default function App() {
     setPosReturnToStaffAfterCheckout(false);
     setPosPreselectedUsageCourses([]);
     setPosPreselectedBeforePhotos([]);
+    setPosPreselectedStaffName('');
     setActiveTab('dashboard');
     setStaffDashboardTab('used_course');
   };
@@ -6332,6 +6335,8 @@ const flexMessage = {
               posPreselectedUsageCourses={posPreselectedUsageCourses}
               clearPosPreselectedUsageCourses={() => setPosPreselectedUsageCourses([])}
               posPreselectedBeforePhotos={posPreselectedBeforePhotos}
+              posPreselectedStaffName={posPreselectedStaffName}
+              activeStaff={activeStaff}
               posReturnToStaffAfterCheckout={posReturnToStaffAfterCheckout}
               onReturnToStaffDashboard={handleReturnToStaffDashboard}
               onGoToLogin={() => setShowBranchSelectForPos(true)}

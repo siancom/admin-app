@@ -396,7 +396,8 @@ export default function StaffServiceQueue({
       courses: targetCourses,
       activeServiceId,
       beforePhotos,
-      afterPhotos
+      afterPhotos,
+      staffName: activeStaff?.name || serviceOrCourses?.staffName || ''
     });
   };
 
@@ -947,23 +948,23 @@ export default function StaffServiceQueue({
                           : isWaitingService
                             ? 'border-amber-400 ring-2 ring-amber-300 shadow-amber-100 bg-amber-50/20'
                             : isSelected 
-                              ? 'border-teal-400 ring-2 ring-teal-300 shadow-teal-100 bg-teal-50/30' 
+                              ? 'border-purple-500 ring-2 ring-purple-400 shadow-purple-100 bg-purple-50/40 animate-pulse' 
                               : 'border-teal-100'
                       }`}
                     >
                       {/* Left accent stripe */}
                       <div className={`absolute top-0 left-0 w-1.5 h-full ${
-                        isInService ? 'bg-purple-600 animate-pulse' : isSelected ? 'bg-teal-500' : 'bg-teal-400'
+                        isInService || isSelected ? 'bg-purple-600 animate-pulse' : 'bg-teal-400'
                       }`}></div>
 
                       {/* Checkbox for multi-select */}
                       <div className="pr-2 pl-1 shrink-0">
                         {isSelected ? (
-                          <div className="w-5 h-5 rounded-md bg-teal-600 text-white flex items-center justify-center shadow-2xs">
+                          <div className="w-5 h-5 rounded-md bg-purple-600 text-white flex items-center justify-center shadow-2xs">
                             <Check size={14} strokeWidth={3} />
                           </div>
                         ) : (
-                          <div className="w-5 h-5 rounded-md border-2 border-slate-300 group-hover:border-teal-500 bg-white transition-colors" />
+                          <div className="w-5 h-5 rounded-md border-2 border-slate-300 group-hover:border-purple-500 bg-white transition-colors" />
                         )}
                       </div>
 
@@ -1243,25 +1244,7 @@ export default function StaffServiceQueue({
               )}
             </div>
 
-            {/* พนักงานผู้ให้บริการ */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-black text-slate-700 flex items-center gap-1">
-                <User size={13} className="text-indigo-600" />
-                <span>พนักงานผู้ให้บริการ / ผู้เช็คอิน:</span>
-              </label>
-              <select
-                value={checkInModal.staffName}
-                onChange={(e) => setCheckInModal(prev => ({ ...prev, staffName: e.target.value }))}
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:border-indigo-500"
-              >
-                <option value="">-- เลือกพนักงาน --</option>
-                {employees.map(emp => (
-                  <option key={emp.id} value={emp.name}>
-                    {emp.name} {emp.nickname ? `(${emp.nickname})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
+
 
             {/* Note & Bed optional */}
             <div className="grid grid-cols-2 gap-2">
