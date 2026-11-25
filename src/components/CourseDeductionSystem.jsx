@@ -219,10 +219,24 @@ export default function CourseDeductionSystem({
     if (!course) return null;
     const cPhone = String(getFuzzyKey(course, ['เบอร์โทร', 'col_1']) || '').replace(/\D/g, '');
     const cName = String(getFuzzyKey(course, ['ผู้ซื้อคอส', 'ชื่อลูกค้า', 'col_9']) || '').trim();
-    return (customers || []).find(cu => {
+    const found = (customers || []).find(cu => {
       const p = String(getCustomerPhone(cu)).replace(/\D/g, '');
       return cPhone.length >= 6 && p === cPhone;
-    }) || (cName ? (customers || []).find(cu => String(getCustomerName(cu)).trim() === cName) : null) || null;
+    }) || (cName ? (customers || []).find(cu => String(getCustomerName(cu)).trim() === cName) : null);
+
+    if (found) return found;
+
+    // Fallback: If walk-in course not in customers table, generate synthetic customer so staff can deduct
+    return {
+      id: course.id || 'walkin-course-cust',
+      computedName: cName || 'ลูกค้าทั่วไป (Walk-in)',
+      name: cName || 'ลูกค้าทั่วไป (Walk-in)',
+      "ชื่อ": cName || 'ลูกค้าทั่วไป (Walk-in)',
+      computedPhone: cPhone || '-',
+      phone: cPhone || '-',
+      "เบอร์โทร": cPhone || '-',
+      isWalkIn: true
+    };
   };
 
   const filteredCustomers = useMemo(() => {

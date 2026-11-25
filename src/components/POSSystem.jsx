@@ -492,33 +492,217 @@ export default function POSSystem({
   // Checkout Details
   const [selectedCustomer, setSelectedCustomer] = useState(null);
 
-  const handleSelectWalkIn = () => {
+  const handleSelectWalkIn = (initialMemberStatus = false) => {
     let walkIn = customers.find(c => {
       const name = String(getFuzzyKey(c, ["ชื่อ", "col_1", "computedName"]) || '').toLowerCase();
       return name.includes('walk-in') || name.includes('วอคอิน') || name.includes('ลูกค้าทั่วไป');
     });
 
+    const isMember = Boolean(initialMemberStatus);
     if (!walkIn) {
       walkIn = {
         id: 'walkin-default',
-        "ชื่อ": "ลูกค้าทั่วไป (Walk-in)",
+        "ชื่อ": isMember ? "ลูกค้าทั่วไป (สิทธิ์สมาชิก)" : "ลูกค้าทั่วไป (Walk-in)",
         "เบอร์โทร": "-",
-        computedName: "ลูกค้าทั่วไป (Walk-in)",
+        computedName: isMember ? "ลูกค้าทั่วไป (สิทธิ์สมาชิก)" : "ลูกค้าทั่วไป (Walk-in)",
         computedPhone: "-",
         isWalkIn: true,
-        isApproved: false
+        isApproved: isMember,
+        hasMemberCard: isMember,
+        isMemberDiscount: isMember
       };
     } else {
       walkIn = {
         ...walkIn,
-        isWalkIn: true
+        computedName: walkIn.computedName || (isMember ? "ลูกค้าทั่วไป (สิทธิ์สมาชิก)" : "ลูกค้าทั่วไป (Walk-in)"),
+        computedPhone: walkIn.computedPhone || "-",
+        isWalkIn: true,
+        isApproved: isMember,
+        hasMemberCard: isMember,
+        isMemberDiscount: isMember
       };
     }
 
     setSelectedCustomer(walkIn);
     setCustomerSearch('');
     setIsCustomerDropdownOpen(false);
-    showToast('เลือกลูกค้าทั่วไป (Walk-in) เรียบร้อยแล้ว', 'info');
+    showToast(isMember ? 'เลือกลูกค้าวอคอิน (สิทธิ์ส่วนลดบัตรสมาชิก ⭐) เรียบร้อย' : 'เลือกลูกค้าทั่วไป (Walk-in) เรียบร้อยแล้ว', 'info');
+  };
+
+  // Walk-in / Quick Customer Edit Modal state
+  const [isWalkInEditModalOpen, setIsWalkInEditModalOpen] = useState(false);
+  const [walkInFormData, setWalkInFormData] = useState({
+    name: '',
+    phone: '',
+    isMember: false,
+    issue: '',
+    saveToDb: true
+  });
+
+  // Edit Course Owner Info Modal state
+  const [courseCustomerModalData, setCourseCustomerModalData] = useState(null);
+  const [courseCustomerFormData, setCourseCustomerFormData] = useState({
+    name: '',
+    phone: '',
+    saveToDb: true
+  });
+
+  const handleSaveWalkInCustomer = async () => {
+    const rawName = (walkInFormData.name || '').trim();
+    const rawPhone = (walkInFormData.phone || '').trim();
+    const isMember = Boolean(walkInFormData.isMember);
+    const cleanPhone = rawPhone.replace(/\D/g, '');
+    const finalName = rawName || (isMember ? 'ลูกค้าทั่วไป (สิทธิ์สมาชิก)' : 'ลูกค้าทั่วไป (Walk-in)');
+    const finalPhone = rawPhone || '-';
+
+    let savedCustomerId = selectedCustomer?.id || 'walkin-default';
+    if (walkInFormData.saveToDb && (cleanPhone.length >= 8 || rawName.length >= 2)) {
+      try {
+        const customerData = {
+          "ชื่อ": finalName,
+          "col_1": finalName,
+          "เบอร์โทร": finalPhone,
+          "col_3": finalPhone,
+          "cleanPhone": cleanPhone,
+          "ชื่อเล่น": '',
+          "เพศ": 'หญิง',
+          "สาขา": String(globalBranch || 'เฉวง'),
+          "ปัญหาผิว": walkInFormData.issue || '',
+          "หมายเลขใบสะสม": `Irismember${Math.floor(1000 + Math.random() * 9000)}`,
+          "ยอดสะสม": "0",
+          "สถานะสมาชิก": isMember ? "มีสิทธิ์ส่วนลดบัตรสมาชิก" : "ยังไม่สะสมยอด",
+          "isApproved": isMember,
+          "hasMemberCard": isMember,
+          "isWalkIn": false,
+          "source": "POS Walk-in Quick Register",
+          "createdAt": new Date().toISOString(),
+          "updatedAt": new Date().toISOString()
+        };
+
+        const existingCust = cleanPhone.length >= 8 
+          ? customers.find(c => {
+              const p = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "cleanPhone"]) || '').replace(/\D/g, '');
+              return p === cleanPhone;
+            })
+          : null;
+
+        if (existingCust && existingCust.id) {
+          savedCustomerId = existingCust.id;
+          await updateDoc(doc(db, 'customers', existingCust.id), {
+            "ชื่อ": finalName,
+            "col_1": finalName,
+            "ปัญหาผิว": walkInFormData.issue || existingCust["ปัญหาผิว"] || '',
+            "isApproved": isMember || existingCust.isApproved || false,
+            "hasMemberCard": isMember || existingCust.hasMemberCard || false,
+            "updatedAt": new Date().toISOString()
+          });
+        } else {
+          const docRef = await addDoc(getCol('customers'), customerData);
+          savedCustomerId = docRef.id;
+        }
+      } catch (err) {
+        console.error("Error saving customer from POS:", err);
+      }
+    }
+
+    setSelectedCustomer(prev => ({
+      ...(prev || {}),
+      id: savedCustomerId,
+      "ชื่อ": finalName,
+      "col_1": finalName,
+      computedName: finalName,
+      "เบอร์โทร": finalPhone,
+      "col_3": finalPhone,
+      computedPhone: finalPhone,
+      cleanPhone: cleanPhone,
+      isWalkIn: true,
+      hasMemberCard: isMember,
+      isApproved: isMember,
+      isMemberDiscount: isMember,
+      issue: walkInFormData.issue || '',
+      computedIssue: walkInFormData.issue || ''
+    }));
+
+    setIsWalkInEditModalOpen(false);
+    showToast(`อัปเดตข้อมูลลูกค้า ${finalName} เรียบร้อยแล้ว`, 'success');
+  };
+
+  const handleSaveCourseCustomer = async () => {
+    if (!courseCustomerModalData) return;
+    const rawName = (courseCustomerFormData.name || '').trim();
+    const rawPhone = (courseCustomerFormData.phone || '').trim();
+    if (!rawName) {
+      showToast('กรุณาระบุชื่อลูกค้า', 'error');
+      return;
+    }
+
+    const cleanPhone = rawPhone.replace(/\D/g, '');
+    try {
+      await updateDoc(doc(db, 'courses', courseCustomerModalData.id), {
+        "ผู้ซื้อคอส": rawName,
+        "col_9": rawName,
+        "เบอร์โทร": rawPhone || '-',
+        "col_1": rawPhone || '-',
+        "cleanPhone": cleanPhone,
+        "isWalkIn": false,
+        "updatedFromWalkIn": true,
+        "updatedAt": new Date().toISOString()
+      });
+
+      if (courseCustomerFormData.saveToDb && cleanPhone.length >= 8) {
+        const existingCust = customers.find(c => {
+          const p = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "cleanPhone"]) || '').replace(/\D/g, '');
+          return p === cleanPhone;
+        });
+        if (!existingCust) {
+          await addDoc(getCol('customers'), {
+            "ชื่อ": rawName,
+            "col_1": rawName,
+            "เบอร์โทร": rawPhone,
+            "col_3": rawPhone,
+            "cleanPhone": cleanPhone,
+            "เพศ": 'หญิง',
+            "สาขา": String(globalBranch || 'เฉวง'),
+            "หมายเลขใบสะสม": `Irismember${Math.floor(1000 + Math.random() * 9000)}`,
+            "ยอดสะสม": "0",
+            "สถานะสมาชิก": "ยังไม่สะสมยอด",
+            "source": "Course Owner Update",
+            "createdAt": new Date().toISOString()
+          });
+        }
+      }
+
+      setSelectedCourseForUsage(prev => {
+        if (!prev || prev.id !== courseCustomerModalData.id) return prev;
+        return {
+          ...prev,
+          "ผู้ซื้อคอส": rawName,
+          "col_9": rawName,
+          "เบอร์โทร": rawPhone || '-',
+          "col_1": rawPhone || '-',
+          "cleanPhone": cleanPhone,
+          "isWalkIn": false
+        };
+      });
+
+      if (selectedCustomer && (selectedCustomer.isWalkIn || selectedCustomer.id === 'walkin-default')) {
+        setSelectedCustomer(prev => ({
+          ...prev,
+          "ชื่อ": rawName,
+          "col_1": rawName,
+          computedName: rawName,
+          "เบอร์โทร": rawPhone || '-',
+          "col_3": rawPhone || '-',
+          computedPhone: rawPhone || '-'
+        }));
+      }
+
+      setCourseCustomerModalData(null);
+      showToast(`อัปเดตข้อมูลเจ้าของคอร์ส ${rawName} สำเร็จ!`, 'success');
+    } catch (err) {
+      console.error("Error updating course customer:", err);
+      showToast('เกิดข้อผิดพลาด: ' + err.message, 'error');
+    }
   };
   const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
@@ -1564,18 +1748,42 @@ export default function POSSystem({
 
   const filteredMyCourses = useMemo(() => {
     if (!selectedCustomer) return [];
+    const isWalkIn = Boolean(selectedCustomer.isWalkIn);
     const phone = String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]) || '').trim();
-    if (!phone) return [];
+    const name = String(selectedCustomer.computedName || getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]) || '').trim().toLowerCase();
+    const cleanPhone = phone.replace(/\D/g, '');
+
     return courses.filter(c => {
-      const cPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').trim();
-      if (cPhone !== phone) return false;
       if (!c.computedRemainQty || c.computedRemainQty <= 0) return false;
       
       const courseName = String(getFuzzyKey(c, ["ชื่อคอส", "ชื่อคอร์ส", "col_8"]) || '').toLowerCase();
       const isCreditCourse = courseName.includes('วงเงิน') || courseName.includes('เติมเงิน') || courseName.includes('เครดิต') || courseName.includes('voucher') || courseName.includes('บัตรกำนัล') || courseName.includes('ฝากเงิน');
       if (isCreditCourse) return false;
-      
-      const searchStr = `${String(getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"]) || '')} ${String(getFuzzyKey(c, ["ชื่อคอส", "col_8"]) || '')}`.toLowerCase();
+
+      const cPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').trim();
+      const cCleanPhone = cPhone.replace(/\D/g, '');
+      const cBuyer = String(getFuzzyKey(c, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "col_9", "col_2"]) || '').trim().toLowerCase();
+      const courseNo = String(getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"]) || '').toLowerCase();
+      const isCourseWalkIn = c.isWalkIn === true || cBuyer.includes('walk-in') || cBuyer.includes('วอคอิน') || cBuyer.includes('ทั่วไป') || cPhone === '-' || !cPhone;
+
+      let isMatch = false;
+      if (cleanPhone.length >= 6 && cCleanPhone.length >= 6 && cleanPhone === cCleanPhone) {
+        isMatch = true;
+      } else if (phone && phone !== '-' && cPhone === phone) {
+        isMatch = true;
+      } else if (name && !name.includes('ลูกค้าทั่วไป') && cBuyer === name) {
+        isMatch = true;
+      } else if (isWalkIn) {
+        if (searchTerm.trim() !== '') {
+          isMatch = true;
+        } else {
+          isMatch = isCourseWalkIn;
+        }
+      }
+
+      if (!isMatch) return false;
+
+      const searchStr = `${courseNo} ${courseName} ${cBuyer} ${cPhone}`.toLowerCase();
       return searchTerm === '' || searchStr.includes(searchTerm.toLowerCase());
     });
   }, [courses, selectedCustomer, searchTerm]);
@@ -1688,7 +1896,7 @@ export default function POSSystem({
     return { isVip: amt >= 5000, amount: amt };
   }, [selectedCustomer, histories]);
 
-  const isVipCustomer = orderChannel === 'shopee' || vipStats.isVip || (selectedCustomer && selectedCustomer.isApproved === true);
+  const isVipCustomer = orderChannel === 'shopee' || vipStats.isVip || (selectedCustomer && (selectedCustomer.isApproved === true || selectedCustomer.hasMemberCard === true || selectedCustomer.isMemberDiscount === true));
 
   const customerCreditBalance = useMemo(() => {
     if (!selectedCustomer) return 0;
@@ -1968,6 +2176,13 @@ export default function POSSystem({
       if (item.type === 'product' && !item.isManualPrice) {
         return { ...item, price: computeFinalPrice(item.originalItem, isVipCustomer) };
       }
+      if ((item.type === 'course' || item.type === 'single_course') && !item.isManualPrice && !item.promoOption) {
+        const memPrice = parseNumber(getFuzzyKey(item.originalItem, ["ราคาสมาชิก", "col_10", "memberPrice"]));
+        if (memPrice > 0) {
+          const regPrice = parseNumber(getFuzzyKey(item.originalItem, ["ราคา", "ราคาขาย", "col_5"])) || item.originalPrice;
+          return { ...item, price: isVipCustomer ? memPrice : regPrice };
+        }
+      }
       return item;
     }));
   }, [isVipCustomer]);
@@ -2057,6 +2272,10 @@ export default function POSSystem({
           return [...prev, { id: item.id, name: nameStr, price, originalPrice: fullPrice, qty: 1, type, actionType, maxQty, originalItem: item, isManualPrice: false }];
         } else if (type === 'course' || type === 'single_course') {
           let price = parseNumber(getFuzzyKey(item, ["ราคา", "ราคาขาย", "col_5"]));
+          const memberCoursePrice = parseNumber(getFuzzyKey(item, ["ราคาสมาชิก", "col_10", "memberPrice"]));
+          if (isVipCustomer && memberCoursePrice > 0) {
+            price = memberCoursePrice;
+          }
           let nameStr = String(getFuzzyKey(item, ["ชื่อคอส", "col_4"]));
           const nameMatch = nameStr.match(/(\d+)\s*ครั้ง/);
           let sessions = String(
@@ -2865,7 +3084,8 @@ export default function POSSystem({
       return;
     }
     if ((hasCourse || cart.some(i => i.type === 'claim_item')) && !selectedCustomer) {
-      showToast('มีรายการคอร์ส/เบิกสินค้าในตะกร้า โปรดเลือกลูกค้าก่อนทำรายการ', 'error');
+      handleSelectWalkIn();
+      showToast('เลือกสิทธิ์ลูกค้าทั่วไป (Walk-in) ให้อัตโนมัติแล้ว กรุณากดยืนยันชำระเงินอีกครั้ง หรือกดระบุชื่อลูกค้า', 'info');
       return;
     }
     // 🌟 กันหักเครดิตซ้ำ 2 ครั้ง: ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป → ห้ามเลือก "ใช้เครดิต" อีก
@@ -3305,8 +3525,8 @@ export default function POSSystem({
             );
 
             const courseData = {
-              "เบอร์โทร": cPhone,
-              "col_1": cPhone,
+              "เบอร์โทร": cPhone || '-',
+              "col_1": cPhone || '-',
               "cleanPhone": custCleanPhone,
               "เลขที่ใบคอส": courseNo,
               "col_2": courseNo,
@@ -3339,7 +3559,10 @@ export default function POSSystem({
               "ฟรีบัตรสมาชิก": String(getFuzzyKey(item.originalItem, ["ฟรีบัตรสมาชิก"]) || 'ไม่'),
               "claimedItems": [],
               "createdAt": customDateObj.toISOString(),
-              "promoOption": item.promoOption || null
+              "promoOption": item.promoOption || null,
+              "isWalkIn": Boolean(selectedCustomer?.isWalkIn),
+              "hasMemberCard": Boolean(selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer),
+              "membershipStatus": (selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer) ? "บัตรสมาชิก" : "ทั่วไป"
             };
             if (expireDateStr) courseData["วันหมดอายุ"] = expireDateStr;
             batch.set(courseRef, courseData);
@@ -3350,8 +3573,8 @@ export default function POSSystem({
               "วันที่": customDateObj.toLocaleDateString('th-TH'),
               "ชื่อลูกค้า": cName,
               "col_2": cName,
-              "เบอร์โทร": cPhone,
-              "col_3": cPhone,
+              "เบอร์โทร": cPhone || '-',
+              "col_3": cPhone || '-',
               "cleanPhone": custCleanPhone,
               "หมายเลขคำสั่งซื้อ": orderNo,
               "ประเภท": "ซื้อคอร์ส",
@@ -3359,12 +3582,18 @@ export default function POSSystem({
               "สถานะ": "เรียบร้อย",
               "สินค้า": item.name,
               "col_18": item.name,
+              "col_8": item.name,
               "ยอดเงิน": String(item.price),
               "col_19": String(item.price),
-              "สาขา": String(globalBranch || "สำนักงานใหญ่"),
+              "col_13": String(item.price),
+              "สาขา": String(globalBranch || "เฉวง"),
+              "เลขที่ใบคอส": courseNo,
+              "col_14": courseNo,
               "อ้างอิง": courseNo,
               "col_6": courseNo,
-              "พนักงาน": paymentStaff
+              "พนักงาน": paymentStaff,
+              "isWalkIn": Boolean(selectedCustomer?.isWalkIn),
+              "hasMemberCard": Boolean(selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer)
             });
           }
         }
@@ -3412,8 +3641,11 @@ export default function POSSystem({
       batch.set(orderRef, {
         orderNo,
         customerName: cName,
-        customerPhone: cPhone,
+        customerPhone: cPhone || '-',
         cleanPhone: custCleanPhone,
+        isWalkIn: Boolean(selectedCustomer?.isWalkIn),
+        hasMemberCard: Boolean(selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer),
+        membershipStatus: (selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer) ? "บัตรสมาชิก" : "ทั่วไป",
         courseName: itemsStr.join(', '), // Summarize items
         price: String(total),
         discount: String(globalDiscount),
@@ -4370,7 +4602,11 @@ export default function POSSystem({
               <div className="flex items-center justify-between bg-indigo-50 p-3 rounded-xl border border-indigo-200 shadow-sm">
                  <div className="flex items-start gap-3 w-full">
                     <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-white flex items-center justify-center border border-indigo-100">
-                      {(() => {
+                      {selectedCustomer.isWalkIn ? (
+                        <div className={`w-full h-full ${isVipCustomer ? 'bg-gradient-to-r from-amber-500 to-yellow-500' : 'bg-gradient-to-r from-amber-500 to-orange-500'} text-white flex items-center justify-center`}>
+                          <WalkingPersonIcon size={20} className="text-white" />
+                        </div>
+                      ) : (() => {
                         const picData = getProfilePicData(selectedCustomer, customers);
                         if (picData && picData.primary) {
                           return (
@@ -4386,19 +4622,23 @@ export default function POSSystem({
                       })()}
                     </div>
                     <div className="flex-1 min-w-0">
-                       <div className="font-bold text-slate-800 text-sm flex items-center gap-2 truncate">
-                           {selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]))}
-                           {isVipCustomer && <span className="bg-yellow-100 text-yellow-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-yellow-200">VIP</span>}
-                           {(selectedCustomer.isApproved || vipStats.isVip) && (
-                             <button 
-                               onClick={() => onOpenVipForm(selectedCustomer)}
-                               className="bg-orange-500 hover:bg-orange-600 transition-colors text-white px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 active:scale-95 shadow-sm"
-                               title="ดู/สร้างใบสมัคร VIP"
-                             >
-                               <Award size={10} /> ใบสมัคร VIP
-                             </button>
+                       <div className="font-bold text-slate-800 text-sm flex items-center gap-1.5 flex-wrap truncate">
+                           <span className="truncate">{selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]))}</span>
+                           {selectedCustomer.isWalkIn && (
+                             <span className="bg-orange-100 text-orange-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-orange-200 shrink-0">
+                               <WalkingPersonIcon size={11} className="text-orange-600" /> Walk-in
+                             </span>
                            )}
-                           {onViewCustomerProfile && (
+                           {isVipCustomer ? (
+                             <span className="bg-gradient-to-r from-amber-500 to-yellow-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs shrink-0">
+                               <Award size={10} className="text-yellow-200" /> สิทธิ์บัตรสมาชิก
+                             </span>
+                           ) : (
+                             <span className="bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200 shrink-0">
+                               ทั่วไป
+                             </span>
+                           )}
+                           {onViewCustomerProfile && !selectedCustomer.isWalkIn && (
                               <button 
                                 onClick={() => {
                                   onViewCustomerProfile(selectedCustomer);
@@ -4411,17 +4651,83 @@ export default function POSSystem({
                            )}
                        </div>
                        <div className="text-xs text-slate-500 mb-1">{selectedCustomer.computedPhone || String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]))}</div>
-                       <div className="text-[10px] text-slate-500 w-full mt-1">
-                           <div className="flex justify-between mb-0.5">
-                               <span>ยอดสะสม: ฿{vipStats.amount.toLocaleString()}</span>
-                               {!isVipCustomer && <span>ขาด ฿{(5000 - vipStats.amount).toLocaleString()}</span>}
-                           </div>
-                           {!isVipCustomer && (
-                               <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                                   <div className="bg-indigo-500 h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (vipStats.amount / 5000) * 100)}%` }}></div>
-                               </div>
-                           )}
+
+                       {/* Status Toggle: ลูกค้าทั่วไป vs มีสิทธิ์ส่วนลดบัตรสมาชิก */}
+                       <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 mt-1.5">
+                         <button
+                           type="button"
+                           onClick={() => {
+                             setSelectedCustomer(prev => ({
+                               ...prev,
+                               hasMemberCard: false,
+                               isApproved: false,
+                               isMemberDiscount: false
+                             }));
+                             showToast('เลือกสถานะ: ลูกค้าทั่วไป (ราคาปกติ)', 'info');
+                           }}
+                           className={`flex-1 py-1 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                             !isVipCustomer
+                               ? 'bg-white text-slate-800 shadow-2xs border border-slate-200 font-black'
+                               : 'text-slate-500 hover:text-slate-700'
+                           }`}
+                         >
+                           <User size={12} className={!isVipCustomer ? "text-slate-700" : "text-slate-400"} />
+                           <span>ทั่วไป</span>
+                         </button>
+                         <button
+                           type="button"
+                           onClick={() => {
+                             setSelectedCustomer(prev => ({
+                               ...prev,
+                               hasMemberCard: true,
+                               isApproved: true,
+                               isMemberDiscount: true
+                             }));
+                             showToast('เลือกสถานะ: มีสิทธิ์ส่วนลดบัตรสมาชิก (VIP Price) ⭐', 'success');
+                           }}
+                           className={`flex-1 py-1 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                             isVipCustomer
+                               ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-2xs font-black'
+                               : 'text-slate-500 hover:text-slate-700'
+                           }`}
+                         >
+                           <Award size={12} className={isVipCustomer ? "text-yellow-200" : "text-amber-500"} />
+                           <span>สิทธิ์บัตรสมาชิก ⭐</span>
+                         </button>
                        </div>
+
+                       {/* Action button to edit/specify name */}
+                       <button
+                         type="button"
+                         onClick={() => {
+                           setWalkInFormData({
+                             name: selectedCustomer.isWalkIn && selectedCustomer.computedName?.includes('ลูกค้าทั่วไป') ? '' : (selectedCustomer.computedName || selectedCustomer["ชื่อ"] || ''),
+                             phone: selectedCustomer.computedPhone === '-' ? '' : (selectedCustomer.computedPhone || selectedCustomer["เบอร์โทร"] || ''),
+                             isMember: Boolean(isVipCustomer),
+                             issue: selectedCustomer.computedIssue || selectedCustomer.issue || '',
+                             saveToDb: true
+                           });
+                           setIsWalkInEditModalOpen(true);
+                         }}
+                         className="mt-1.5 w-full py-1.5 px-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-2xs"
+                       >
+                         <Edit size={12} className="text-indigo-600" />
+                         <span>{selectedCustomer.isWalkIn ? 'ระบุชื่อ-เบอร์ลูกค้า (อัปเดตข้อมูล)' : 'แก้ไขชื่อ-เบอร์ลูกค้า'}</span>
+                       </button>
+
+                       {!selectedCustomer.isWalkIn && (
+                         <div className="text-[10px] text-slate-500 w-full mt-1.5">
+                             <div className="flex justify-between mb-0.5">
+                                 <span>ยอดสะสม: ฿{vipStats.amount.toLocaleString()}</span>
+                                 {!isVipCustomer && <span>ขาด ฿{(5000 - vipStats.amount).toLocaleString()}</span>}
+                             </div>
+                             {!isVipCustomer && (
+                                 <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                     <div className="bg-indigo-500 h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (vipStats.amount / 5000) * 100)}%` }}></div>
+                                 </div>
+                             )}
+                         </div>
+                       )}
                        <div className="flex gap-2 mt-1">
                           {customerPendingBalance > 0 && (
                              <div className="text-[10px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full inline-block">ค้างชำระ ฿{customerPendingBalance.toLocaleString()}</div>
@@ -4487,6 +4793,24 @@ export default function POSSystem({
                       <ScanLine size={18} />
                     </button>
                     <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-100 max-h-60 overflow-y-auto z-50">
+                      <div className="p-2 border-b border-slate-100 bg-slate-50/80 flex gap-1.5 sticky top-0 z-10 backdrop-blur-xs">
+                        <button
+                          type="button"
+                          onClick={() => handleSelectWalkIn(false)}
+                          className="flex-1 py-1.5 px-2 bg-white hover:bg-orange-50 text-orange-700 border border-orange-200 rounded-lg text-xs font-bold flex items-center justify-center gap-1 shadow-2xs transition-all cursor-pointer"
+                        >
+                          <WalkingPersonIcon size={13} className="text-orange-600" />
+                          <span>วอคอิน (ทั่วไป)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectWalkIn(true)}
+                          className="flex-1 py-1.5 px-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-lg text-xs font-black flex items-center justify-center gap-1 shadow-2xs transition-all cursor-pointer"
+                        >
+                          <Award size={12} className="text-yellow-200" />
+                          <span>วอคอิน (บัตรสมาชิก ⭐)</span>
+                        </button>
+                      </div>
                       {isCustomerDropdownOpen && (
                         filteredCustomers.length > 0 ? filteredCustomers.map(c => {
                           const amt = c.realAccumulatedAmount !== undefined ? c.realAccumulatedAmount : getCustomerAccumulatedAmount(c);
@@ -5467,10 +5791,31 @@ export default function POSSystem({
                                    {String(getFuzzyKey(c, ["ชื่อคอส", "col_8"]) || '-')}
                                </p>
                             </div>
-                            <div className="flex items-center gap-2 mb-2">
+                            <div className="flex items-center gap-2 mb-2 flex-wrap">
                                 <img src={`https://ui-avatars.com/api/?name=${encodeURIComponent(String(getFuzzyKey(c, ["ผู้ซื้อคอส", "col_9"]) || selectedCustomer?.computedName || '-'))}&background=f1f5f9&color=64748b&bold=true`} className="w-5 h-5 rounded-full shrink-0" />
                                 <span className="text-xs text-gray-600 font-medium truncate">{String(getFuzzyKey(c, ["ผู้ซื้อคอส", "col_9"]) || selectedCustomer?.computedName || '-')}</span>
                                 <span className="text-[10px] text-gray-400 font-mono hidden sm:inline">{String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || selectedCustomer?.computedPhone || '-')}</span>
+                                {(c.isWalkIn || String(getFuzzyKey(c, ["ผู้ซื้อคอส", "col_9"])).includes('Walk-in') || String(getFuzzyKey(c, ["ผู้ซื้อคอส", "col_9"])).includes('ทั่วไป') || String(getFuzzyKey(c, ["เบอร์โทร", "col_1"])) === '-') && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const curName = String(getFuzzyKey(c, ["ผู้ซื้อคอส", "col_9"]) || '');
+                                      const curPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '');
+                                      setCourseCustomerFormData({
+                                        name: curName.includes('Walk-in') || curName.includes('ลูกค้าทั่วไป') ? '' : curName,
+                                        phone: curPhone === '-' ? '' : curPhone,
+                                        saveToDb: true
+                                      });
+                                      setCourseCustomerModalData(c);
+                                    }}
+                                    className="text-[9px] font-bold text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200 px-1.5 py-0.5 rounded-md flex items-center gap-0.5 ml-auto shadow-2xs cursor-pointer"
+                                    title="ระบุหรือแก้ไขชื่อ-เบอร์ลูกค้า"
+                                  >
+                                    <Edit size={9} />
+                                    <span>ใส่ชื่อ-เบอร์</span>
+                                  </button>
+                                )}
                             </div>
                             <div className="flex flex-wrap gap-1.5">
                                 <span className="text-[10px] font-bold text-gray-500 bg-gray-50 border border-gray-100 px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
@@ -5568,7 +5913,7 @@ export default function POSSystem({
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center overflow-hidden shrink-0 border border-indigo-200 shadow-sm">
                     {selectedCustomer.isWalkIn ? (
-                      <div className="w-full h-full bg-gradient-to-r from-amber-500 to-orange-500 text-white flex items-center justify-center">
+                      <div className={`w-full h-full ${isVipCustomer ? 'bg-gradient-to-r from-amber-500 to-yellow-500' : 'bg-gradient-to-r from-amber-500 to-orange-500'} text-white flex items-center justify-center`}>
                         <WalkingPersonIcon size={20} className="text-white" />
                       </div>
                     ) : (() => {
@@ -5589,12 +5934,19 @@ export default function POSSystem({
                   <div className="flex-1">
                     <div className="font-semibold text-slate-800 flex items-center flex-wrap gap-2">
                         {selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]))}
-                        {selectedCustomer.isWalkIn ? (
+                        {selectedCustomer.isWalkIn && (
                           <span className="bg-orange-100 text-orange-800 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-orange-200">
                             <WalkingPersonIcon size={12} className="text-orange-600" /> Walk-in
                           </span>
+                        )}
+                        {isVipCustomer ? (
+                          <span className="bg-gradient-to-r from-amber-500 to-yellow-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                            <Award size={11} className="text-yellow-200" /> สิทธิ์บัตรสมาชิก
+                          </span>
                         ) : (
-                          isVipCustomer && <span className="bg-yellow-100 text-yellow-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-yellow-200">VIP</span>
+                          <span className="bg-slate-100 text-slate-600 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200">
+                            ทั่วไป
+                          </span>
                         )}
                         {orderChannel === 'shopee' && <span className="bg-orange-100 text-orange-600 text-[10px] font-bold px-1.5 py-0.5 rounded border border-orange-200 ml-1">ส่วนลดพิเศษ</span>}
                         {(selectedCustomer.isApproved || vipStats.isVip) && (
@@ -5621,8 +5973,71 @@ export default function POSSystem({
                     </div>
                     <div className="text-sm text-slate-500 mb-1">{selectedCustomer.computedPhone || String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]))}</div>
                     
+                    {/* Status Toggle: ลูกค้าทั่วไป vs มีสิทธิ์ส่วนลดบัตรสมาชิก */}
+                    <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 mt-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCustomer(prev => ({
+                            ...prev,
+                            hasMemberCard: false,
+                            isApproved: false,
+                            isMemberDiscount: false
+                          }));
+                          showToast('เลือกสถานะ: ลูกค้าทั่วไป (ราคาปกติ)', 'info');
+                        }}
+                        className={`flex-1 py-1 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                          !isVipCustomer
+                            ? 'bg-white text-slate-800 shadow-2xs border border-slate-200 font-black'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        <User size={12} className={!isVipCustomer ? "text-slate-700" : "text-slate-400"} />
+                        <span>ทั่วไป</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCustomer(prev => ({
+                            ...prev,
+                            hasMemberCard: true,
+                            isApproved: true,
+                            isMemberDiscount: true
+                          }));
+                          showToast('เลือกสถานะ: มีสิทธิ์ส่วนลดบัตรสมาชิก (VIP Price) ⭐', 'success');
+                        }}
+                        className={`flex-1 py-1 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                          isVipCustomer
+                            ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-2xs font-black'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        <Award size={12} className={isVipCustomer ? "text-yellow-200" : "text-amber-500"} />
+                        <span>มีสิทธิ์ส่วนลดบัตรสมาชิก ⭐</span>
+                      </button>
+                    </div>
+
+                    {/* Action button to edit/specify name */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWalkInFormData({
+                          name: selectedCustomer.isWalkIn && selectedCustomer.computedName?.includes('ลูกค้าทั่วไป') ? '' : (selectedCustomer.computedName || selectedCustomer["ชื่อ"] || ''),
+                          phone: selectedCustomer.computedPhone === '-' ? '' : (selectedCustomer.computedPhone || selectedCustomer["เบอร์โทร"] || ''),
+                          isMember: Boolean(isVipCustomer),
+                          issue: selectedCustomer.computedIssue || selectedCustomer.issue || '',
+                          saveToDb: true
+                        });
+                        setIsWalkInEditModalOpen(true);
+                      }}
+                      className="mt-1.5 w-full py-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-2xs"
+                    >
+                      <Edit size={12} className="text-indigo-600" />
+                      <span>{selectedCustomer.isWalkIn ? 'ระบุชื่อ-เบอร์ลูกค้า (อัปเดตข้อมูล)' : 'แก้ไขชื่อ-เบอร์ลูกค้า'}</span>
+                    </button>
+
                     {!selectedCustomer.isWalkIn ? (
-                      <div className="text-[10px] text-slate-500 w-full max-w-xs mt-1">
+                      <div className="text-[10px] text-slate-500 w-full max-w-xs mt-1.5">
                           <div className="flex justify-between mb-0.5">
                               <span>ยอดสะสม: ฿{vipStats.amount.toLocaleString()}</span>
                               {!isVipCustomer && <span>ขาด ฿{(5000 - vipStats.amount).toLocaleString()}</span>}
@@ -5634,7 +6049,7 @@ export default function POSSystem({
                           )}
                       </div>
                     ) : (
-                      <div className="text-xs text-emerald-700 font-bold mt-1">ลูกค้าทั่วไปหน้าร้าน (ไม่สะสมยอด)</div>
+                      <div className="text-xs text-emerald-700 font-bold mt-1.5">ลูกค้าทั่วไปหน้าร้าน (สามารถระบุชื่อ-เบอร์เพื่อสะสมยอดได้)</div>
                     )}
                     <div className="flex gap-2 mt-2">
                       {customerCreditBalance > 0 && (
@@ -5715,6 +6130,24 @@ export default function POSSystem({
                   
                   {isCustomerDropdownOpen && (
                     <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-100 max-h-60 overflow-y-auto z-50">
+                      <div className="p-2 border-b border-slate-100 bg-slate-50/80 flex gap-2 sticky top-0 z-10 backdrop-blur-xs">
+                        <button
+                          type="button"
+                          onClick={() => handleSelectWalkIn(false)}
+                          className="flex-1 py-1.5 px-2 bg-white hover:bg-orange-50 text-orange-700 border border-orange-200 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                        >
+                          <WalkingPersonIcon size={14} className="text-orange-600" />
+                          <span>วอคอิน (ทั่วไป)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectWalkIn(true)}
+                          className="flex-1 py-1.5 px-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-lg text-xs font-black flex items-center justify-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                        >
+                          <Award size={13} className="text-yellow-200" />
+                          <span>วอคอิน (บัตรสมาชิก ⭐)</span>
+                        </button>
+                      </div>
                       {filteredCustomers.length > 0 ? (
                         filteredCustomers.map(c => {
                           const amt = c.realAccumulatedAmount !== undefined ? c.realAccumulatedAmount : getCustomerAccumulatedAmount(c);
@@ -9915,6 +10348,42 @@ export default function POSSystem({
                 <h4 className="text-lg font-black text-slate-900 leading-tight">{String(getFuzzyKey(selectedCourseForUsage, ["ชื่อคอส", "col_8"]) || '-')}</h4>
               </div>
 
+              {/* Course Owner Info (With quick edit) */}
+              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 flex items-center justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-bold text-slate-500">เจ้าของคอร์ส</div>
+                  <div className="text-xs font-black text-slate-800 truncate flex items-center gap-1.5">
+                    <span>{String(getFuzzyKey(selectedCourseForUsage, ["ผู้ซื้อคอส", "col_9"]) || '-')}</span>
+                    {(selectedCourseForUsage.isWalkIn || String(getFuzzyKey(selectedCourseForUsage, ["ผู้ซื้อคอส", "col_9"])).includes('Walk-in') || String(getFuzzyKey(selectedCourseForUsage, ["ผู้ซื้อคอส", "col_9"])).includes('ทั่วไป') || String(getFuzzyKey(selectedCourseForUsage, ["เบอร์โทร", "col_1"])) === '-') && (
+                      <span className="bg-orange-100 text-orange-700 text-[9px] font-bold px-1.5 py-0.5 rounded border border-orange-200 shrink-0">
+                        วอคอิน
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                    {String(getFuzzyKey(selectedCourseForUsage, ["เบอร์โทร", "col_1"]) || '-')}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const c = selectedCourseForUsage;
+                    const curName = String(getFuzzyKey(c, ["ผู้ซื้อคอส", "col_9"]) || '');
+                    const curPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '');
+                    setCourseCustomerFormData({
+                      name: curName.includes('Walk-in') || curName.includes('ลูกค้าทั่วไป') ? '' : curName,
+                      phone: curPhone === '-' ? '' : curPhone,
+                      saveToDb: true
+                    });
+                    setCourseCustomerModalData(c);
+                  }}
+                  className="py-1 px-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-2xs cursor-pointer"
+                >
+                  <Edit size={12} className="text-slate-500" />
+                  <span>แก้ไขชื่อ-เบอร์</span>
+                </button>
+              </div>
+
               {/* Action 1: Use Session */}
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                  <div className="flex justify-between items-center mb-3">
@@ -10324,6 +10793,227 @@ export default function POSSystem({
               className="flex-1 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-bold shadow-md shadow-violet-200 transition-colors"
             >
               บันทึกราคา
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Walk-in Customer Quick Register / Edit Info Modal */}
+    {isWalkInEditModalOpen && (
+      <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative border border-slate-100 animate-in zoom-in-95 duration-200">
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-md shadow-orange-500/20">
+                <WalkingPersonIcon size={20} className="text-white" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-800">ระบุ / แก้ไขข้อมูลลูกค้า (Walk-in)</h3>
+                <p className="text-xs text-slate-500">ให้บริการด่วน และสามารถกลับมาใส่ชื่อ-เบอร์ได้ตลอดเวลา</p>
+              </div>
+            </div>
+            <button 
+              type="button" 
+              onClick={() => setIsWalkInEditModalOpen(false)}
+              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                ชื่อ-นามสกุล หรือชื่อเล่น <span className="text-slate-400 font-normal">(เว้นว่างไว้จะเป็น "ลูกค้าทั่วไป")</span>
+              </label>
+              <input
+                type="text"
+                placeholder="เช่น คุณสมหญิง, คุณแอน"
+                value={walkInFormData.name}
+                onChange={(e) => setWalkInFormData(prev => ({ ...prev, name: e.target.value }))}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                เบอร์โทรศัพท์ <span className="text-slate-400 font-normal">(ใช้ค้นหาคอร์สหรือสะสมยอด)</span>
+              </label>
+              <input
+                type="tel"
+                placeholder="08X-XXX-XXXX"
+                value={walkInFormData.phone}
+                onChange={(e) => setWalkInFormData(prev => ({ ...prev, phone: e.target.value }))}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                สิทธิ์ส่วนลดราคา
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setWalkInFormData(prev => ({ ...prev, isMember: false }))}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    !walkInFormData.isMember
+                      ? 'bg-slate-800 text-white border-slate-800 shadow-sm'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <User size={14} />
+                  <span>ลูกค้าทั่วไป (ปกติ)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWalkInFormData(prev => ({ ...prev, isMember: true }))}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    walkInFormData.isMember
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white border-orange-500 shadow-md shadow-orange-500/20 font-black'
+                      : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                  }`}
+                >
+                  <Award size={14} />
+                  <span>สิทธิ์ส่วนลดบัตรสมาชิก ⭐</span>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                ปัญหาผิว / ความกังวล / บริการที่ต้องการ <span className="text-slate-400 font-normal">(ถ้ามี)</span>
+              </label>
+              <input
+                type="text"
+                placeholder="เช่น สิวอักเสบ, ฝ้ากระ, จี้ไฝ, กดสิว"
+                value={walkInFormData.issue}
+                onChange={(e) => setWalkInFormData(prev => ({ ...prev, issue: e.target.value }))}
+                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+              />
+            </div>
+
+            <label className="flex items-center gap-2.5 p-3 rounded-xl bg-orange-50/70 border border-orange-100 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={walkInFormData.saveToDb}
+                onChange={(e) => setWalkInFormData(prev => ({ ...prev, saveToDb: e.target.checked }))}
+                className="w-4 h-4 text-orange-600 rounded focus:ring-orange-500"
+              />
+              <span className="text-xs text-slate-700 font-medium">
+                บันทึกเป็นประวัติลูกค้าในระบบด้วย (เพื่อให้ค้นหาประวัติและสะสมยอดได้)
+              </span>
+            </label>
+          </div>
+
+          <div className="flex gap-2.5 mt-5">
+            <button
+              type="button"
+              onClick={() => setIsWalkInEditModalOpen(false)}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 font-bold text-xs text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              ยกเลิก
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveWalkInCustomer}
+              className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-xs shadow-md shadow-orange-500/20 transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Check size={14} />
+              <span>บันทึกข้อมูลลูกค้า</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Edit Course Owner Info Modal (For walk-in courses updated later) */}
+    {courseCustomerModalData && (
+      <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative border border-slate-100 animate-in zoom-in-95 duration-200">
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-2xl bg-teal-500 text-white flex items-center justify-center shadow-md shadow-teal-500/20">
+                <Layers size={20} className="text-white" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-800">ระบุ / อัปเดตเจ้าของคอร์ส</h3>
+                <p className="text-xs text-slate-500">เลขที่: {String(getFuzzyKey(courseCustomerModalData, ["เลขที่ใบคอส", "col_2"]) || '-')}</p>
+              </div>
+            </div>
+            <button 
+              type="button" 
+              onClick={() => setCourseCustomerModalData(null)}
+              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div className="p-3 bg-teal-50/70 rounded-xl border border-teal-100">
+              <div className="text-xs text-teal-700 font-bold">คอร์ส:</div>
+              <div className="text-sm font-black text-slate-800">{String(getFuzzyKey(courseCustomerModalData, ["ชื่อคอส", "col_8"]) || '-')}</div>
+              <div className="text-xs text-slate-500 mt-1">
+                ผู้ซื้อเดิม: <span className="font-semibold text-slate-700">{String(getFuzzyKey(courseCustomerModalData, ["ผู้ซื้อคอส", "col_9"]) || '-')}</span> ({String(getFuzzyKey(courseCustomerModalData, ["เบอร์โทร", "col_1"]) || '-')})
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                ชื่อ-นามสกุล ลูกค้าใหม่ *
+              </label>
+              <input
+                type="text"
+                placeholder="ระบุชื่อจริง หรือชื่อเล่นลูกค้า"
+                value={courseCustomerFormData.name}
+                onChange={(e) => setCourseCustomerFormData(prev => ({ ...prev, name: e.target.value }))}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                เบอร์โทรศัพท์ลูกค้า
+              </label>
+              <input
+                type="tel"
+                placeholder="08X-XXX-XXXX"
+                value={courseCustomerFormData.phone}
+                onChange={(e) => setCourseCustomerFormData(prev => ({ ...prev, phone: e.target.value }))}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm font-medium"
+              />
+            </div>
+
+            <label className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={courseCustomerFormData.saveToDb}
+                onChange={(e) => setCourseCustomerFormData(prev => ({ ...prev, saveToDb: e.target.checked }))}
+                className="w-4 h-4 text-teal-600 rounded focus:ring-teal-500"
+              />
+              <span className="text-xs text-slate-700 font-medium">
+                บันทึกเป็นประวัติลูกค้าในระบบด้วย (เพื่อให้ค้นหาจากเบอร์โทรได้ง่ายขึ้น)
+              </span>
+            </label>
+          </div>
+
+          <div className="flex gap-2.5 mt-5">
+            <button
+              type="button"
+              onClick={() => setCourseCustomerModalData(null)}
+              className="flex-1 py-2.5 rounded-xl border border-slate-200 font-bold text-xs text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              ยกเลิก
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveCourseCustomer}
+              className="flex-1 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md shadow-teal-500/20 transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Check size={14} />
+              <span>บันทึกข้อมูลเจ้าของคอร์ส</span>
             </button>
           </div>
         </div>
