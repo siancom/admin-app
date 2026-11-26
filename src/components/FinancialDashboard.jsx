@@ -575,7 +575,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
       .slice(0, 10);
     
     const posSales = totalSales;
-    totalSales += totalEodExtraSales;
+    // รายรับจริงมาจากยอดบิลขาย POS ไม่นำยอดส่งยอดมาบวกซ้ำซ้อน
     totalNet = totalSales - totalExpense - totalOPEX - totalCOGS;
     return { 
       totalSales, posSales, totalEodExtraSales, totalExpense, totalOPEX, totalNet, totalCOGS, totalCourseCOGS, totalProductCOGS, totalCash, totalTransfer, totalCod, totalOnline, count, 
@@ -668,15 +668,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
        if (isThisMonth) monthCost += p;
     });
 
-    dailySales.forEach(d => {
-       if (!matchesBranchFilter(d.branch, filterBranch)) return;
-       const extra = getEodExtraSales(d);
-       if (!extra) return;
-       const iso = getIsoDate(d);
-       if (iso === todayIso) todaySales += extra;
-       if (iso && iso.startsWith(currentMonthStr)) monthSales += extra;
-    });
-
+    // รายรับจริงมาจาก orders/POS เท่านั้น ไม่นำ EOD extra มาบวกทับซ้ำซ้อน
     todayProfit = todaySales - todayCost;
     monthProfit = monthSales - monthCost;
     todayGrossProfit = todaySales - todayCOGS;
@@ -719,18 +711,6 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
       }
     });
 
-    dailySales.forEach(d => {
-      if (!matchesBranchFilter(d.branch, filterBranch)) return;
-      const extra = getEodExtraSales(d);
-      if (!extra) return;
-      const iso = getIsoDate(d);
-      if (iso && iso.startsWith(currentMonthStr)) {
-        const dayNum = parseInt(iso.split('-')[2], 10);
-        if (dayNum >= 1 && dayNum <= daysInMonth && dailyData[dayNum - 1]) {
-          dailyData[dayNum - 1].sales = Math.max(0, dailyData[dayNum - 1].sales + extra);
-        }
-      }
-    });
     
     const actualMaxSales = Math.max(...dailyData.map(d => d.sales), 0);
     const maxSales = Math.max(actualMaxSales, 1); // Avoid division by zero
@@ -1540,16 +1520,12 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                 <div className="text-3xl font-black text-emerald-800 mt-2">฿{stats.totalSales.toLocaleString()}</div>
                 <div className="flex justify-between items-center mt-2">
                    <div className="text-xs text-emerald-600 font-medium flex flex-col">
-                      <span>จาก {stats.count} บิล</span>
-                      {stats.totalEodExtraSales !== 0 && (
-                         <span className="text-[10px] text-emerald-700/80" title="ยอดโอนที่เจ้าของกรอกเอง + ส่วนต่างเงินสด จากใบส่งยอด (ไม่มีบิล POS)">
-                            รวมยอดจากใบส่งยอด ฿{stats.totalEodExtraSales.toLocaleString()}
-                         </span>
-                      )}
+                      <span className="font-bold">จาก {stats.count} บิล (POS)</span>
+                      <span className="text-[10px] text-slate-500 font-normal">ยอดขายจริงหน้าร้าน</span>
                    </div>
                    <div className="flex flex-col gap-1 items-end">
-                      <span className="bg-emerald-200/50 text-emerald-700 text-[9px] px-1.5 py-0.5 rounded-md" title="ยอดขายที่ส่งรายงานปิดยอดแล้ว">ส่งแล้ว {stats.totalSubmitted.toLocaleString()}</span>
-                      {stats.totalUnsubmitted > 0 && <span className="bg-rose-100/80 text-rose-700 text-[9px] px-1.5 py-0.5 rounded-md" title="ยอดขายที่ยังไม่ได้ส่งรายงานปิดยอด">ยังไม่ส่ง {stats.totalUnsubmitted.toLocaleString()}</span>}
+                      <span className="bg-emerald-200/50 text-emerald-700 text-[9px] px-1.5 py-0.5 rounded-md font-semibold" title="ยอดขายที่ส่งรายงานปิดยอดแล้ว">ส่งแล้ว {stats.totalSubmitted.toLocaleString()}</span>
+                      {stats.totalUnsubmitted > 0 && <span className="bg-rose-100/80 text-rose-700 text-[9px] px-1.5 py-0.5 rounded-md font-semibold" title="ยอดขายที่ยังไม่ได้ส่งรายงานปิดยอด">ยังไม่ส่ง {stats.totalUnsubmitted.toLocaleString()}</span>}
                    </div>
                 </div>
               </div>

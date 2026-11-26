@@ -283,13 +283,8 @@ export default function DailySalesBannerChart({
       const ordData = ordersByDate[dateStr] || { total: 0, cash: 0, transfer: 0, other: 0, orderCount: 0 };
       const eodData = eodByDate[dateStr];
 
-      // Total sales: use order total + eod extra, or eod totalSales if higher (e.g. archived orders)
-      let dayTotal = ordData.total;
-      if (eodData && eodData.totalSales > dayTotal) {
-        dayTotal = eodData.totalSales;
-      } else if (eodData && eodData.extraSales > 0) {
-        dayTotal += eodData.extraSales;
-      }
+      // รายรับจริงมาจากยอดบิลขาย POS โดยตรง ไม่นำยอดส่งยอดมาบวกซ้ำซ้อน
+      let dayTotal = ordData.total > 0 ? ordData.total : (eodData ? eodData.totalSales : 0);
 
       if (dayTotal > maxVal) maxVal = dayTotal;
       if (dayTotal > peak.total) {
