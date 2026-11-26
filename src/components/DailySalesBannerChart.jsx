@@ -11,8 +11,10 @@ import {
   Info,
   DollarSign,
   BarChart3,
-  Award
+  Award,
+  FileText
 } from 'lucide-react';
+import DailySalesPreviewModal from './DailySalesPreviewModal';
 import { 
   parseNumber, 
   getLocalYYYYMMDD, 
@@ -175,6 +177,7 @@ export default function DailySalesBannerChart({
   const [selectedBranch, setSelectedBranch] = useState(() => globalBranch || 'ทั้งหมด');
   const [dayRange, setDayRange] = useState(14); // 7, 14, 30
   const [hoveredDay, setHoveredDay] = useState(null);
+  const [previewModalDate, setPreviewModalDate] = useState(null);
 
   // Sync if globalBranch changes
   React.useEffect(() => {
@@ -710,6 +713,14 @@ export default function DailySalesBannerChart({
               <span className="text-emerald-300">
                 สด: ฿{activeDay.cash.toLocaleString()}
               </span>
+              <button
+                onClick={() => setPreviewModalDate(activeDay.dateStr)}
+                className="flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-950/40 active:scale-95 transition-all cursor-pointer border border-emerald-400/40 ml-1"
+                title="คลิกดูหน้าพรีวิวสรุปยอด (A4) ประจำวันนี้"
+              >
+                <FileText size={13} />
+                <span>พรีวิวยอด A4</span>
+              </button>
             </div>
           )}
         </div>
@@ -833,7 +844,10 @@ export default function DailySalesBannerChart({
                   className="cursor-pointer group"
                   onMouseEnter={() => setHoveredDay(d)}
                   onMouseLeave={() => setHoveredDay(null)}
-                  onClick={() => setHoveredDay(d)}
+                  onClick={() => {
+                    setHoveredDay(d);
+                    setPreviewModalDate(d.dateStr);
+                  }}
                 >
                   {/* Invisible wide hitbox for easy mouse/touch targeting */}
                   <rect
@@ -952,11 +966,21 @@ export default function DailySalesBannerChart({
             </span>
           </div>
 
-          <div className="text-[11px] text-slate-500">
-            แตะหรือชี้ที่แท่งกราฟเพื่อดูรายละเอียดยอดขายแต่ละวัน
+          <div className="text-[11px] text-teal-300 font-semibold flex items-center gap-1">
+            <span>แตะหรือคลิกที่แท่งกราฟเพื่อดูพรีวิวใบสรุปยอด (A4)</span>
           </div>
         </div>
       </div>
+
+      {/* 📄 Daily Sales A4 Preview Modal 📄 */}
+      <DailySalesPreviewModal
+        isOpen={Boolean(previewModalDate)}
+        onClose={() => setPreviewModalDate(null)}
+        dateIso={previewModalDate || ''}
+        orders={orders}
+        dailySales={dailySales}
+        branch={selectedBranch === 'ทั้งหมด' ? (globalBranch || 'เฉวง') : selectedBranch}
+      />
     </div>
   );
 }
