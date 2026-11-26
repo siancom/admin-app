@@ -4667,7 +4667,29 @@ const flexMessage = {
   const testGeminiApiKey = async (key) => {
     const k = (key || '').trim();
     if (!k) throw new Error('กรุณาระบุ API Key');
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+    let modelsToTry = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+    try {
+      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${k}`);
+      if (listRes.ok) {
+        const data = await listRes.json();
+        const available = (data.models || [])
+          .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+          .map(m => m.name.replace(/^models\//, ''));
+        if (available.length > 0) {
+          modelsToTry = [...new Set([...available.filter(m => m.includes('flash')), ...available, ...modelsToTry])];
+        }
+      } else {
+        const err = await listRes.json().catch(() => ({}));
+        if (err.error?.message) {
+          throw new Error(err.error.message);
+        }
+      }
+    } catch (e) {
+      if (e.message?.includes('API key not valid') || e.message?.includes('API_KEY_INVALID')) {
+        throw e;
+      }
+    }
+
     let lastErr = null;
     for (const m of modelsToTry) {
       try {

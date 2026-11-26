@@ -275,7 +275,22 @@ export default function SettingsPage({
     }
     setIsTestingGemini(true);
     setGeminiTestStatus(null);
-    const modelsToTest = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+    let modelsToTest = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+    try {
+      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${keyToTest}`);
+      if (listRes.ok) {
+        const data = await listRes.json();
+        const available = (data.models || [])
+          .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+          .map(m => m.name.replace(/^models\//, ''));
+        if (available.length > 0) {
+          modelsToTest = [...new Set([...available.filter(m => m.includes('flash')), ...available, ...modelsToTest])];
+        }
+      }
+    } catch (e) {
+      // fallback to list
+    }
+
     let lastErr = null;
     let successModel = null;
 

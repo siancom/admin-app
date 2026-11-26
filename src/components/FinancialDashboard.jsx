@@ -93,9 +93,16 @@ const getOrderIsoDate = (o) => {
   );
 };
 
+const UNPAID_ORDER_STATUSES = ['รอชำระเงิน', 'รอตรวจสอบ', 'รอตรวจสอบยอดโอน', 'รอดำเนินการ', 'รอประเมินราคา', 'ยกเลิก', 'cancelled'];
+
 const isOrderCompletedForRevenue = (o) => {
-  if (!o || o.isCancelled || o.source === 'POS_Parked') return false;
+  if (!o || o.isCancelled || o.source === 'POS_Parked' || o.mergedIntoPosOrderNo) return false;
+  const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
+  const isPO = o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า');
+  if (isReq || isPO) return false;
   const rawStatus = String(getFuzzyKey(o, ['status', 'สถานะ']) || '').trim();
+  if (rawStatus && UNPAID_ORDER_STATUSES.some(s => rawStatus.toLowerCase().includes(s.toLowerCase()))) return false;
+  if (o.source === 'POS') return true;
   if (!rawStatus) return true;
   return getOrderStatus(o) === 'อนุมัติแล้ว';
 };

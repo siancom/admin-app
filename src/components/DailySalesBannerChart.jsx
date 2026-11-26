@@ -21,6 +21,21 @@ import {
 } from '../utils/parse';
 import { getFuzzyKey } from '../utils/fuzzy';
 
+const THAI_MONTH_MAP = {
+  'ม.ค.': 1, 'มกราคม': 1,
+  'ก.พ.': 2, 'กุมภาพันธ์': 2,
+  'มี.ค.': 3, 'มีนาคม': 3,
+  'เม.ย.': 4, 'เมษายน': 4,
+  'พ.ค.': 5, 'พฤษภาคม': 5,
+  'มิ.ย.': 6, 'มิถุนายน': 6,
+  'ก.ค.': 7, 'กรกฎาคม': 7,
+  'ส.ค.': 8, 'สิงหาคม': 8,
+  'ก.ย.': 9, 'กันยายน': 9,
+  'ต.ค.': 10, 'ตุลาคม': 10,
+  'พ.ย.': 11, 'พฤศจิกายน': 11,
+  'ธ.ค.': 12, 'ธันวาคม': 12,
+};
+
 // Helper to convert any date representation to YYYY-MM-DD
 const extractIsoDate = (val) => {
   if (!val) return '';
@@ -36,29 +51,67 @@ const extractIsoDate = (val) => {
   if (typeof val === 'string') {
     const trimmed = val.trim();
     if (!trimmed) return '';
+    // 1. Thai textual month like "26 พ.ย. 2569" or "26 พฤศจิกายน 2569"
+    const thaiMatch = trimmed.match(/^(\d{1,2})\s+([^\s\d]+)\s+(\d{2,4})/);
+    if (thaiMatch) {
+      const d = parseInt(thaiMatch[1], 10);
+      const mStr = thaiMatch[2].replace(/\.$/, '');
+      let y = parseInt(thaiMatch[3], 10);
+      const m = THAI_MONTH_MAP[mStr] || THAI_MONTH_MAP[mStr + '.'];
+      if (m) {
+        if (y < 100) y = y >= 55 ? (y + 2500 - 543) : (y + 2000);
+        else if (y > 2400) y -= 543;
+        const dt = new Date(y, m - 1, d);
+        if (!isNaN(dt.getTime())) return getLocalYYYYMMDD(dt);
+      }
+    }
+    // 2. ISO / Datetime strings with 'T'
     if (trimmed.includes('T')) {
       const d = new Date(trimmed);
       if (!isNaN(d.getTime())) return getLocalYYYYMMDD(d);
     }
+    // 3. parseThaiDate (handles DD/MM/YYYY, YYYY-MM-DD, Thai Buddhist year)
     const parsed = parseThaiDate(trimmed);
     if (parsed) return getLocalYYYYMMDD(parsed);
+    // 4. Standard Date fallback
     const fallback = new Date(trimmed);
     return isNaN(fallback.getTime()) ? '' : getLocalYYYYMMDD(fallback);
   }
   return '';
 };
 
-// Check if order counts toward customer sales revenue
+const UNPAID_ORDER_STATUSES = ['รอชำระเงิน', 'รอตรวจสอบ', 'รอตรวจสอบยอดโอน', 'รอดำเนินการ', 'รอประเมินราคา', 'ยกเลิก', 'cancelled'];
+
+// Check if order counts toward customer sales revenue (real POS & approved/paid sales)
 const isOrderCompletedForRevenue = (o) => {
-  if (!o || o.isCancelled || o.source === 'POS_Parked') return false;
+  if (!o || o.isCancelled || o.source === 'POS_Parked' || o.mergedIntoPosOrderNo) return false;
   // Exclude internal stock transfers & owner acquisitions
   const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
   const isPO = o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า');
   if (isReq || isPO) return false;
   
   const rawStatus = String(getFuzzyKey(o, ['status', 'สถานะ']) || '').trim();
+  if (rawStatus && UNPAID_ORDER_STATUSES.some(s => rawStatus.toLowerCase().includes(s.toLowerCase()))) {
+    return false;
+  }
+
+  // POS orders (source === 'POS') are real completed point-of-sale transactions
+  if (o.source === 'POS') return true;
+
+  // General / web / customer app orders: completed, approved, paid, or shipped
   if (!rawStatus) return true;
-  return rawStatus === 'อนุมัติแล้ว' || rawStatus.includes('อนุมัติ');
+  return (
+    rawStatus === 'สำเร็จ' ||
+    rawStatus === 'อนุมัติแล้ว' ||
+    rawStatus === 'ชำระเงินแล้ว' ||
+    rawStatus === 'กำลังจัดส่ง' ||
+    rawStatus === 'จัดส่งแล้ว' ||
+    rawStatus === 'เสร็จสิ้น' ||
+    rawStatus === 'เรียบร้อย' ||
+    rawStatus.includes('อนุมัติ') ||
+    rawStatus.includes('สำเร็จ') ||
+    rawStatus.includes('ชำระ')
+  );
 };
 
 const getEffectiveOrderPrice = (o) => {
@@ -66,24 +119,31 @@ const getEffectiveOrderPrice = (o) => {
   if (isShopee && o?.shopeeNetReceived !== undefined && o?.shopeeNetReceived !== '') {
     return parseNumber(o.shopeeNetReceived);
   }
-  return parseNumber(o?.price);
+  return parseNumber(o?.price ?? o?.total ?? o?.totalPrice ?? o?.netPrice ?? 0);
 };
 
 const parsePaymentBreakdown = (o) => {
   let cash = 0;
   let transfer = 0;
+  let cod = 0;
   let other = 0;
   const price = getEffectiveOrderPrice(o);
-  const methodStr = String(o?.paymentMethod || o?.method || '').trim();
+  const methodStr = String(o?.paymentMethod || o?.method || o?.paymentType || '').trim();
 
-  if (methodStr.includes('เงินสด:') || methodStr.includes('โอนเงิน:')) {
+  if (methodStr.includes(':')) {
     // Composite split payment format "เงินสด: 500, โอนเงิน: 1000"
     const parts = methodStr.split(',');
     parts.forEach(p => {
       const trimmed = p.trim();
-      if (trimmed.startsWith('เงินสด:')) cash += parseNumber(trimmed.replace('เงินสด:', ''));
-      else if (trimmed.startsWith('โอนเงิน:')) transfer += parseNumber(trimmed.replace('โอนเงิน:', ''));
-      else other += parseNumber(trimmed.replace(/[^0-9.]/g, ''));
+      if (trimmed.startsWith('เงินสด:')) {
+        cash += parseNumber(trimmed.replace('เงินสด:', ''));
+      } else if (trimmed.startsWith('โอนเงิน:')) {
+        transfer += parseNumber(trimmed.replace('โอนเงิน:', ''));
+      } else if (trimmed.includes('COD') || trimmed.includes('ค้าง')) {
+        cod += parseNumber(trimmed.replace(/[^0-9.]/g, ''));
+      } else {
+        other += parseNumber(trimmed.replace(/[^0-9.]/g, ''));
+      }
     });
   } else {
     const lower = methodStr.toLowerCase();
@@ -91,12 +151,15 @@ const parsePaymentBreakdown = (o) => {
       cash = price;
     } else if (lower === 'transfer' || lower.includes('โอน') || lower.includes('promptpay') || lower.includes('qr')) {
       transfer = price;
+    } else if (lower.includes('cod') || lower.includes('ค้าง')) {
+      cod = price;
     } else {
-      transfer = price; // Default clinic checkout is QR/Bank transfer
+      // Default clinic checkout without explicit label is Bank/QR transfer
+      transfer = price;
     }
   }
 
-  return { cash, transfer, other };
+  return { cash, transfer, cod, other };
 };
 
 const THAI_DAYS_SHORT = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
@@ -136,7 +199,9 @@ export default function DailySalesBannerChart({
     const validOrders = orders.filter(o => {
       if (!isOrderCompletedForRevenue(o)) return false;
       if (selectedBranch && selectedBranch !== 'ทั้งหมด') {
-        if (normalizeBranchName(o.branch) !== normalizeBranchName(selectedBranch)) return false;
+        const orderBranch = normalizeBranchName(o.branch || 'เฉวง');
+        const targetBranch = normalizeBranchName(selectedBranch);
+        if (orderBranch !== targetBranch) return false;
       }
       return true;
     });
@@ -162,7 +227,9 @@ export default function DailySalesBannerChart({
       ordersByDate[dateIso].cash += breakdown.cash;
       ordersByDate[dateIso].transfer += breakdown.transfer;
       ordersByDate[dateIso].other += breakdown.other;
-      ordersByDate[dateIso].orderCount += 1;
+      if (price > 0 || o.source === 'POS') {
+        ordersByDate[dateIso].orderCount += 1;
+      }
       ordersByDate[dateIso].orders.push(o);
     });
 
@@ -170,14 +237,11 @@ export default function DailySalesBannerChart({
     const eodByDate = {};
     dailySales.forEach(ds => {
       if (selectedBranch && selectedBranch !== 'ทั้งหมด') {
-        if (normalizeBranchName(ds.branch) !== normalizeBranchName(selectedBranch)) return;
+        const dsBranch = normalizeBranchName(ds.branch || 'เฉวง');
+        const sBranch = normalizeBranchName(selectedBranch);
+        if (dsBranch !== sBranch) return;
       }
-      let dateIso = '';
-      if (ds.date) {
-        const p = parseThaiDate(ds.date);
-        dateIso = p ? getLocalYYYYMMDD(p) : extractIsoDate(ds.date);
-      }
-      if (!dateIso) dateIso = extractIsoDate(ds.createdAt);
+      const dateIso = extractIsoDate(ds.date) || extractIsoDate(ds.createdAt);
       if (!dateIso) return;
 
       const manualTransfer = parseNumber(ds.manualTransfer || 0);
