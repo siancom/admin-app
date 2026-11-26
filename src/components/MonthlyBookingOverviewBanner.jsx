@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Calendar, ChevronLeft, ChevronRight, Sparkles, Droplet, Zap, 
   Target, Syringe, Pill, Activity, TrendingUp, Clock, Users, 
-  MessageSquare, UserCheck, CheckCircle2, AlertCircle, Filter, 
-  X, ChevronDown, ChevronUp, MapPin, BarChart3, Sun, Sunset, Moon
+  MessageSquare, CheckCircle2, Filter, X, ChevronDown, ChevronUp, 
+  BarChart3, Sun, Sunset, Moon, Eye, EyeOff, Award, Flame
 } from 'lucide-react';
 import { getSafeDateTime, getBookingStatus } from '../utils/dateUtils';
 import { getLocalYYYYMMDD } from '../utils/parse';
@@ -55,14 +55,17 @@ export const checkIsLineBooking = (b) => {
   );
 };
 
+const THAI_DAYS_SHORT = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+const THAI_MONTHS_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
 const SERVICE_CATEGORIES = [
-  { id: 'acne', label: 'เคลียร์สิว / กดสิว / มาร์ค', icon: Droplet, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', bar: 'bg-blue-500' },
-  { id: 'facial', label: 'ทำหน้า / ทรีตเมนต์ / นวด', icon: Sparkles, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200', bar: 'bg-amber-500' },
-  { id: 'laser', label: 'IPL / เลเซอร์กำจัดขน', icon: Zap, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200', bar: 'bg-purple-500' },
-  { id: 'mole', label: 'จี้ไฝ / ขี้แมลงวัน / ติ่งเนื้อ', icon: Target, color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-200', bar: 'bg-rose-500' },
-  { id: 'injection', label: 'ฉีด / โบท็อกซ์ / ฟิลเลอร์', icon: Syringe, color: 'text-pink-600', bg: 'bg-pink-50', border: 'border-pink-200', bar: 'bg-pink-500' },
-  { id: 'vitamin', label: 'ดริปวิตามินผิว / ผิวขาว', icon: Pill, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', bar: 'bg-emerald-500' },
-  { id: 'other', label: 'บริการทั่วไป / ปรึกษาผิว', icon: Activity, color: 'text-slate-600', bg: 'bg-slate-50', border: 'border-slate-200', bar: 'bg-slate-500' }
+  { id: 'acne', label: 'เคลียร์สิว / กดสิว / มาร์ค', icon: Droplet, color: 'text-cyan-400', barColor: 'bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]', glow: 'text-cyan-400' },
+  { id: 'facial', label: 'ทำหน้า / ทรีตเมนต์ / นวด', icon: Sparkles, color: 'text-amber-400', barColor: 'bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.5)]', glow: 'text-amber-400' },
+  { id: 'laser', label: 'IPL / เลเซอร์กำจัดขน', icon: Zap, color: 'text-purple-400', barColor: 'bg-purple-400 shadow-[0_0_10px_rgba(192,132,252,0.5)]', glow: 'text-purple-400' },
+  { id: 'mole', label: 'จี้ไฝ / ขี้แมลงวัน / ติ่งเนื้อ', icon: Target, color: 'text-rose-400', barColor: 'bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.5)]', glow: 'text-rose-400' },
+  { id: 'injection', label: 'ฉีด / โบท็อกซ์ / ฟิลเลอร์', icon: Syringe, color: 'text-pink-400', barColor: 'bg-pink-400 shadow-[0_0_10px_rgba(244,114,182,0.5)]', glow: 'text-pink-400' },
+  { id: 'vitamin', label: 'ดริปวิตามินผิว / ผิวขาว', icon: Pill, color: 'text-emerald-400', barColor: 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]', glow: 'text-emerald-400' },
+  { id: 'other', label: 'บริการทั่วไป / ปรึกษาผิว', icon: Activity, color: 'text-teal-400', barColor: 'bg-teal-400 shadow-[0_0_10px_rgba(45,212,191,0.5)]', glow: 'text-teal-400' }
 ];
 
 export default function MonthlyBookingOverviewBanner({
@@ -75,7 +78,23 @@ export default function MonthlyBookingOverviewBanner({
   selectedBranch = 'all',
   onBranchChange = () => {}
 }) {
-  const [showDeepAnalytics, setShowDeepAnalytics] = useState(false);
+  // 👁️ รูปดวงตาเปิด-ปิด ซ่อนไว้ก่อนตามคำสั่ง (default = false)
+  const [isOpen, setIsOpen] = useState(() => {
+    try {
+      return localStorage.getItem('iris_booking_overview_open') === 'true';
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const [hoveredDayNum, setHoveredDayNum] = useState(null);
+
+  const toggleOpenState = (nextState) => {
+    setIsOpen(nextState);
+    try {
+      localStorage.setItem('iris_booking_overview_open', String(nextState));
+    } catch (e) {}
+  };
 
   // Month navigation calculation
   const currentMonthDate = useMemo(() => {
@@ -88,6 +107,10 @@ export default function MonthlyBookingOverviewBanner({
 
   const monthLabelThai = useMemo(() => {
     return currentMonthDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+  }, [currentMonthDate]);
+
+  const monthShortThai = useMemo(() => {
+    return THAI_MONTHS_SHORT[currentMonthDate.getMonth()] || '';
   }, [currentMonthDate]);
 
   const thisMonthIso = useMemo(() => {
@@ -143,12 +166,10 @@ export default function MonthlyBookingOverviewBanner({
     let pendingCount = 0;
     let cancelledCount = 0;
 
-    // Time of day counts
     let morningCount = 0;   // 10:00 - 12:59
     let afternoonCount = 0; // 13:00 - 16:59
     let eveningCount = 0;   // 17:00+
 
-    // Service category breakdown
     const serviceCounts = {
       acne: 0,
       facial: 0,
@@ -159,19 +180,24 @@ export default function MonthlyBookingOverviewBanner({
       other: 0
     };
 
-    // Daily distribution map: day 1 to 31 -> count
-    const dailyMap = {};
     const daysInMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 0).getDate();
+    const dailyMap = {};
     for (let d = 1; d <= daysInMonth; d++) {
-      dailyMap[d] = 0;
+      dailyMap[d] = {
+        total: 0,
+        line: 0,
+        walkin: 0,
+        completed: 0,
+        dayOfWeek: new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth(), d).getDay()
+      };
     }
 
     monthlyBookings.forEach(b => {
       const guests = Number(b.guestsCount || b.pax || 1);
       totalGuests += guests;
 
-      // Source
-      if (checkIsLineBooking(b)) {
+      const isLine = checkIsLineBooking(b);
+      if (isLine) {
         lineCount++;
       } else if (b.isWalkIn) {
         walkInCount++;
@@ -179,14 +205,12 @@ export default function MonthlyBookingOverviewBanner({
         adminCount++;
       }
 
-      // Status
       const st = getBookingStatus(b);
       if (st === 'กำลังใช้บริการ') inProgressCount++;
       else if (st === 'เสร็จสิ้น') completedCount++;
       else if (st === 'รอการยืนยัน' || st === 'ยืนยันแล้ว') pendingCount++;
       else if (st === 'ยกเลิก' || st === 'ยกเลิกฉุกเฉิน') cancelledCount++;
 
-      // Time
       const dt = getSafeDateTime(b);
       if (dt && dt.includes('T')) {
         const timePart = dt.split('T')[1];
@@ -195,14 +219,15 @@ export default function MonthlyBookingOverviewBanner({
         else if (hour < 17) afternoonCount++;
         else eveningCount++;
 
-        // Day of month
         const dayNum = parseInt(dt.split('T')[0].split('-')[2], 10);
-        if (dailyMap[dayNum] !== undefined) {
-          dailyMap[dayNum]++;
+        if (dailyMap[dayNum]) {
+          dailyMap[dayNum].total++;
+          if (isLine) dailyMap[dayNum].line++;
+          else dailyMap[dayNum].walkin++;
+          if (st === 'เสร็จสิ้น') dailyMap[dayNum].completed++;
         }
       }
 
-      // Service Categories
       const cName = b.courseName || '';
       let matchedAny = false;
       ['acne', 'facial', 'laser', 'mole', 'injection', 'vitamin'].forEach(catId => {
@@ -215,6 +240,32 @@ export default function MonthlyBookingOverviewBanner({
         serviceCounts.other++;
       }
     });
+
+    // Find peak day
+    let peakDayNum = 1;
+    let peakDayCount = 0;
+    Object.entries(dailyMap).forEach(([d, val]) => {
+      if (val.total > peakDayCount) {
+        peakDayCount = val.total;
+        peakDayNum = parseInt(d, 10);
+      }
+    });
+
+    // Find top service category
+    let topCatId = 'facial';
+    let topCatCount = 0;
+    Object.entries(serviceCounts).forEach(([cId, cnt]) => {
+      if (cnt > topCatCount) {
+        topCatCount = cnt;
+        topCatId = cId;
+      }
+    });
+    const topCatObj = SERVICE_CATEGORIES.find(c => c.id === topCatId) || SERVICE_CATEGORIES[1];
+
+    // Compute average bookings per day
+    const todayNum = new Date().getDate();
+    const effectiveDays = isCurrentMonth ? Math.max(1, todayNum) : daysInMonth;
+    const avgPerDay = (total / effectiveDays).toFixed(1);
 
     return {
       total,
@@ -231,11 +282,15 @@ export default function MonthlyBookingOverviewBanner({
       eveningCount,
       serviceCounts,
       dailyMap,
-      daysInMonth
+      daysInMonth,
+      peakDayNum,
+      peakDayCount,
+      topCatObj,
+      topCatCount,
+      avgPerDay
     };
-  }, [monthlyBookings, currentMonthDate]);
+  }, [monthlyBookings, currentMonthDate, isCurrentMonth]);
 
-  // Handle Filter clicks
   const toggleFilter = (type, value, label) => {
     if (activeBannerFilter?.type === type && activeBannerFilter?.value === value) {
       onClearBannerFilter();
@@ -245,59 +300,145 @@ export default function MonthlyBookingOverviewBanner({
   };
 
   const todayDateNum = new Date().getDate();
+  const activeHoverOrToday = hoveredDayNum || (isCurrentMonth ? todayDateNum : stats.peakDayNum || 1);
+  const selectedDayInfo = stats.dailyMap[activeHoverOrToday] || { total: 0, line: 0, walkin: 0, completed: 0, dayOfWeek: 0 };
+  const selectedDayDow = THAI_DAYS_SHORT[selectedDayInfo.dayOfWeek] || '';
 
-  return (
-    <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-100 shadow-sm relative overflow-hidden transition-all duration-200">
-      
-      {/* Decorative top gradient bar */}
-      <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-teal-500 via-indigo-500 to-purple-600"></div>
-
-      {/* 🌟 Header: Title, Month Selector & Branch Pills */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3.5 border-b border-slate-100">
+  // -------------------------------------------------------------
+  // 👁️ 1. กรณี "ซ่อนไว้ก่อน" (Collapsed View with Eye Icon)
+  // -------------------------------------------------------------
+  if (!isOpen) {
+    return (
+      <div className="bg-gradient-to-r from-[#0c101d] via-[#111827] to-[#0a0d18] border border-slate-800 rounded-3xl p-3 sm:p-3.5 shadow-xl shadow-black/30 flex items-center justify-between gap-3 text-white transition-all hover:border-slate-700 animate-in fade-in duration-200">
         
-        {/* Left Title */}
-        <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center shadow-md shadow-indigo-200 shrink-0">
-            <BarChart3 size={20} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-base sm:text-lg font-black text-slate-800 tracking-tight">
-                สรุปรายการจองประจำเดือน
-              </h3>
-              <span className="text-[10px] font-black bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200 shrink-0">
-                Iris Intelligence
+        {/* Left: Eye Button + Summary */}
+        <div 
+          onClick={() => toggleOpenState(true)}
+          className="flex items-center gap-3 cursor-pointer group flex-1 min-w-0"
+        >
+          <button 
+            type="button" 
+            onClick={(e) => { e.stopPropagation(); toggleOpenState(true); }}
+            className="w-10 h-10 rounded-2xl bg-slate-900 border border-slate-700/80 text-slate-400 group-hover:text-cyan-400 group-hover:border-cyan-500/50 flex items-center justify-center transition-all cursor-pointer shadow-inner shrink-0"
+            title="แตะเพื่อเปิดดูสถิติการจองประจำเดือน"
+          >
+            <EyeOff size={18} className="text-amber-400 group-hover:hidden" />
+            <Eye size={18} className="text-cyan-400 hidden group-hover:block" />
+          </button>
+
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs sm:text-sm font-black text-white flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                สรุปรายการจองประจำเดือน ({monthLabelThai})
+              </span>
+              <span className="text-[10px] font-black bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 px-2 py-0.5 rounded-full">
+                ซ่อนอยู่ • แตะเพื่อเปิดดู
               </span>
             </div>
-            <p className="text-xs text-slate-500 font-medium">
-              สถิติการเคลื่อนไหว • คอร์สยอดฮิต • สัดส่วนลูกค้าจองผ่าน LINE
+            <p className="text-[11px] text-slate-400 font-medium truncate mt-0.5">
+              ยอดจอง <span className="text-white font-bold">{stats.total} คิว</span> • LINE <span className="text-emerald-400 font-bold">{stats.lineCount} คิว</span> ({stats.total > 0 ? Math.round((stats.lineCount / stats.total) * 100) : 0}%) • คอร์สยอดฮิต: <span className="text-amber-300 font-bold">{stats.topCatObj?.label?.split('/')[0]} ({stats.topCatCount} คิว)</span>
             </p>
           </div>
         </div>
 
-        {/* Right Controls: Month Selector & Deep Analytics Toggle */}
+        {/* Right: Open Button */}
+        <button
+          type="button"
+          onClick={() => toggleOpenState(true)}
+          className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md shadow-indigo-950/60 active:scale-95 transition-all cursor-pointer shrink-0"
+        >
+          <Eye size={15} />
+          <span className="hidden sm:inline">เปิดดูสถิติ</span>
+          <span className="sm:hidden">เปิด</span>
+        </button>
+
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // 🚀 2. กรณี "เปิดดู" (Full Expanded Cyber Dark Theme เหมือนรูปที่ 2)
+  // -------------------------------------------------------------
+  return (
+    <div className="bg-gradient-to-br from-[#0c101d] via-[#111827] to-[#0a0d18] border border-slate-800 rounded-3xl p-4 sm:p-6 shadow-2xl shadow-indigo-950/40 relative overflow-hidden text-white transition-all duration-300 animate-in fade-in">
+      
+      {/* Top Cyber Glow Line */}
+      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-teal-400 via-indigo-500 to-purple-500"></div>
+
+      {/* 🌟 Header: Title, Real-time badge, Branch, Month Selector & Eye Toggle */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 pb-4 border-b border-slate-800">
+        
+        {/* Left Title & Subtitle */}
+        <div className="flex items-start sm:items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 border border-indigo-400/30 text-white flex items-center justify-center shadow-lg shadow-indigo-950/50 shrink-0">
+            <BarChart3 size={20} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-base sm:text-lg font-black text-white tracking-tight flex items-center gap-1.5">
+                สรุปรายการจองประจำเดือน
+              </h3>
+              <span className="text-[10px] font-black bg-teal-500/10 text-teal-400 border border-teal-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse"></span>
+                อัปเดตสด Real-time
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">
+              ภาพรวมการจองและสัดส่วนบริการ ประจำสาขา {selectedBranch === 'all' ? 'ทุกสาขา' : selectedBranch} • สถิติย้อนหลังและเปรียบเทียบยอดจอง
+            </p>
+          </div>
+        </div>
+
+        {/* Right Controls: Branch Pills, Month Selector & Eye Hide Button */}
         <div className="flex flex-wrap items-center gap-2">
           
+          {/* Branch Pill Selector (ถ้ามีตัวเลือก) */}
+          <div className="flex items-center bg-slate-900/90 border border-slate-800 rounded-2xl p-1">
+            <button
+              type="button"
+              onClick={() => onBranchChange('all')}
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                selectedBranch === 'all'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              ทุกสาขา
+            </button>
+            <button
+              type="button"
+              onClick={() => onBranchChange('เฉวง')}
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                selectedBranch === 'เฉวง'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              เฉวง
+            </button>
+          </div>
+
           {/* Month Switcher */}
-          <div className="flex items-center bg-slate-50 border border-slate-200/80 rounded-2xl p-1 shadow-2xs">
+          <div className="flex items-center bg-slate-900/90 border border-slate-800 rounded-2xl p-1">
             <button
               type="button"
               onClick={handlePrevMonth}
-              className="p-1.5 hover:bg-white rounded-xl text-slate-600 hover:text-indigo-600 transition-colors cursor-pointer"
+              className="p-1.5 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors cursor-pointer"
               title="เดือนก่อนหน้า"
             >
               <ChevronLeft size={16} />
             </button>
             
-            <div className="px-3 py-1 text-xs font-black text-slate-800 flex items-center gap-1.5 min-w-[130px] justify-center">
-              <Calendar size={13} className="text-indigo-600" />
+            <div className="px-2.5 py-1 text-xs font-black text-white flex items-center gap-1.5 min-w-[120px] justify-center">
+              <Calendar size={13} className="text-indigo-400" />
               <span>{monthLabelThai}</span>
             </div>
 
             <button
               type="button"
               onClick={handleNextMonth}
-              className="p-1.5 hover:bg-white rounded-xl text-slate-600 hover:text-indigo-600 transition-colors cursor-pointer"
+              className="p-1.5 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors cursor-pointer"
               title="เดือนถัดไป"
             >
               <ChevronRight size={16} />
@@ -308,161 +449,150 @@ export default function MonthlyBookingOverviewBanner({
             <button
               type="button"
               onClick={handleResetToCurrentMonth}
-              className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-black transition-all cursor-pointer shadow-2xs"
+              className="px-2.5 py-1.5 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 rounded-xl text-xs font-bold transition-all cursor-pointer"
             >
               กลับเดือนปัจจุบัน
             </button>
           )}
 
-          {/* Toggle Deep Movement Analytics */}
+          {/* 👁️ ปุ่มดวงตาปิดซ่อนไว้ (Eye Toggle) */}
           <button
             type="button"
-            onClick={() => setShowDeepAnalytics(prev => !prev)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
-              showDeepAnalytics
-                ? 'bg-slate-800 text-white border-slate-800 shadow-sm'
-                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-2xs'
-            }`}
+            onClick={() => toggleOpenState(false)}
+            className="px-3 py-1.5 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ml-1"
+            title="ซ่อนสถิติการจอง"
           >
-            <TrendingUp size={13} />
-            <span>{showDeepAnalytics ? 'ซ่อนกราฟ' : 'ดูความเคลื่อนไหว'}</span>
-            {showDeepAnalytics ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            <EyeOff size={14} className="text-amber-400" />
+            <span>ซ่อน</span>
           </button>
+
         </div>
       </div>
 
-      {/* 🌟 Row 1: KPI Summary & Filter Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 my-3.5">
+      {/* 🌟 Row 1: KPI Cards (Dark Glassmorphic Style เหมือนรูปที่ 2) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 my-4">
         
-        {/* Card 1: Total Bookings */}
+        {/* Card 1: ยอดจองเดือนนี้ */}
         <div
           onClick={() => toggleFilter('month', selectedMonth || thisMonthIso, `คิวทั้งหมดในเดือน ${monthLabelThai}`)}
-          className={`p-3.5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group hover:shadow-md ${
+          className={`bg-slate-900/80 border rounded-2xl p-4 transition-all cursor-pointer relative overflow-hidden group hover:border-slate-700 ${
             activeBannerFilter?.type === 'month'
-              ? 'bg-gradient-to-br from-indigo-600 to-purple-700 text-white shadow-lg ring-2 ring-indigo-400 ring-offset-1'
-              : 'bg-gradient-to-br from-indigo-50/70 to-purple-50/40 hover:from-indigo-100/60 border-indigo-100 text-slate-800'
+              ? 'border-indigo-500 ring-2 ring-indigo-500/50 bg-gradient-to-br from-indigo-950/70 to-slate-900'
+              : 'border-slate-800/90 hover:bg-slate-900'
           }`}
         >
-          <div className="flex items-center justify-between mb-1">
-            <span className={`text-[10px] font-black uppercase tracking-wider ${activeBannerFilter?.type === 'month' ? 'text-indigo-100' : 'text-indigo-600'}`}>
-              คิวทั้งหมดในเดือน
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse"></span>
+              ยอดจองเดือนนี้
             </span>
-            <div className={`p-1 rounded-lg ${activeBannerFilter?.type === 'month' ? 'bg-white/20' : 'bg-white shadow-2xs'}`}>
-              <Calendar size={13} className={activeBannerFilter?.type === 'month' ? 'text-white' : 'text-indigo-600'} />
-            </div>
+            <span className="text-[10px] font-black bg-teal-500/10 text-teal-400 border border-teal-500/20 px-2 py-0.5 rounded-full">
+              {stats.total} คิว
+            </span>
           </div>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl sm:text-3xl font-black">{stats.total}</span>
-            <span className={`text-xs font-bold ${activeBannerFilter?.type === 'month' ? 'text-indigo-200' : 'text-slate-400'}`}>คิว</span>
+            <span className="text-2xl sm:text-3xl font-black text-white">{stats.total}</span>
+            <span className="text-xs font-bold text-slate-400">คิว</span>
           </div>
-          <div className={`text-[10px] font-bold mt-1 flex items-center justify-between ${activeBannerFilter?.type === 'month' ? 'text-indigo-100' : 'text-slate-500'}`}>
-            <span>👥 {stats.totalGuests} ท่าน</span>
-            <span className="text-[9px] underline underline-offset-2">แตะเพื่อกรอง ↗</span>
+          <div className="text-[11px] font-bold text-teal-400 mt-2 flex items-center justify-between">
+            <span>↑ 👥 {stats.totalGuests} ท่าน (เฉลี่ย {stats.avgPerDay} /วัน)</span>
+            <span className="text-[9px] text-slate-500 group-hover:text-slate-300">กรอง ↗</span>
           </div>
         </div>
 
-        {/* Card 2: LINE Bookings */}
+        {/* Card 2: ช่องทางจอง (LINE vs หน้าร้าน) */}
         <div
           onClick={() => toggleFilter('source', 'line', 'จองผ่าน LINE')}
-          className={`p-3.5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group hover:shadow-md ${
+          className={`bg-slate-900/80 border rounded-2xl p-4 transition-all cursor-pointer relative overflow-hidden group hover:border-slate-700 ${
             activeBannerFilter?.type === 'source' && activeBannerFilter?.value === 'line'
-              ? 'bg-gradient-to-br from-emerald-600 to-teal-700 text-white shadow-lg ring-2 ring-emerald-400 ring-offset-1'
-              : 'bg-gradient-to-br from-emerald-50/70 to-teal-50/40 hover:from-emerald-100/60 border-emerald-100 text-slate-800'
+              ? 'border-emerald-500 ring-2 ring-emerald-500/50 bg-gradient-to-br from-emerald-950/70 to-slate-900'
+              : 'border-slate-800/90 hover:bg-slate-900'
           }`}
         >
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span className={`text-[10px] font-black uppercase tracking-wider ${activeBannerFilter?.type === 'source' && activeBannerFilter?.value === 'line' ? 'text-emerald-100' : 'text-emerald-700'}`}>
-                จองผ่าน LINE
-              </span>
-            </div>
-            <div className={`p-1 rounded-lg ${activeBannerFilter?.type === 'source' && activeBannerFilter?.value === 'line' ? 'bg-white/20' : 'bg-white shadow-2xs'}`}>
-              <MessageSquare size={13} className={activeBannerFilter?.type === 'source' && activeBannerFilter?.value === 'line' ? 'text-white' : 'text-emerald-600'} />
-            </div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold text-slate-400">ช่องทางจองเดือนนี้</span>
+            <span className="text-[10px] font-bold text-slate-400">LINE / หน้าร้าน</span>
           </div>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl sm:text-3xl font-black">{stats.lineCount}</span>
-            <span className={`text-xs font-bold ${activeBannerFilter?.type === 'source' && activeBannerFilter?.value === 'line' ? 'text-emerald-200' : 'text-slate-400'}`}>
-              ({stats.total > 0 ? Math.round((stats.lineCount / stats.total) * 100) : 0}%)
-            </span>
+            <span className="text-2xl sm:text-3xl font-black text-emerald-400">{stats.lineCount}</span>
+            <span className="text-xs font-bold text-slate-400">คิว LINE</span>
           </div>
-          <div className={`text-[10px] font-bold mt-1 flex items-center justify-between ${activeBannerFilter?.type === 'source' && activeBannerFilter?.value === 'line' ? 'text-emerald-100' : 'text-slate-500'}`}>
-            <span>ลูกค้าจองด้วยตนเอง</span>
-            <span className="text-[9px] underline underline-offset-2">แตะเพื่อกรอง ↗</span>
+          {/* Progress bar split */}
+          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden flex my-2">
+            <div 
+              className="bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" 
+              style={{ width: `${stats.total > 0 ? (stats.lineCount / stats.total) * 100 : 50}%` }}
+              title={`LINE ${stats.lineCount} คิว`}
+            />
+            <div 
+              className="bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)] flex-1"
+              title={`หน้าร้าน ${stats.walkInCount + stats.adminCount} คิว`}
+            />
+          </div>
+          <div className="text-[10px] font-bold text-slate-400 flex items-center justify-between">
+            <span className="text-emerald-400">• LINE {stats.total > 0 ? Math.round((stats.lineCount / stats.total) * 100) : 0}%</span>
+            <span className="text-amber-400">• หน้าร้าน {stats.total > 0 ? Math.round(((stats.walkInCount + stats.adminCount) / stats.total) * 100) : 0}%</span>
           </div>
         </div>
 
-        {/* Card 3: Walk-in & หน้าร้าน */}
-        <div
-          onClick={() => toggleFilter('source', 'walkin', 'Walk-in & หน้าร้าน')}
-          className={`p-3.5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group hover:shadow-md ${
-            activeBannerFilter?.type === 'source' && activeBannerFilter?.value === 'walkin'
-              ? 'bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-lg ring-2 ring-amber-400 ring-offset-1'
-              : 'bg-gradient-to-br from-amber-50/70 to-orange-50/40 hover:from-amber-100/60 border-amber-100 text-slate-800'
-          }`}
-        >
-          <div className="flex items-center justify-between mb-1">
-            <span className={`text-[10px] font-black uppercase tracking-wider ${activeBannerFilter?.type === 'source' && activeBannerFilter?.value === 'walkin' ? 'text-amber-100' : 'text-amber-700'}`}>
-              Walk-in & แอดมิน
-            </span>
-            <div className={`p-1 rounded-lg ${activeBannerFilter?.type === 'source' && activeBannerFilter?.value === 'walkin' ? 'bg-white/20' : 'bg-white shadow-2xs'}`}>
-              <Users size={13} className={activeBannerFilter?.type === 'source' && activeBannerFilter?.value === 'walkin' ? 'text-white' : 'text-amber-600'} />
-            </div>
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl sm:text-3xl font-black">{stats.walkInCount + stats.adminCount}</span>
-            <span className={`text-xs font-bold ${activeBannerFilter?.type === 'source' && activeBannerFilter?.value === 'walkin' ? 'text-amber-200' : 'text-slate-400'}`}>
-              ({stats.total > 0 ? Math.round(((stats.walkInCount + stats.adminCount) / stats.total) * 100) : 0}%)
-            </span>
-          </div>
-          <div className={`text-[10px] font-bold mt-1 flex items-center justify-between ${activeBannerFilter?.type === 'source' && activeBannerFilter?.value === 'walkin' ? 'text-amber-100' : 'text-slate-500'}`}>
-            <span>หน้าร้าน {stats.walkInCount} • แอดมิน {stats.adminCount}</span>
-            <span className="text-[9px] underline underline-offset-2">แตะเพื่อกรอง ↗</span>
-          </div>
-        </div>
-
-        {/* Card 4: Service Status (Completed & In progress) */}
+        {/* Card 3: สถานะบริการ (MTD) */}
         <div
           onClick={() => toggleFilter('status', 'เสร็จสิ้น', 'คิวที่เสร็จสิ้นแล้ว')}
-          className={`p-3.5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group hover:shadow-md ${
+          className={`bg-slate-900/80 border rounded-2xl p-4 transition-all cursor-pointer relative overflow-hidden group hover:border-slate-700 ${
             activeBannerFilter?.type === 'status' && activeBannerFilter?.value === 'เสร็จสิ้น'
-              ? 'bg-gradient-to-br from-teal-600 to-cyan-700 text-white shadow-lg ring-2 ring-teal-400 ring-offset-1'
-              : 'bg-gradient-to-br from-teal-50/70 to-cyan-50/40 hover:from-teal-100/60 border-teal-100 text-slate-800'
+              ? 'border-teal-500 ring-2 ring-teal-500/50 bg-gradient-to-br from-teal-950/70 to-slate-900'
+              : 'border-slate-800/90 hover:bg-slate-900'
           }`}
         >
-          <div className="flex items-center justify-between mb-1">
-            <span className={`text-[10px] font-black uppercase tracking-wider ${activeBannerFilter?.type === 'status' && activeBannerFilter?.value === 'เสร็จสิ้น' ? 'text-teal-100' : 'text-teal-700'}`}>
-              ความคืบหน้าบริการ
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold text-slate-400">สถานะบริการ (MTD)</span>
+            <span className="text-[10px] font-black bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2 py-0.5 rounded-full">
+              {monthShortThai}
             </span>
-            <div className={`p-1 rounded-lg ${activeBannerFilter?.type === 'status' && activeBannerFilter?.value === 'เสร็จสิ้น' ? 'bg-white/20' : 'bg-white shadow-2xs'}`}>
-              <CheckCircle2 size={13} className={activeBannerFilter?.type === 'status' && activeBannerFilter?.value === 'เสร็จสิ้น' ? 'text-white' : 'text-teal-600'} />
-            </div>
           </div>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl sm:text-3xl font-black">{stats.completedCount}</span>
-            <span className={`text-xs font-bold ${activeBannerFilter?.type === 'status' && activeBannerFilter?.value === 'เสร็จสิ้น' ? 'text-teal-200' : 'text-slate-400'}`}>
-              / {stats.total} เสร็จสิ้น
+            <span className="text-2xl sm:text-3xl font-black text-white">{stats.completedCount}</span>
+            <span className="text-xs font-bold text-slate-400">เสร็จสิ้น</span>
+          </div>
+          <div className="text-[11px] font-bold mt-2 flex items-center justify-between">
+            <span className="text-cyan-400">• กำลังทำ {stats.inProgressCount} คิว</span>
+            <span className="text-slate-400">• รอคิว {stats.pendingCount} คิว</span>
+          </div>
+        </div>
+
+        {/* Card 4: คอร์สยอดฮิต & วันพีกสุด (Peak) */}
+        <div
+          onClick={() => toggleFilter('service', stats.topCatObj?.id, stats.topCatObj?.label)}
+          className="bg-slate-900/80 border border-slate-800/90 rounded-2xl p-4 transition-all cursor-pointer relative overflow-hidden group hover:border-amber-500/50 hover:bg-slate-900"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5">
+              <Award size={13} className="text-amber-400" />
+              ยอดจองสูงสุดในรอบเดือน
+            </span>
+            <span className="text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">
+              Peak
             </span>
           </div>
-          <div className={`text-[10px] font-bold mt-1 flex items-center justify-between ${activeBannerFilter?.type === 'status' && activeBannerFilter?.value === 'เสร็จสิ้น' ? 'text-teal-100' : 'text-slate-500'}`}>
-            <span className="flex items-center gap-1.5">
-              <span className="text-purple-600 font-black">กำลังทำ {stats.inProgressCount}</span>
-              <span>•</span>
-              <span className="text-blue-600 font-black">รอคิว {stats.pendingCount}</span>
+          <div className="flex items-baseline gap-1.5 truncate">
+            <span className="text-xl sm:text-2xl font-black text-amber-400 truncate">
+              {stats.topCatObj?.label?.split('/')[0]}
             </span>
-            <span className="text-[9px] underline underline-offset-2">แตะเพื่อกรอง ↗</span>
+          </div>
+          <div className="text-[11px] font-bold text-slate-400 mt-2 flex items-center justify-between">
+            <span className="text-amber-300 font-bold">{stats.topCatCount} คิว ({stats.total > 0 ? Math.round((stats.topCatCount / stats.total) * 100) : 0}%)</span>
+            <span className="text-slate-500 text-[10px]">วันพีกสุด: {stats.peakDayNum} {monthShortThai}</span>
           </div>
         </div>
 
       </div>
 
-      {/* 🌟 Row 2: "ลูกค้าจองอะไรเท่าไหร่" (Service / Treatment Breakdown Filter Cards) */}
-      <div className="mt-4 pt-3.5 border-t border-slate-100">
-        <div className="flex items-center justify-between mb-2.5">
+      {/* 🌟 Row 2: "สัดส่วนคอร์สและบริการที่ลูกค้าจอง" (Service Cards Grid) */}
+      <div className="mt-5 pt-4 border-t border-slate-800">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-              <Sparkles size={14} className="text-indigo-600" />
+            <span className="text-xs sm:text-sm font-black text-white flex items-center gap-1.5">
+              <Sparkles size={14} className="text-indigo-400" />
               <span>สัดส่วนคอร์สและบริการที่ลูกค้าจอง ({monthLabelThai})</span>
             </span>
             <span className="text-[10px] font-medium text-slate-400 hidden sm:inline">
@@ -474,16 +604,16 @@ export default function MonthlyBookingOverviewBanner({
             <button
               type="button"
               onClick={onClearBannerFilter}
-              className="text-[11px] font-black text-rose-600 hover:text-rose-700 flex items-center gap-1 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-200"
+              className="text-[11px] font-black text-rose-400 hover:text-rose-300 flex items-center gap-1 bg-rose-500/10 px-2.5 py-1 rounded-xl border border-rose-500/30 cursor-pointer"
             >
               <X size={12} />
-              <span>ล้างตัวกรองบริการ</span>
+              <span>ล้างตัวกรอง</span>
             </button>
           )}
         </div>
 
-        {/* Service Cards Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+        {/* 7 Service Cards in Cyber Dark Look */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5">
           {SERVICE_CATEGORIES.map(cat => {
             const count = stats.serviceCounts[cat.id] || 0;
             const pct = stats.total > 0 ? Math.round((count / stats.total) * 100) : 0;
@@ -494,38 +624,40 @@ export default function MonthlyBookingOverviewBanner({
               <div
                 key={cat.id}
                 onClick={() => toggleFilter('service', cat.id, cat.label)}
-                className={`p-2.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
                   isSelected 
-                    ? 'bg-slate-900 text-white border-slate-900 shadow-md ring-2 ring-indigo-500 scale-[1.02]' 
-                    : `${cat.bg} ${cat.border} hover:shadow-sm hover:-translate-y-0.5 text-slate-800`
+                    ? 'bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950 text-white border-indigo-400 ring-2 ring-indigo-500/50 shadow-lg shadow-indigo-900/40 scale-[1.02]' 
+                    : 'bg-[#0e1424] border-slate-800/80 hover:border-slate-700 hover:bg-[#12192e] text-white'
                 }`}
               >
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className={`p-1.5 rounded-xl ${isSelected ? 'bg-white/20 text-white' : 'bg-white shadow-2xs ' + cat.color}`}>
-                      <IconComp size={14} />
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`p-1.5 rounded-xl bg-slate-900/90 border border-slate-800 ${cat.color}`}>
+                      <IconComp size={15} />
                     </div>
                     <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md ${
-                      isSelected ? 'bg-white/20 text-white' : 'bg-white/90 text-slate-700 border border-slate-200/60'
+                      isSelected 
+                        ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-400/40' 
+                        : 'bg-slate-900/80 text-slate-300 border border-slate-800'
                     }`}>
                       {pct}%
                     </span>
                   </div>
                   
-                  <div className={`text-[11px] font-black leading-tight line-clamp-1 ${isSelected ? 'text-white' : 'text-slate-800'}`} title={cat.label}>
+                  <div className="text-xs font-black leading-tight line-clamp-1 text-slate-100" title={cat.label}>
                     {cat.label.split('/')[0].trim()}
                   </div>
                 </div>
 
-                <div className="mt-2">
-                  <div className="flex items-baseline justify-between mb-1">
-                    <span className="text-base font-black">{count}</span>
-                    <span className={`text-[9px] font-bold ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>คิว</span>
+                <div className="mt-3">
+                  <div className="flex items-baseline justify-between mb-1.5">
+                    <span className="text-lg font-black text-white">{count}</span>
+                    <span className="text-[10px] font-bold text-slate-400">คิว</span>
                   </div>
-                  <div className={`w-full h-1 rounded-full overflow-hidden ${isSelected ? 'bg-white/20' : 'bg-slate-200'}`}>
+                  <div className="w-full h-1.5 rounded-full overflow-hidden bg-slate-800">
                     <div 
-                      className={`h-full rounded-full transition-all duration-300 ${isSelected ? 'bg-indigo-400' : cat.bar}`}
-                      style={{ width: `${Math.max(5, pct)}%` }}
+                      className={`h-full rounded-full transition-all duration-300 ${cat.barColor}`}
+                      style={{ width: `${Math.max(6, pct)}%` }}
                     />
                   </div>
                 </div>
@@ -535,126 +667,194 @@ export default function MonthlyBookingOverviewBanner({
         </div>
       </div>
 
-      {/* 🌟 Row 3: Deep Movement & Rhythm Analytics (ความเคลื่อนไหวของร้าน - Expandable) */}
-      {showDeepAnalytics && (
-        <div className="mt-4 pt-4 border-t border-slate-100 space-y-4 animate-in fade-in duration-200">
+      {/* 🌟 Row 3: Daily Booking Rhythm Chart (แนวๆ ตัวอย่างรูปที่สอง เป๊ะๆ!) */}
+      <div className="mt-5 pt-4 border-t border-slate-800 space-y-4">
+        
+        {/* Detail Header Bar for Selected/Hovered Day */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-900/80 border border-slate-800 rounded-2xl px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
+            <span className="text-xs font-bold text-slate-300">
+              รายละเอียดวันที่เลือก: <strong className="text-white font-black">{selectedDayDow} {activeHoverOrToday} {monthShortThai} {currentMonthDate.getFullYear() + 543}</strong>
+              {isCurrentMonth && activeHoverOrToday === todayDateNum && (
+                <span className="ml-1.5 text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.2 rounded-md font-bold">
+                  🔥 (วันนี้)
+                </span>
+              )}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3 text-xs font-bold">
+            <span className="text-teal-400 font-black">ยอดจอง: {selectedDayInfo.total} คิว</span>
+            <span className="text-slate-500">•</span>
+            <span className="text-emerald-400">LINE: {selectedDayInfo.line}</span>
+            <span className="text-slate-500">•</span>
+            <span className="text-amber-400">หน้าร้าน: {selectedDayInfo.walkin}</span>
+            <span className="text-slate-500">•</span>
+            <span className="text-purple-400">เสร็จสิ้น: {selectedDayInfo.completed}</span>
+          </div>
+        </div>
+
+        {/* 31-Day Bar Chart Canvas with Dotted Average Line */}
+        <div className="bg-[#0b0f19] border border-slate-800/90 rounded-2xl p-4 relative overflow-hidden">
           
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
+          <div className="relative h-32 pt-6 pb-2 px-1 flex items-end gap-1 sm:gap-1.5 overflow-x-auto">
             
-            {/* 1. Daily Booking Rhythm (ปฏิทินความหนาแน่นรายวัน) */}
-            <div className="lg:col-span-2 bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                  <Calendar size={13} className="text-indigo-600" />
-                  <span>ความหนาแน่นการจองคิวรายวัน ({monthLabelThai})</span>
+            {/* Dotted Average Line */}
+            {stats.total > 0 && (
+              <div 
+                className="absolute left-2 right-2 border-b border-dashed border-amber-400/40 z-10 pointer-events-none flex items-center justify-start"
+                style={{ 
+                  bottom: `${Math.min(90, Math.max(15, (parseFloat(stats.avgPerDay) / Math.max(1, stats.peakDayCount)) * 90))}%` 
+                }}
+              >
+                <span className="text-[9px] font-bold text-amber-300/80 bg-[#0b0f19]/90 px-1.5 py-0.5 rounded -translate-y-2.5">
+                  --- เส้นเฉลี่ย {stats.avgPerDay} คิว/วัน
                 </span>
-                <span className="text-[10px] text-slate-400 font-medium">แตะแท่งเพื่อกรองวัน</span>
               </div>
+            )}
 
-              {/* 31 days bar chart */}
-              <div className="flex items-end gap-1 h-24 pt-4 px-1 overflow-x-auto">
-                {Object.entries(stats.dailyMap).map(([day, cnt]) => {
-                  const dayNum = parseInt(day, 10);
-                  const isToday = isCurrentMonth && dayNum === todayDateNum;
-                  const targetDayStr = `${selectedMonth || thisMonthIso}-${String(dayNum).padStart(2, '0')}`;
-                  const isDaySelected = activeBannerFilter?.type === 'date' && activeBannerFilter?.value === targetDayStr;
-                  const maxDayCount = Math.max(1, ...Object.values(stats.dailyMap));
-                  const heightPct = cnt > 0 ? Math.max(18, Math.round((cnt / maxDayCount) * 100)) : 8;
+            {Object.entries(stats.dailyMap).map(([day, val]) => {
+              const dayNum = parseInt(day, 10);
+              const isToday = isCurrentMonth && dayNum === todayDateNum;
+              const isPeak = dayNum === stats.peakDayNum && stats.peakDayCount > 0;
+              const isHovered = activeHoverOrToday === dayNum;
+              const targetDayStr = `${selectedMonth || thisMonthIso}-${String(dayNum).padStart(2, '0')}`;
+              const isDaySelected = activeBannerFilter?.type === 'date' && activeBannerFilter?.value === targetDayStr;
+              
+              const maxCount = Math.max(1, stats.peakDayCount);
+              const heightPct = val.total > 0 ? Math.max(16, Math.round((val.total / maxCount) * 85)) : 6;
+              const dow = THAI_DAYS_SHORT[val.dayOfWeek] || '';
 
-                  return (
-                    <div
-                      key={day}
-                      onClick={() => toggleFilter('date', targetDayStr, `วันที่ ${dayNum} ${monthLabelThai}`)}
-                      className="flex-1 min-w-[14px] flex flex-col items-center justify-end h-full group cursor-pointer"
-                      title={`วันที่ ${dayNum}: ${cnt} คิว`}
-                    >
-                      {cnt > 0 && (
-                        <span className="text-[8px] font-black text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {cnt}
-                        </span>
-                      )}
-                      <div
-                        className={`w-full rounded-t-md transition-all ${
-                          isDaySelected
-                            ? 'bg-purple-600 shadow-sm ring-2 ring-purple-400'
-                            : isToday
-                              ? 'bg-indigo-500 shadow-xs ring-1 ring-indigo-300'
-                              : cnt > 0
-                                ? 'bg-teal-500/80 hover:bg-teal-600'
-                                : 'bg-slate-200/70 hover:bg-slate-300'
-                        }`}
-                        style={{ height: `${heightPct}%` }}
-                      />
-                      <span className={`text-[8.5px] mt-1 font-bold ${
-                        isToday ? 'text-indigo-600 font-black' : isDaySelected ? 'text-purple-700 font-black' : 'text-slate-400'
-                      }`}>
-                        {dayNum}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 2. Peak Hours (ช่วงเวลายอดนิยมในการจอง) */}
-            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 flex flex-col justify-between">
-              <div>
-                <span className="text-xs font-black text-slate-800 flex items-center gap-1.5 mb-2.5">
-                  <Clock size={13} className="text-amber-500" />
-                  <span>ช่วงเวลายอดนิยม (Peak Hours)</span>
-                </span>
-                
-                <div className="space-y-2">
-                  {/* Morning */}
-                  <div className="flex items-center justify-between text-xs p-2 rounded-xl bg-white border border-slate-100 shadow-2xs">
-                    <span className="flex items-center gap-1.5 font-bold text-amber-700">
-                      <Sun size={13} /> เช้า (10:00 - 13:00)
+              return (
+                <div
+                  key={day}
+                  onMouseEnter={() => setHoveredDayNum(dayNum)}
+                  onClick={() => toggleFilter('date', targetDayStr, `วันที่ ${dayNum} ${monthLabelThai}`)}
+                  className="flex-1 min-w-[16px] sm:min-w-[18px] flex flex-col items-center justify-end h-full group cursor-pointer relative z-20"
+                >
+                  {/* Tooltip on hover */}
+                  {val.total > 0 && (
+                    <span className={`text-[8.5px] font-black mb-1 transition-all ${
+                      isHovered ? 'text-cyan-300 scale-110 opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                    }`}>
+                      {val.total}
                     </span>
-                    <span className="font-black text-slate-800">{stats.morningCount} คิว</span>
-                  </div>
+                  )}
 
-                  {/* Afternoon */}
-                  <div className="flex items-center justify-between text-xs p-2 rounded-xl bg-amber-50/80 border border-amber-200 shadow-2xs">
-                    <span className="flex items-center gap-1.5 font-black text-amber-900">
-                      <Sunset size={13} className="text-amber-600" /> บ่าย (13:00 - 17:00) 🔥 พีกสุด
-                    </span>
-                    <span className="font-black text-amber-900">{stats.afternoonCount} คิว</span>
-                  </div>
+                  {/* The Bar */}
+                  <div
+                    className={`w-full rounded-t-lg transition-all duration-200 ${
+                      isDaySelected
+                        ? 'bg-purple-500 shadow-[0_0_12px_rgba(168,85,247,0.7)] ring-2 ring-purple-300'
+                        : isToday
+                          ? 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.7)] ring-1 ring-emerald-300'
+                          : isPeak
+                            ? 'bg-gradient-to-t from-amber-600 to-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.6)]'
+                            : isHovered
+                              ? 'bg-indigo-400 shadow-[0_0_8px_rgba(129,140,248,0.5)]'
+                              : val.total > 0
+                                ? 'bg-gradient-to-t from-indigo-900 to-indigo-600 hover:to-indigo-500'
+                                : 'bg-slate-800/60 hover:bg-slate-700'
+                    }`}
+                    style={{ height: `${heightPct}%` }}
+                  />
 
-                  {/* Evening */}
-                  <div className="flex items-center justify-between text-xs p-2 rounded-xl bg-white border border-slate-100 shadow-2xs">
-                    <span className="flex items-center gap-1.5 font-bold text-indigo-700">
-                      <Moon size={13} /> เย็น (17:00 - 20:00)
-                    </span>
-                    <span className="font-black text-slate-800">{stats.eveningCount} คิว</span>
-                  </div>
+                  {/* Day Number and Weekday underneath */}
+                  <span className={`text-[9px] mt-1 font-bold ${
+                    isToday ? 'text-emerald-400 font-black' : isDaySelected ? 'text-purple-400 font-black' : isHovered ? 'text-white' : 'text-slate-400'
+                  }`}>
+                    {dayNum}
+                  </span>
+                  <span className="text-[7.5px] text-slate-500 leading-none">
+                    {dow}
+                  </span>
                 </div>
-              </div>
+              );
+            })}
+          </div>
 
-              <div className="text-[10px] text-slate-500 pt-2 border-t border-slate-200/60 mt-2 flex items-center justify-between font-medium">
-                <span>อัตราการจองผ่าน LINE:</span>
-                <span className="font-black text-emerald-600">
-                  {stats.total > 0 ? Math.round((stats.lineCount / stats.total) * 100) : 0}% ของคิวทั้งหมด
-                </span>
-              </div>
+          {/* Chart Legend (เหมือนรูปที่ 2 เป๊ะๆ) */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-3 mt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
+            <div className="flex items-center gap-3 flex-wrap font-bold">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-indigo-600"></span> ยอดจองปกติ
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"></span> วันนี้ (Live)
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]"></span> ยอดสูงสุด
+              </span>
+              <span className="flex items-center gap-1.5 text-amber-300">
+                <span className="w-3 border-b border-dashed border-amber-300"></span> เส้นเฉลี่ย
+              </span>
             </div>
-
+            <div className="text-[10px] text-slate-500 font-medium">
+              แตะหรือชี้ที่แท่งกราฟเพื่อดูรายละเอียดการจองแต่ละวัน
+            </div>
           </div>
 
         </div>
-      )}
+
+        {/* Peak Hours Breakdown Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                <Sun size={15} />
+              </div>
+              <div>
+                <div className="text-xs font-bold text-slate-300">ช่วงเช้า (10:00 - 13:00)</div>
+                <div className="text-[10px] text-slate-500">เปิดร้านรอบแรก</div>
+              </div>
+            </div>
+            <span className="text-base font-black text-amber-400">{stats.morningCount} คิว</span>
+          </div>
+
+          <div className="bg-slate-900/80 border border-amber-500/30 rounded-2xl p-3 flex items-center justify-between shadow-sm shadow-amber-950/20">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                <Sunset size={15} />
+              </div>
+              <div>
+                <div className="text-xs font-black text-amber-300 flex items-center gap-1">
+                  <span>ช่วงบ่าย (13:00 - 17:00)</span>
+                  <span className="text-[9px] bg-amber-500/20 px-1 rounded text-amber-300">🔥 พีกสุด</span>
+                </div>
+                <div className="text-[10px] text-amber-400/80">ความหนาแน่นสูงสุด</div>
+              </div>
+            </div>
+            <span className="text-base font-black text-amber-300">{stats.afternoonCount} คิว</span>
+          </div>
+
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                <Moon size={15} />
+              </div>
+              <div>
+                <div className="text-xs font-bold text-slate-300">ช่วงเย็น (17:00 - 20:00)</div>
+                <div className="text-[10px] text-slate-500">หลังเลิกงาน</div>
+              </div>
+            </div>
+            <span className="text-base font-black text-indigo-400">{stats.eveningCount} คิว</span>
+          </div>
+        </div>
+
+      </div>
 
       {/* 🌟 Active Filter Alert Pill */}
       {activeBannerFilter?.type && (
-        <div className="mt-3.5 p-2.5 bg-indigo-50 border border-indigo-200 rounded-2xl flex items-center justify-between gap-2 shadow-2xs animate-in fade-in">
-          <div className="flex items-center gap-2 text-xs font-black text-indigo-900">
-            <Filter size={14} className="text-indigo-600" />
-            <span>กำลังกรองคิว: <span className="underline decoration-indigo-400 font-extrabold">{activeBannerFilter.label}</span></span>
+        <div className="mt-4 p-3 bg-indigo-950/80 border border-indigo-500/40 rounded-2xl flex items-center justify-between gap-2 shadow-lg animate-in fade-in">
+          <div className="flex items-center gap-2 text-xs font-black text-indigo-200">
+            <Filter size={14} className="text-indigo-400" />
+            <span>กำลังกรองคิว: <span className="underline decoration-indigo-400 font-extrabold text-white">{activeBannerFilter.label}</span></span>
           </div>
           <button
             type="button"
             onClick={onClearBannerFilter}
-            className="px-2.5 py-1 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl text-xs font-black flex items-center gap-1 shadow-2xs active:scale-95 transition-all cursor-pointer"
+            className="px-3 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-xl text-xs font-black flex items-center gap-1 transition-all cursor-pointer"
           >
             <X size={12} />
             <span>ล้างตัวกรอง</span>
