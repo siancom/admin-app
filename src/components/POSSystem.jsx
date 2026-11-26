@@ -10,6 +10,7 @@ import { addDoc, updateDoc, doc, getDocs, query, where, writeBatch, orderBy, lim
 import { getFuzzyKey } from '../utils/fuzzy';
 import imageCompression from 'browser-image-compression';
 import { parseNumber, parseQty, getTotalStock, getBranchStock, getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
+import { splitCourseAndProductPrice } from '../utils/courseUtils';
 import { getProfilePicData, handleProfileImgError } from '../utils/imageUtils';
 import { getVipDiscountRate, computeFinalPrice, getOwnerDiscountRate, computeOwnerCostPrice } from '../utils/priceUtils';
 import { fetchWithProxy, fetch17Track } from '../utils/wooProxy';
@@ -1805,6 +1806,8 @@ export default function POSSystem({
 
         {paymentStaff && (() => {
           const staffNames = paymentStaff.split('/').map(s => s.trim()).filter(Boolean);
+          const bundleDetails = [];
+
           const staffIncomes = staffNames.map(staffName => {
              const emp = employees.find(e => e.name === staffName);
              const courseRate = parseFloat(emp?.commissionRate) || 0;
@@ -1812,19 +1815,26 @@ export default function POSSystem({
              
              let prodGross = 0;
              let courseGross = 0;
+
              cart.forEach(item => {
                if (item.type === 'usage' || item.type === 'claim_item' || item.isUsage || item.actionType === 'usage' || item.noCourseCommission) {
                  return;
                }
-               if (item.type === 'product') {
-                 prodGross += (Number(item.price) || 0) * (Number(item.qty) || 1);
-               } else if (item.type === 'service' || item.isService || item.id?.startsWith('srv_mole') || item.name?.includes('จี้')) {
-                 return;
-               } else if (item.type === 'course' || item.type === 'single_course') {
-                 if (isServiceStep && (Number(item.price) <= 0 || item.isUsage)) return;
-                 if (Number(item.price) > 0) {
-                   courseGross += (Number(item.price) || 0) * (Number(item.qty) || 1);
-                 }
+               if (isServiceStep && (Number(item.price) <= 0 || item.isUsage)) return;
+
+               const split = splitCourseAndProductPrice(item, masterCourses);
+               courseGross += split.courseGross;
+               prodGross += split.prodGross;
+
+               if (split.hasProductSet && !bundleDetails.some(b => b.cartId === (item.id || item.name))) {
+                 bundleDetails.push({
+                   cartId: item.id || item.name,
+                   name: item.name,
+                   qty: Number(item.qty) || 1,
+                   coursePortion: split.coursePricePerUnit * (Number(item.qty) || 1),
+                   productPortion: split.prodPricePerUnit * (Number(item.qty) || 1),
+                   reason: split.splitReason
+                 });
                }
              });
 
@@ -1833,7 +1843,18 @@ export default function POSSystem({
              const totalComm = courseComm + prodComm;
              const staffHandFee = Math.round(totalHandFeeFromBill / staffNames.length);
              const totalStaffIncome = totalComm + staffHandFee;
-             return { staffName, courseRate, prodRate, courseComm, prodComm, totalComm, staffHandFee, totalStaffIncome };
+             return { 
+               staffName, 
+               courseRate, 
+               prodRate, 
+               courseGross: courseGross / staffNames.length, 
+               prodGross: prodGross / staffNames.length, 
+               courseComm, 
+               prodComm, 
+               totalComm, 
+               staffHandFee, 
+               totalStaffIncome 
+             };
           });
 
           // 🌟 HIDE completely if no income is earned (0 Baht bill with no DF)!
@@ -1841,25 +1862,88 @@ export default function POSSystem({
           if (!hasAnyIncome) return null;
 
           return (
-            <div className="mt-2.5 p-2.5 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-1.5">
+            <div className="mt-2.5 p-3 bg-indigo-50/70 border border-indigo-200/80 rounded-2xl space-y-2">
               <div className="flex items-center justify-between">
-                <p className="text-[10px] text-indigo-900 font-black">ยอดคำนวณสะสมจากบิลนี้ (แยกตามพนักงาน):</p>
-                {totalHandFeeFromBill > 0 && (
-                  <span className="text-[9px] font-black text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200">
-                    มีค่ามือบริการรวม ฿{totalHandFeeFromBill.toLocaleString()}
-                  </span>
-                )}
+                <p className="text-[11px] text-indigo-950 font-black flex items-center gap-1.5">
+                  <Sparkles size={13} className="text-indigo-600" />
+                  ยอดคำนวณสะสมจากบิลนี้ (แยกตามพนักงาน):
+                </p>
+                <div className="flex items-center gap-1.5">
+                  {bundleDetails.length > 0 && (
+                    <span className="text-[9px] font-bold text-pink-700 bg-pink-100 px-2 py-0.5 rounded-full border border-pink-200">
+                      มีคอร์สเซตแยกค่าคอม
+                    </span>
+                  )}
+                  {totalHandFeeFromBill > 0 && (
+                    <span className="text-[9px] font-black text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full border border-orange-200">
+                      มีค่ามือบริการรวม ฿{totalHandFeeFromBill.toLocaleString()}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="flex flex-wrap gap-1.5">
+
+              {bundleDetails.length > 0 && (
+                <div className="bg-white/80 p-2 rounded-xl border border-pink-200/70 text-[9.5px] space-y-1">
+                  <div className="font-bold text-pink-800 flex items-center gap-1">
+                    <span>✨ คอร์สเซตคิดแยกค่าคอม (ยอดคอร์ส / ยอดสินค้า):</span>
+                  </div>
+                  {bundleDetails.map((b, bIdx) => (
+                    <div key={bIdx} className="text-slate-700 flex flex-wrap items-center justify-between gap-1 pl-1">
+                      <span className="font-semibold text-slate-800 truncate max-w-[220px]">{b.name}</span>
+                      <span className="font-mono text-slate-600">
+                        คอร์ส ฿{b.coursePortion.toLocaleString()} + สินค้า ฿{b.productPortion.toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2">
                 {staffIncomes.map((item, idx) => (
-                  <div key={idx} className="flex items-center justify-between gap-2 text-xs text-indigo-700 bg-white px-2.5 py-1.5 rounded-lg shadow-2xs border border-indigo-50 flex-1 min-w-[130px]">
-                    <span className="font-bold flex items-center gap-1 text-slate-800 text-[11px]">
-                      <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
-                      {item.staffName}
-                    </span>
-                    <span className="font-black text-emerald-600 text-xs">
-                      ฿{item.totalStaffIncome.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}
-                    </span>
+                  <div key={idx} className="bg-white p-2.5 rounded-xl shadow-2xs border border-indigo-100 space-y-1.5">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
+                        <span className="font-black text-slate-800 text-xs">{item.staffName}</span>
+                        <span className="text-[10px] text-slate-500 font-medium">
+                          (เรทคอร์ส <b className="text-indigo-600 font-bold">{item.courseRate}%</b> | เรทสินค้า <b className="text-pink-600 font-bold">{item.prodRate}%</b>)
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-slate-400 font-bold mr-1">รวมได้</span>
+                        <span className="font-black text-emerald-600 text-sm">
+                          ฿{item.totalStaffIncome.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                      <div className="bg-indigo-50/60 p-1.5 rounded-lg border border-indigo-100/60">
+                        <div className="text-slate-500 text-[9px] font-bold">คอมคอร์ส ({item.courseRate}%)</div>
+                        <div className="font-black text-indigo-900 text-xs">
+                          ฿{Math.round(item.courseComm).toLocaleString()}
+                          <span className="text-[9px] font-normal text-slate-500 ml-1 font-mono">
+                            (ยอด ฿{Math.round(item.courseGross).toLocaleString()})
+                          </span>
+                        </div>
+                      </div>
+                      <div className="bg-pink-50/60 p-1.5 rounded-lg border border-pink-100/60">
+                        <div className="text-slate-500 text-[9px] font-bold">คอมสินค้า ({item.prodRate}%)</div>
+                        <div className="font-black text-pink-900 text-xs">
+                          ฿{Math.round(item.prodComm).toLocaleString()}
+                          <span className="text-[9px] font-normal text-slate-500 ml-1 font-mono">
+                            (ยอด ฿{Math.round(item.prodGross).toLocaleString()})
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {item.staffHandFee > 0 && (
+                      <div className="flex items-center justify-between bg-amber-50/80 px-2 py-1 rounded-lg border border-amber-200 text-[10px]">
+                        <span className="text-amber-900 font-bold">ค่ามือบริการ (DF):</span>
+                        <span className="font-black text-amber-800">฿{item.staffHandFee.toLocaleString()}</span>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -4255,6 +4339,9 @@ export default function POSSystem({
               });
             }
           } else {
+            // Check if course is a bundled product package (แยกยอดคอร์สและยอดสินค้า)
+            const courseSplit = splitCourseAndProductPrice(item, masterCourses);
+
             // Generate Course instances per quantity
             for (let i = 0; i < item.qty; i++) {
             const courseNo = `IC${Date.now().toString().slice(-6)}${i}`;
@@ -4343,7 +4430,10 @@ export default function POSSystem({
               "promoOption": item.promoOption || null,
               "isWalkIn": Boolean(selectedCustomer?.isWalkIn),
               "hasMemberCard": Boolean(selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer),
-              "membershipStatus": (selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer) ? "บัตรสมาชิก" : "ทั่วไป"
+              "membershipStatus": (selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer) ? "บัตรสมาชิก" : "ทั่วไป",
+              "hasProductSet": courseSplit.hasProductSet,
+              "coursePrice": String(courseSplit.coursePricePerUnit),
+              "productPrice": String(courseSplit.prodPricePerUnit)
             };
             if (expireDateStr) courseData["วันหมดอายุ"] = expireDateStr;
             batch.set(courseRef, courseData);
@@ -4374,7 +4464,12 @@ export default function POSSystem({
               "col_6": courseNo,
               "พนักงาน": paymentStaff,
               "isWalkIn": Boolean(selectedCustomer?.isWalkIn),
-              "hasMemberCard": Boolean(selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer)
+              "hasMemberCard": Boolean(selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer),
+              "hasProductSet": courseSplit.hasProductSet,
+              "coursePrice": String(courseSplit.coursePricePerUnit),
+              "productPrice": String(courseSplit.prodPricePerUnit),
+              "courseCommissionBase": String(courseSplit.coursePricePerUnit),
+              "productCommissionBase": String(courseSplit.prodPricePerUnit)
             });
             }
           }

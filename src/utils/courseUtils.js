@@ -306,3 +306,156 @@ export function isLegacyHistory(h) {
 
   return true;
 }
+
+/**
+ * 🏷️ คำนวณแยกยอดคอร์สและยอดสินค้าสำหรับคอร์สที่รวมเซตผลิตภัณฑ์
+ * กรณีคอร์สที่รวมเซตผลิตภัณฑ์ (เช่น ACTIVESKIN SET.B 1,999.- ซึ่งมีคอร์ส 899.- และเซตผลิตภัณฑ์)
+ * - พนักงานจะได้ค่าคอมแยกตามเรท: ยอดคอร์สคิดตาม commissionRate, ยอดสินค้าคิดตาม productCommissionRate
+ * - ยอดสินค้า = ยอดที่จ่ายจริง (ราคาสินค้า/แพ็กเกจ) ลบด้วยราคาคอร์ส
+ */
+export function splitCourseAndProductPrice(item, masterCourses = []) {
+  if (!item) {
+    return { courseGross: 0, prodGross: 0, hasProductSet: false, coursePricePerUnit: 0, prodPricePerUnit: 0 };
+  }
+
+  const unitPrice = Number(item.price) || 0;
+  const qty = Number(item.qty) || 1;
+  const totalPrice = unitPrice * qty;
+
+  if (totalPrice <= 0) {
+    return { courseGross: 0, prodGross: 0, hasProductSet: false, coursePricePerUnit: 0, prodPricePerUnit: 0 };
+  }
+
+  // 1. Direct Product (สินค้าทั่วไป)
+  if (item.type === 'product') {
+    return {
+      courseGross: 0,
+      prodGross: totalPrice,
+      hasProductSet: false,
+      coursePricePerUnit: 0,
+      prodPricePerUnit: unitPrice
+    };
+  }
+
+  // 2. Direct Service / DF (หัตถการ/จี้ไฝ)
+  if (item.type === 'service' || item.isService || item.id?.startsWith('srv_mole') || item.name?.includes('จี้')) {
+    return {
+      courseGross: 0,
+      prodGross: 0,
+      hasProductSet: false,
+      coursePricePerUnit: 0,
+      prodPricePerUnit: 0
+    };
+  }
+
+  // 3. Not a course
+  if (item.type !== 'course' && item.type !== 'single_course') {
+    return {
+      courseGross: 0,
+      prodGross: 0,
+      hasProductSet: false,
+      coursePricePerUnit: 0,
+      prodPricePerUnit: 0
+    };
+  }
+
+  // Find original master course if available
+  const master = item.originalItem || (Array.isArray(masterCourses) ? masterCourses.find(mc => 
+    mc.id === item.courseId || 
+    mc.id === item.id || 
+    (item.id && String(item.id).startsWith(mc.id)) ||
+    String(mc["ชื่อคอส"] || mc.name || '').trim() === String(item.name || '').trim()
+  ) : null);
+
+  // Check explicit credit / product value
+  const explicitCredit = Number(
+    item.credit || 
+    item.creditReceived || 
+    item.promoOption?.credit || 
+    item.promoOption?.วงเงินเครดิต || 
+    item.promoOption?.เครดิตที่ได้รับ || 
+    master?.credit || 
+    master?.เครดิตที่ได้รับ || 
+    master?.มูลค่าผลิตภัณฑ์ || 
+    0
+  );
+
+  if (explicitCredit > 0 && explicitCredit < unitPrice) {
+    const prodPricePerUnit = explicitCredit;
+    const coursePricePerUnit = Math.max(0, unitPrice - prodPricePerUnit);
+    return {
+      courseGross: coursePricePerUnit * qty,
+      prodGross: prodPricePerUnit * qty,
+      hasProductSet: true,
+      coursePricePerUnit,
+      prodPricePerUnit,
+      splitReason: `หักวงเงินผลิตภัณฑ์ ฿${prodPricePerUnit.toLocaleString()} / คอร์ส ฿${coursePricePerUnit.toLocaleString()}`
+    };
+  }
+
+  // Check if item is a promo course/option that bundles products
+  const itemName = String(item.name || '').toLowerCase();
+  const optName = String(item.promoOption?.name || '').toLowerCase();
+  const optItems = String(item.items || item.promoOption?.items || '').toLowerCase();
+  
+  const isProductBundle = 
+    itemName.includes('รวมผลิตภัณฑ์') || 
+    itemName.includes('เซตผลิตภัณฑ์') || 
+    itemName.includes('ชุดรักษา') ||
+    optName.includes('รวมผลิตภัณฑ์') || 
+    optName.includes('เซตผลิตภัณฑ์') ||
+    optItems.includes('ผลิตภัณฑ์:') ||
+    optItems.includes('ได้รับผลิตภัณฑ์') ||
+    (itemName.includes('set') && (optItems.includes('ผงพอก') || optItems.includes('เซรั่ม') || optItems.includes('สบู่') || optItems.includes('เจล')));
+
+  if (isProductBundle) {
+    let baseCoursePrice = 0;
+
+    // Check options in master course to find the base treatment course (without products)
+    const options = Array.isArray(master?.promoOptions) ? master.promoOptions : [];
+    const baseOpt = options.find(o => {
+      const oName = String(o.name || '').toLowerCase();
+      return (
+        oName.includes('ลูกค้ามีผลิตภัณฑ์') || 
+        oName.includes('มีผลิตภัณฑ์') || 
+        oName.includes('เฉพาะคอร์ส') || 
+        oName.includes('ไม่รวมผลิตภัณฑ์')
+      );
+    });
+
+    if (baseOpt && Number(baseOpt.price) > 0 && Number(baseOpt.price) < unitPrice) {
+      baseCoursePrice = Number(baseOpt.price);
+    } else if (Number(master?.price || master?.col_5 || master?.ราคา || master?.ราคาขาย) > 0 && Number(master.price || master.col_5 || master.ราคา || master.ราคาขาย) < unitPrice) {
+      baseCoursePrice = Number(master.price || master.col_5 || master.ราคา || master.ราคาขาย);
+    } else if (options.length > 0) {
+      const validOptPrices = options
+        .map(o => Number(o.price) || 0)
+        .filter(p => p > 0 && p < unitPrice);
+      if (validOptPrices.length > 0) {
+        baseCoursePrice = Math.min(...validOptPrices);
+      }
+    }
+
+    if (baseCoursePrice > 0 && baseCoursePrice < unitPrice) {
+      const prodPricePerUnit = unitPrice - baseCoursePrice;
+      const coursePricePerUnit = baseCoursePrice;
+      return {
+        courseGross: coursePricePerUnit * qty,
+        prodGross: prodPricePerUnit * qty,
+        hasProductSet: true,
+        coursePricePerUnit,
+        prodPricePerUnit,
+        splitReason: `ราคาคอร์ส ฿${coursePricePerUnit.toLocaleString()} + เซตผลิตภัณฑ์ ฿${prodPricePerUnit.toLocaleString()}`
+      };
+    }
+  }
+
+  // Normal course: 100% course price
+  return {
+    courseGross: totalPrice,
+    prodGross: 0,
+    hasProductSet: false,
+    coursePricePerUnit: unitPrice,
+    prodPricePerUnit: 0
+  };
+}

@@ -115,7 +115,40 @@ export function calculateEmployeeMonthlyPayroll(
         // 🌟 รายการจี้ / หัตถการรายครั้ง: คิดเป็นค่ามือ (DF) ตามบิล ไม่คำนวณเป็นค่าคอมคอร์ส
       } else if (typeStr.includes('ซื้อคอส') || typeStr.includes('ซื้อคอร์ส') || typeStr.includes('ซื้อเพิ่ม') || typeStr.includes('อัพคอร์ส') || typeStr.includes('เปิดคอร์ส') || (!typeStr && price > 0)) {
         // 🌟 เฉพาะการซื้อคอร์สใหม่ หรือซื้อเพิ่มเท่านั้น ที่ได้ค่าคอมคอร์ส
-        rawCommission += (price * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
+        // ตรวจสอบกรณีคอร์สที่รวมเซตผลิตภัณฑ์ (พนักงานจะได้ค่าคอมแยกคอร์สกับสินค้า)
+        const courseBase = parseNumber(h.courseCommissionBase ?? (h.coursePrice ? parseNumber(h.coursePrice) * parseQty(h['จำนวน'] || 1) : null));
+        const prodBase = parseNumber(h.productCommissionBase ?? (h.productPrice ? parseNumber(h.productPrice) * parseQty(h['จำนวน'] || 1) : null));
+
+        if (courseBase > 0 || prodBase > 0) {
+          rawCommission += (courseBase * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
+          rawCommission += (prodBase * ((parseFloat(emp.productCommissionRate) || 0) / 100)) / shareCount;
+        } else {
+          // Dynamic fallback for courses with product sets
+          const cleanItemStr = (itemStr || '').toLowerCase();
+          const isBundle = 
+            cleanItemStr.includes('รวมผลิตภัณฑ์') || 
+            cleanItemStr.includes('เซตผลิตภัณฑ์') || 
+            cleanItemStr.includes('ชุดรักษา') || 
+            (cleanItemStr.includes('activeskin') && cleanItemStr.includes('set'));
+
+          if (isBundle) {
+            let baseCoursePrice = 0;
+            if (cleanItemStr.includes('1999') || price === 1999) baseCoursePrice = 899;
+            else if (cleanItemStr.includes('1199') || price === 1199) baseCoursePrice = 899;
+            else if (price > 899) baseCoursePrice = 899;
+
+            if (baseCoursePrice > 0 && price > baseCoursePrice) {
+              const cPart = baseCoursePrice;
+              const pPart = price - baseCoursePrice;
+              rawCommission += (cPart * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
+              rawCommission += (pPart * ((parseFloat(emp.productCommissionRate) || 0) / 100)) / shareCount;
+            } else {
+              rawCommission += (price * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
+            }
+          } else {
+            rawCommission += (price * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
+          }
+        }
       }
       serviceCount++;
     }
