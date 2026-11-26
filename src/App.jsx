@@ -9,7 +9,7 @@ import {
   Camera, Image as ImageIcon, ShieldCheck, ShieldAlert, RefreshCcw, PenTool, Edit3,
   Bell, List, LayoutGrid, ScanLine, CalendarDays, ChevronLeft, ChevronUp, ChevronDown, BarChart3, Store, UserCheck, Wallet, Loader2, Scissors, Ticket, Gift, CreditCard, RefreshCw,
   Send, MessageSquare, ToggleLeft, ToggleRight, TestTube, ExternalLink, Zap, Target, Droplet, Syringe, Pill, Truck, Star,
-  Filter, RotateCcw, Lock, Unlock, CalendarClock, Save
+  Filter, RotateCcw, Lock, Unlock, CalendarClock, Save, FileCheck
 } from 'lucide-react';
 
 // --- SERVICE TYPE HELPER ---
@@ -156,6 +156,7 @@ import CloseCourseModal from './components/CloseCourseModal';
 import CourseDataInspectorModal from './components/CourseDataInspectorModal';
 import AddressManagerModal from './components/AddressManagerModal';
 import DailySalesBannerChart from './components/DailySalesBannerChart';
+import IrisPatientIntakeModal from './components/IrisPatientIntakeModal';
 import { fetch17Track } from './utils/wooProxy';
 // 📦 17TRACK — แปลงสถานะพัสดุเป็นไทย (ใช้ร่วมทุกหน้าที่แสดง trackingInfo)
 export const TRACK17_PHASE_TH = {
@@ -404,6 +405,7 @@ export default function App() {
     memberCardPhotoFile: null,
     memberCardPhotoPreview: null,
     memberCardPhotoBase64: null,
+    irisIntakeData: null,
   });
   const [isAnalyzingSkin, setIsAnalyzingSkin] = useState(false);
   const [isScanningIdCard, setIsScanningIdCard] = useState(false);
@@ -446,6 +448,7 @@ export default function App() {
     memberCardPhotoFile: null,
     memberCardPhotoPreview: null,
     memberCardPhotoBase64: null,
+    irisIntakeData: null,
   });
 
   const editCustomerCameraInputRef = useRef(null);
@@ -461,6 +464,13 @@ export default function App() {
   const [newDocumentForm, setNewDocumentForm] = useState({ title: '', type: 'physical', physicalLocation: '', notes: '' });
   const [documentFile, setDocumentFile] = useState(null);
   const [documentUploadProgress, setDocumentUploadProgress] = useState(0);
+
+  // 🌟 แบบฟอร์มประวัติลูกค้า & แฟ้มเอกสาร Iris Queen Nature (IrisPatient) 🌟
+  const [isIrisIntakeOpen, setIsIrisIntakeOpen] = useState(false);
+  const [irisIntakeCustomer, setIrisIntakeCustomer] = useState(null);
+  const [irisIntakeInitialData, setIrisIntakeInitialData] = useState(null);
+  const [irisIntakeReadOnly, setIrisIntakeReadOnly] = useState(false);
+  const [irisIntakeCaller, setIrisIntakeCaller] = useState('documents'); // 'documents' | 'registration'
 
 
   const [isAddCourseOpen, setIsAddCourseOpen] = useState(false);
@@ -4981,6 +4991,24 @@ const flexMessage = {
         }
       }
 
+      // 🌟 บันทึกใบบันทึกประวัติลูกค้า IrisPatient ลงแฟ้มเอกสารอัตโนมัติ 🌟
+      if (newCustomerForm.irisIntakeData) {
+        try {
+          const intake = newCustomerForm.irisIntakeData;
+          await addDoc(getCol('customer_documents'), {
+            customerId: docRef.id,
+            title: intake.documentTitle || `ใบบันทึกประวัติลูกค้า (IrisPatient) - ${computedName}`,
+            type: intake.archiveType || 'physical',
+            physicalLocation: intake.physicalLocation || 'แฟ้มประวัติลูกค้า (IrisPatient2)',
+            intakeData: intake,
+            notes: `แนบจากการลงทะเบียนลูกค้าใหม่ (Ref: ${intake.refNo || 'IrisPatient2'})`,
+            createdAt: new Date()
+          });
+        } catch (docErr) {
+          console.warn('Customer IrisPatient document create error:', docErr);
+        }
+      }
+
       setIsAddCustomerOpen(false); 
       setNewCustomerForm({ 
         firstName: '', lastName: '', name: '', nickname: '',
@@ -4989,15 +5017,101 @@ const flexMessage = {
         idCardPhotoFile: null, idCardPhotoPreview: null, idCardPhotoBase64: null,
         addressNo: '', subDistrict: '', district: '', province: '', zipcode: '',
         isVipUpgrade: false, hasMemberCard: false, memberCardNo: '',
-        memberCardPhotoFile: null, memberCardPhotoPreview: null, memberCardPhotoBase64: null
+        memberCardPhotoFile: null, memberCardPhotoPreview: null, memberCardPhotoBase64: null,
+        irisIntakeData: null
       }); 
       
       // Auto-select for POS!
       setPosPreselectedCustomer(createdCustomer);
-      showToast('เพิ่มลูกค้าใหม่และเลือกเข้าสู่ระบบเรียบร้อยแล้ว!', 'success'); 
+      showToast(newCustomerForm.irisIntakeData ? 'เพิ่มลูกค้าใหม่และจัดเก็บประวัติ IrisPatient ลงแฟ้มเรียบร้อยแล้ว!' : 'เพิ่มลูกค้าใหม่และเลือกเข้าสู่ระบบเรียบร้อยแล้ว!', 'success'); 
     } catch (err) { 
       showToast(`ข้อผิดพลาด: ${err.message}`, 'error'); 
     } 
+  };
+
+  // 🌟 IrisPatient Intake Handlers 🌟
+  const handleOpenIrisIntake = (targetCustomer = null, existingData = null, readOnly = false, caller = 'documents') => {
+    setIrisIntakeCustomer(targetCustomer || selectedCustomer);
+    setIrisIntakeInitialData(existingData);
+    setIrisIntakeReadOnly(readOnly);
+    setIrisIntakeCaller(caller);
+    setIsIrisIntakeOpen(true);
+  };
+
+  const handleOpenIrisIntakeFromReg = () => {
+    const fullName = `${newCustomerForm.firstName || ''} ${newCustomerForm.lastName || ''}`.trim() || newCustomerForm.name || '';
+    const tempCust = {
+      name: fullName,
+      computedName: fullName,
+      phone: newCustomerForm.phone,
+      computedPhone: newCustomerForm.phone,
+      dob: newCustomerForm.dob,
+      age: newCustomerForm.age,
+      citizenId: newCustomerForm.citizenId,
+      address: [newCustomerForm.addressNo, newCustomerForm.subDistrict ? `ต.${newCustomerForm.subDistrict}` : '', newCustomerForm.district ? `อ.${newCustomerForm.district}` : '', newCustomerForm.province ? `จ.${newCustomerForm.province}` : '', newCustomerForm.zipcode].filter(Boolean).join(' '),
+      issue: newCustomerForm.issue,
+      branch: globalBranch ? `สาขา${globalBranch} เกาะสมุย จังหวัดสุราษฎร์ธานี` : 'สาขาเกาะสมุย จังหวัดสุราษฎร์ธานี'
+    };
+    handleOpenIrisIntake(tempCust, newCustomerForm.irisIntakeData, false, 'registration');
+  };
+
+  const handleSaveIrisIntake = async (intakeForm) => {
+    if (irisIntakeCaller === 'registration') {
+      setNewCustomerForm(prev => ({
+        ...prev,
+        irisIntakeData: intakeForm,
+        firstName: prev.firstName || (intakeForm.name ? intakeForm.name.split(' ')[0] : ''),
+        lastName: prev.lastName || (intakeForm.name ? intakeForm.name.split(' ').slice(1).join(' ') : ''),
+        phone: intakeForm.phone || prev.phone,
+        dob: intakeForm.dob || prev.dob,
+        age: intakeForm.age || prev.age,
+        issue: intakeForm.problemAreas || prev.issue
+      }));
+      showToast('บันทึกข้อมูลใบบันทึกประวัติลูกค้า IrisPatient เรียบร้อยแล้ว (จะถูกจัดเก็บเข้าแฟ้มเมื่อกดสร้างลูกค้า)', 'success');
+      setIsIrisIntakeOpen(false);
+      return;
+    }
+
+    const currentCust = irisIntakeCustomer || selectedCustomer;
+    if (!currentCust) {
+      showToast('ไม่พบข้อมูลลูกค้าสำหรับบันทึกเอกสาร', 'error');
+      return;
+    }
+
+    try {
+      await addDoc(getCol('customer_documents'), {
+        customerId: currentCust.id,
+        title: intakeForm.documentTitle || `ใบบันทึกประวัติลูกค้า (IrisPatient) - ${intakeForm.name}`,
+        type: intakeForm.archiveType || 'physical',
+        physicalLocation: intakeForm.physicalLocation || 'แฟ้มประวัติลูกค้า (IrisPatient2)',
+        intakeData: intakeForm,
+        notes: `บันทึกประวัติสุขภาพผิวและหนังสือยินยอม (Ref: ${intakeForm.refNo || 'IrisPatient2'})`,
+        createdAt: new Date()
+      });
+
+      try {
+        const custRef = doc(db, 'customers', currentCust.id);
+        await updateDoc(custRef, {
+          medicalHistory: intakeForm.underlyingDisease || 'ไม่มี',
+          currentSkincare: intakeForm.currentProducts || 'ไม่มี',
+          chemicalHistory: intakeForm.chemicalHistory || '',
+          skinType: intakeForm.skinType || '',
+          problemAreas: intakeForm.problemAreas || '',
+          occupation: intakeForm.occupation || '',
+          idLine: intakeForm.idLine || '',
+          physicalFileRef: intakeForm.physicalLocation || '',
+          lastIntakeDate: new Date().toLocaleDateString('th-TH'),
+          updatedAt: serverTimestamp()
+        });
+      } catch (updErr) {
+        console.warn('Customer profile update error:', updErr);
+      }
+
+      showToast('บันทึกใบบันทึกประวัติลูกค้าลงแฟ้มเอกสารเรียบร้อยแล้ว!', 'success');
+      setIsIrisIntakeOpen(false);
+    } catch (err) {
+      showToast(`เกิดข้อผิดพลาดในการบันทึก: ${err.message}`, 'error');
+    }
   };
 
   // 🌟 Document Storage Handlers 🌟
@@ -9488,9 +9602,17 @@ const flexMessage = {
                         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden p-6">
                             <div className="flex justify-between items-center mb-6">
                                 <h4 className="font-black text-gray-800 flex items-center text-lg"><Layers className="mr-2 text-blue-500"/> เอกสาร/แฟ้มเก็บข้อมูล</h4>
-                                <button onClick={() => setIsAddDocumentOpen(true)} className="text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 font-bold px-3 py-2 rounded-lg flex items-center transition-colors shadow-sm">
-                                    <Plus size={14} className="mr-1"/> เพิ่มเอกสารใหม่
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    <button 
+                                      onClick={() => handleOpenIrisIntake(selectedCustomer)} 
+                                      className="text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-bold px-3 py-2 rounded-lg flex items-center transition-colors shadow-xs border border-emerald-200 cursor-pointer"
+                                    >
+                                        <FileCheck size={14} className="mr-1.5 text-emerald-600"/> 📋 ใบบันทึกประวัติ (IrisPatient)
+                                    </button>
+                                    <button onClick={() => setIsAddDocumentOpen(true)} className="text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 font-bold px-3 py-2 rounded-lg flex items-center transition-colors shadow-sm cursor-pointer">
+                                        <Plus size={14} className="mr-1"/> เพิ่มเอกสารใหม่
+                                    </button>
+                                </div>
                             </div>
                             {customerDocuments.length > 0 ? (
                                 <div className="overflow-x-auto">
@@ -9526,7 +9648,18 @@ const flexMessage = {
                                                     </td>
                                                     <td className="p-3 text-xs text-gray-500">{new Date(docItem.createdAt?.seconds * 1000 || Date.now()).toLocaleDateString('th-TH')}</td>
                                                     <td className="p-3">
-                                                        <button onClick={() => handleDeleteDocument(docItem)} className="text-red-400 hover:text-red-600 p-1 bg-red-50 rounded-lg hover:bg-red-100 transition-colors" title="ลบเอกสาร"><Trash2 size={16}/></button>
+                                                        <div className="flex items-center gap-1.5">
+                                                            {(docItem.intakeData || (docItem.title && docItem.title.includes('IrisPatient'))) && (
+                                                                <button 
+                                                                    onClick={() => handleOpenIrisIntake(selectedCustomer, docItem.intakeData, false, 'documents')} 
+                                                                    className="text-emerald-600 hover:text-emerald-800 p-1.5 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors" 
+                                                                    title="ดู/พิมพ์ใบบันทึกประวัติ IrisPatient"
+                                                                >
+                                                                    <Printer size={16}/>
+                                                                </button>
+                                                            )}
+                                                            <button onClick={() => handleDeleteDocument(docItem)} className="text-red-400 hover:text-red-600 p-1.5 bg-red-50 rounded-lg hover:bg-red-100 transition-colors" title="ลบเอกสาร"><Trash2 size={16}/></button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))}
@@ -9589,6 +9722,29 @@ const flexMessage = {
 
       {/* Add Document Modal */}
       <ModalWrapper isOpen={isAddDocumentOpen} onClose={() => setIsAddDocumentOpen(false)} title="เพิ่มเอกสารใหม่" icon={Layers} colorClass="bg-blue-100 text-blue-600">
+         {/* 🌟 แม่แบบเอกสารแนะนำ: ใบบันทึกประวัติ IrisPatient 🌟 */}
+         <div className="mb-4 p-3 bg-gradient-to-r from-emerald-50 via-teal-50 to-amber-50 border border-emerald-200 rounded-2xl flex items-center justify-between gap-3 shadow-2xs">
+           <div className="flex items-center gap-2.5">
+             <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+               <FileCheck size={16} />
+             </div>
+             <div>
+               <p className="text-xs font-black text-slate-800">ใบบันทึกประวัติลูกค้า Iris Queen Nature</p>
+               <p className="text-[10px] text-slate-500">แบบฟอร์มประวัติการแพทย์ สภาพผิว ลายเซ็นยินยอม และพิมพ์ A4</p>
+             </div>
+           </div>
+           <button
+             type="button"
+             onClick={() => {
+               setIsAddDocumentOpen(false);
+               handleOpenIrisIntake(selectedCustomer);
+             }}
+             className="px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all shrink-0 active:scale-95 cursor-pointer"
+           >
+             เปิดกรอกฟอร์ม ➜
+           </button>
+         </div>
+
          <form onSubmit={handleAddDocument} className="space-y-4">
              <InputField label="ชื่อเอกสาร" required placeholder="เช่น ใบยินยอม, ผลตรวจ, ใบเสร็จ..." value={newDocumentForm.title} onChange={e => setNewDocumentForm({...newDocumentForm, title: e.target.value})} />
              
@@ -10767,6 +10923,57 @@ const flexMessage = {
             )}
           </div>
 
+          {/* 📋 ใบบันทึกประวัติลูกค้า & แฟ้มเอกสาร (IrisPatient) 📋 */}
+          <div className="bg-gradient-to-r from-emerald-50/90 via-teal-50/70 to-amber-50/90 border-2 border-emerald-300/90 rounded-2xl p-3.5 sm:p-4 shadow-2xs">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <FileCheck size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-xs sm:text-sm font-black text-slate-800">
+                      ใบบันทึกประวัติลูกค้า & แฟ้มเอกสาร (IrisPatient)
+                    </h4>
+                    {newCustomerForm.irisIntakeData ? (
+                      <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                        <Check size={11} className="stroke-[3]" /> กรอกข้อมูลแล้ว
+                      </span>
+                    ) : (
+                      <span className="bg-amber-100 text-amber-800 text-[9px] font-bold px-2 py-0.5 rounded-full border border-amber-200">
+                        แนะนำกรอกประวัติ
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                    ประวัติการแพทย์ สภาพผิว ลายเซ็นยินยอม และบันทึกเข้าแฟ้มเอกสารอัตโนมัติ
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleOpenIrisIntakeFromReg}
+                className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold rounded-xl shadow-sm active:scale-95 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+              >
+                <PenTool size={13} />
+                <span>{newCustomerForm.irisIntakeData ? 'แก้ไขประวัติ' : 'กรอกใบบันทึกประวัติ'}</span>
+              </button>
+            </div>
+
+            {newCustomerForm.irisIntakeData && (
+              <div className="mt-3 pt-2.5 border-t border-emerald-200/70 flex items-center justify-between text-[11px] text-emerald-900 flex-wrap gap-1">
+                <span className="font-semibold flex items-center gap-1">
+                  <span>📁 ที่เก็บ:</span>
+                  <span className="underline decoration-dotted">{newCustomerForm.irisIntakeData.physicalLocation || 'IrisPatient2'}</span>
+                </span>
+                <span className="text-[10px] text-emerald-700 font-bold bg-white/70 px-2 py-0.5 rounded-md border border-emerald-200">
+                  ✓ พร้อมบันทึกเข้าแฟ้มเอกสาร
+                </span>
+              </div>
+            )}
+          </div>
+
           <button 
             type="submit" 
             className="w-full bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white font-black py-3.5 rounded-xl shadow-lg shadow-teal-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer"
@@ -10931,6 +11138,17 @@ const flexMessage = {
             setIsVipFormOpen(false);
           } catch(e) { console.error(e); throw e; }
         }}
+      />
+
+      {/* 🌟 แบบฟอร์มประวัติลูกค้า & แฟ้มเอกสาร Iris Queen Nature (IrisPatient2) 🌟 */}
+      <IrisPatientIntakeModal
+        isOpen={isIrisIntakeOpen}
+        onClose={() => setIsIrisIntakeOpen(false)}
+        customer={irisIntakeCustomer}
+        initialData={irisIntakeInitialData}
+        globalBranch={globalBranch}
+        readOnly={irisIntakeReadOnly}
+        onSave={handleSaveIrisIntake}
       />
 
       <CreditManagementModal

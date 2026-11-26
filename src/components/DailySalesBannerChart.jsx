@@ -796,3 +796,4 @@ export default function DailySalesBannerChart({
     </div>
   );
 }
+
