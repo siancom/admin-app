@@ -432,6 +432,31 @@ export default function App() {
     triggerToast(`เปิด POS ซื้อครีม / สินค้าให้ ${booking.customerName || 'ลูกค้า'}`, 'info');
   };
 
+  // 🛒 เปิด POS ซื้อคอร์สใหม่ให้ลูกค้าของคิวนี้
+  const handleGoToPosBuyCourse = (booking) => {
+    if (!booking) return;
+    const bPhone = String(booking.customerPhone || '').replace(/\D/g, '');
+    const cust = customers.find(c => {
+      const cPhone = String(c.computedPhone || c.phone || '').replace(/\D/g, '');
+      return cPhone && bPhone && (cPhone === bPhone || cPhone.endsWith(bPhone) || bPhone.endsWith(cPhone));
+    }) || {
+      id: booking.customerId || `cust_${bPhone}`,
+      name: booking.customerName || 'ลูกค้าคิว',
+      phone: booking.customerPhone || '',
+      computedName: booking.customerName || 'ลูกค้าคิว',
+      computedPhone: booking.customerPhone || ''
+    };
+
+    setPosPreselectedCustomer(cust);
+    setPosPreselectedUsageCourses([]);
+    setPosPreselectedBeforePhotos([]);
+    setPosActiveBookingId(booking.id);
+    setPosReturnToAppointmentsAfterCheckout(true);
+    setPosInitialTab('courses');
+    setActiveTab('pos');
+    triggerToast(`เปิด POS ซื้อคอร์สใหม่ให้ ${booking.customerName || 'ลูกค้า'}`, 'info');
+  };
+
   // 📸 บันทึกข้อมูลเช็คอินอัจฉริยะ (เลือกคอร์ส, เตียง, รูป Before)
   const handleConfirmSmartCheckIn = async (bookingId, checkInData) => {
     try {
@@ -11816,14 +11841,23 @@ const flexMessage = {
             customerName: booking.customerName,
             isVirtualWalkIn: booking.isVirtualWalkIn || String(booking.id || '').startsWith('walkin_')
           });
-          handleGoToPosCutCourse({
-            ...booking,
-            id: finalId || booking.id,
-            checkedInCourseId: selectedCourse?.id,
-            courseName: selectedCourse ? (selectedCourse["ชื่อคอส"] || selectedCourse.name) : booking.courseName,
-            beforePhoto: beforePhoto || booking.beforePhoto
-          });
+          if (selectedCourse) {
+            handleGoToPosCutCourse({
+              ...booking,
+              id: finalId || booking.id,
+              checkedInCourseId: selectedCourse?.id,
+              courseName: selectedCourse ? (selectedCourse["ชื่อคอส"] || selectedCourse.name) : booking.courseName,
+              beforePhoto: beforePhoto || booking.beforePhoto
+            });
+          } else {
+            handleGoToPosBuyCourse({
+              ...booking,
+              id: finalId || booking.id,
+              beforePhoto: beforePhoto || booking.beforePhoto
+            });
+          }
         }}
+        onGoToBuyCourse={handleGoToPosBuyCourse}
         onViewCourseDetails={(c) => {
           const fullCourse = processedCourses.find(pc => pc.id === c.id || (c.courseRefKey && pc.courseRefKey === c.courseRefKey)) || c;
           setSelectedCourse(fullCourse);

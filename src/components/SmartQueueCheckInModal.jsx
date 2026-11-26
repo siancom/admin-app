@@ -18,7 +18,8 @@ export default function SmartQueueCheckInModal({
   globalBranch = 'เฉวง',
   onConfirmCheckIn,
   onCheckInAndGoToPos,
-  onViewCourseDetails
+  onViewCourseDetails,
+  onGoToBuyCourse
 }) {
   const [selectedBooking, setSelectedBooking] = useState(preselectedBooking);
   const [searchQuery, setSearchQuery] = useState('');
@@ -612,6 +613,50 @@ export default function SmartQueueCheckInModal({
               </span>
             </div>
 
+            {/* 🌟 1. อันดับแรกสุด: "ไม่ใช้คอร์สเดิม (ทำบริการทั่วไป / ซื้อใหม่หน้าร้าน)" พร้อมปุ่มรถเข็นไปหน้าซื้อคอร์สใน POS */}
+            <div
+              onClick={() => setSelectedCourse(null)}
+              className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-2.5 ${
+                selectedCourse === null 
+                  ? 'bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 border-purple-400 font-bold text-purple-950 ring-2 ring-purple-300 shadow-sm' 
+                  : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                  selectedCourse === null ? 'border-purple-600 bg-purple-600 text-white' : 'border-slate-300 bg-white'
+                }`}>
+                  {selectedCourse === null && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-black text-slate-900 truncate">
+                    ไม่ใช้คอร์สเดิม (ทำบริการทั่วไป / ซื้อใหม่หน้าร้าน)
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-medium">
+                    ทำบริการทั่วไป หรือเปิดบิลซื้อคอร์สใหม่ที่ POS
+                  </div>
+                </div>
+              </div>
+
+              {/* 🛒 ปุ่มรถเข็นไปหน้าซื้อคอร์สใน POS */}
+              {onGoToBuyCourse && selectedBooking && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose();
+                    onGoToBuyCourse(selectedBooking);
+                  }}
+                  className="px-2.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl text-[11px] font-black flex items-center gap-1.5 shadow-md shadow-purple-200 shrink-0 active:scale-95 transition-all cursor-pointer"
+                  title="เปิดหน้า POS เพื่อซื้อคอร์สใหม่ให้ลูกค้าทันที"
+                >
+                  <ShoppingCart size={13} />
+                  <span>ซื้อคอร์สใน POS ↗</span>
+                </button>
+              )}
+            </div>
+
+            {/* 🌟 2. รายการคอร์สที่ลูกค้ามีคงเหลือในระบบ */}
             {customerAvailableCourses.length > 0 ? (
               <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                 {customerAvailableCourses.map((c) => {
@@ -671,33 +716,14 @@ export default function SmartQueueCheckInModal({
                     </div>
                   );
                 })}
-
-                {/* Option for General Service without cutting course */}
-                <div
-                  onClick={() => setSelectedCourse(null)}
-                  className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between text-xs ${
-                    selectedCourse === null 
-                      ? 'bg-purple-50 border-purple-400 font-bold text-purple-900 ring-1 ring-purple-300' 
-                      : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
-                      selectedCourse === null ? 'border-purple-600 bg-purple-600 text-white' : 'border-slate-300'
-                    }`}>
-                      {selectedCourse === null && <span className="w-1 h-1 rounded-full bg-white" />}
-                    </div>
-                    <span>ไม่ใช้คอร์สเดิม (ทำบริการทั่วไป / ซื้อใหม่หน้าร้าน)</span>
-                  </div>
-                </div>
               </div>
             ) : (
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-center">
+              <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl text-center">
                 <p className="text-xs text-slate-500 font-bold">
                   ลูกค้ารายนี้ยังไม่มีคอร์สคงเหลือในระบบ
                 </p>
                 <p className="text-[10px] text-slate-400 mt-0.5">
-                  ระบบจะเช็คอินเป็นบริการทั่วไปตามที่นัดหมายไว้ ({selectedBooking?.courseName || 'บริการทั่วไป'})
+                  ระบบจะเช็คอินเป็นบริการทั่วไป ({selectedBooking?.courseName || 'บริการทั่วไป'}) หรือกดปุ่ม 🛒 เพื่อซื้อคอร์สใหม่ใน POS
                 </p>
               </div>
             )}
@@ -840,16 +866,16 @@ export default function SmartQueueCheckInModal({
               <span>{isSubmitting ? 'กำลังบันทึก...' : 'ยืนยันเช็คอินเข้าใช้บริการ'}</span>
             </button>
 
-            {/* Action 2: Check-in & Go to POS directly to cut course */}
+            {/* Action 2: Check-in & Go to POS directly to cut course or buy course */}
             <button
               type="button"
               disabled={isSubmitting || !selectedBooking}
               onClick={() => handleSubmitCheckIn(true)}
               className="flex-1 sm:flex-initial px-4 py-2.5 bg-gradient-to-r from-orange-500 to-pink-600 hover:from-orange-600 hover:to-pink-700 text-white font-bold text-xs rounded-xl shadow-md shadow-pink-200 flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-              title="เช็คอินแล้วส่งต่อไปยังหน้าตัดคอร์สที่ POS ทันที"
+              title={selectedCourse ? "เช็คอินแล้วส่งต่อไปยังหน้าตัดคอร์สที่ POS ทันที" : "เช็คอินแล้วส่งต่อไปยังหน้า POS ซื้อคอร์สทันที"}
             >
-              <Scissors size={15} />
-              <span>เช็คอิน & ตัดคอสทันที</span>
+              {selectedCourse ? <Scissors size={15} /> : <ShoppingCart size={15} />}
+              <span>{selectedCourse ? 'เช็คอิน & ตัดคอสทันที' : 'เช็คอิน & ซื้อคอร์ส (POS)'}</span>
             </button>
           </div>
         </div>
