@@ -158,6 +158,7 @@ import AddressManagerModal from './components/AddressManagerModal';
 import DailySalesBannerChart from './components/DailySalesBannerChart';
 import IrisPatientIntakeModal from './components/IrisPatientIntakeModal';
 import SmartQueueCheckInModal from './components/SmartQueueCheckInModal';
+import MonthlyBookingOverviewBanner, { matchBookingServiceCategory, checkIsLineBooking } from './components/MonthlyBookingOverviewBanner';
 import { fetch17Track } from './utils/wooProxy';
 // 📦 17TRACK — แปลงสถานะพัสดุเป็นไทย (ใช้ร่วมทุกหน้าที่แสดง trackingInfo)
 export const TRACK17_PHASE_TH = {
@@ -297,6 +298,11 @@ export default function App() {
   const [filterCustomerStatus, setFilterCustomerStatus] = useState('all'); 
   const [filterBookingStatus, setFilterBookingStatus] = useState('today_upcoming'); 
   const [filterBookingBranch, setFilterBookingBranch] = useState('all'); 
+  const [bookingOverviewMonth, setBookingOverviewMonth] = useState(() => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [activeBannerFilter, setActiveBannerFilter] = useState(null); // { type, value, label } 
   const [filterOrderStatus, setFilterOrderStatus] = useState('รออนุมัติ'); 
   // --- HISTORY FILTERS ---
   const [historyPeriodFilter, setHistoryPeriodFilter] = useState('all'); 
@@ -2175,13 +2181,32 @@ export default function App() {
         const bBranchClean = String(b.branch || 'เฉวง').replace(/^สาขา/,'').trim();
         const filterBranchClean = String(filterBookingBranch).replace(/^สาขา/,'').trim();
         const matchBranch = filterBookingBranch === 'all' || bBranchClean === filterBranchClean;
-        return matchSearch && matchStatus && matchBranch; 
+
+        // 🌟 Banner filter check (กรองจากแบนเนอร์สรุปประจำเดือน)
+        let matchBanner = true;
+        if (activeBannerFilter?.type) {
+            if (activeBannerFilter.type === 'month') {
+                matchBanner = dt ? dt.startsWith(activeBannerFilter.value) : String(b.date || '').startsWith(activeBannerFilter.value);
+            } else if (activeBannerFilter.type === 'source') {
+                const isLine = checkIsLineBooking(b);
+                if (activeBannerFilter.value === 'line') matchBanner = isLine;
+                else if (activeBannerFilter.value === 'walkin') matchBanner = !isLine;
+            } else if (activeBannerFilter.type === 'status') {
+                matchBanner = st === activeBannerFilter.value;
+            } else if (activeBannerFilter.type === 'service') {
+                matchBanner = matchBookingServiceCategory(b.courseName, activeBannerFilter.value);
+            } else if (activeBannerFilter.type === 'date') {
+                matchBanner = dt ? dt.startsWith(activeBannerFilter.value) : String(b.date || '').startsWith(activeBannerFilter.value);
+            }
+        }
+
+        return matchSearch && matchStatus && matchBranch && matchBanner; 
     }).sort((a, b) => {
         const da = getSafeDateTime(a) ? new Date(getSafeDateTime(a)) : new Date(0);
         const db = getSafeDateTime(b) ? new Date(getSafeDateTime(b)) : new Date(0);
         return da - db;
     });
-  }, [bookings, searchTerm, filterBookingStatus, filterBookingBranch]);
+  }, [bookings, searchTerm, filterBookingStatus, filterBookingBranch, activeBannerFilter]);
 
   const bookingBranchStats = useMemo(() => {
       const stats = {};
@@ -7051,24 +7076,22 @@ const flexMessage = {
 
           {activeTab === 'bookings' && (
             <div className="flex flex-col min-h-full space-y-4 max-w-7xl mx-auto">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-2">
-                    {Object.entries(bookingBranchStats).map(([br, s], idx) => (
-                        <div key={idx} className="bg-white p-3 sm:p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col relative overflow-hidden group">
-                            <div className="absolute top-0 left-0 w-1 h-full bg-blue-400"></div>
-                            <span className="text-[10px] font-bold text-gray-500 uppercase mb-2 flex items-center pl-2"><MapPin size={12} className="mr-1 text-blue-400"/> {br}</span>
-                            <div className="flex justify-between items-end pl-2">
-                                <div><span className="text-2xl font-black text-gray-800">{s.total}</span> <span className="text-[10px] text-gray-400">คิวรวม</span></div>
-                                <div className="text-right text-[10px] space-y-0.5">
-                                    <div className="text-amber-600 font-bold bg-amber-50 px-1.5 rounded">รอคิว: {s.pending}</div>
-                                    <div className="text-purple-600 font-bold bg-purple-50 px-1.5 rounded">กำลังทำ: {s.in_progress}</div>
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                    {Object.keys(bookingBranchStats).length === 0 && (
-                        <div className="col-span-full text-center py-4 bg-white rounded-2xl border border-gray-100 text-sm text-gray-400 font-bold">ไม่มีข้อมูลสรุปสาขา</div>
-                    )}
-                </div>
+                {/* 🌟 แบนเนอร์การ์ดกรองสรุปรายการจองประจำเดือน & ความเคลื่อนไหวของร้าน (Iris Intelligence) */}
+                <MonthlyBookingOverviewBanner
+                  bookings={bookings}
+                  selectedMonth={bookingOverviewMonth}
+                  onMonthChange={(m) => setBookingOverviewMonth(m)}
+                  activeBannerFilter={activeBannerFilter}
+                  onApplyBannerFilter={(f) => {
+                    setActiveBannerFilter(f);
+                    if (filterBookingStatus === 'today_upcoming' || filterBookingStatus === 'today_all') {
+                      setFilterBookingStatus('all');
+                    }
+                  }}
+                  onClearBannerFilter={() => setActiveBannerFilter(null)}
+                  selectedBranch={filterBookingBranch}
+                  onBranchChange={(br) => setFilterBookingBranch(br)}
+                />
 
                 <div className="p-4 bg-white rounded-3xl shadow-sm border border-gray-100 flex flex-col lg:flex-row justify-between items-center gap-4">
                    <div className="flex items-center w-full lg:max-w-xs"><Search size={20} className="text-gray-400 ml-2" /><input type="text" placeholder="ค้นหาชื่อ, เบอร์โทร..." value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="w-full mx-2 outline-none text-sm" /></div>
