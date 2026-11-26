@@ -136,31 +136,48 @@ export function CoursePrintSheet({
 
   validHistories.forEach((h) => {
     const type = String(getFuzzyKey(h, ['ประเภท', 'col_4']) || '').trim();
+    const rawProd = String(getFuzzyKey(h, ['สินค้า', 'col_18', 'รายการสินค้า', 'รายการเบิก']) || '').trim();
+    const rawService = String(getFuzzyKey(h, ['รายการที่ทำ', 'บริการ', 'col_23']) || '').trim();
     const itemDesc = String(getFuzzyKey(h, ['รายการ', 'สินค้า', 'col_23', 'col_18']) || '').trim();
     const deductVal = parseNumber(getFuzzyKey(h, ['ยอดสินค้า', 'ยอดจัดซื้อ', 'ยอดเงิน', 'ยอดเบิก', 'ยอดหัก', 'ยอดหักเครดิต', 'col_19']));
     const rawQty = getFuzzyKey(h, ['จำนวน', 'จำนวนที่ใช้', 'ตัดคอร์ส']);
 
+    // 1. Credit / Product Withdrawal Check:
+    // Any record that drew products or deducted course credit must be included in creditHistories
+    const hasProductDraw =
+      deductVal > 0 ||
+      rawProd.length > 0 ||
+      type.includes('เบิก') ||
+      itemDesc.startsWith('โอนเครดิต') ||
+      itemDesc.startsWith('หักลดเครดิต') ||
+      itemDesc.includes('เบิกสินค้า') ||
+      itemDesc.includes('เบิกใช้เครดิต');
+
+    if (hasProductDraw) {
+      creditHistories.push(h);
+    }
+
+    // 2. Extra note for Add (top-up) sessions
     if (isAddType(type)) {
       extraNoteHistories.push({ h, kind: 'add' });
       return;
     }
 
+    // 3. Free usage: doesn't consume paid session, record in extraNoteHistories
     if (isFreeUsage(h)) {
       extraNoteHistories.push({ h, kind: 'free' });
       return;
     }
 
+    // 4. Session Usage Check:
     if (isUsageType(type)) {
-      const isPureCreditRecord =
-        (deductVal > 0 && (rawQty === undefined || rawQty === '' || String(rawQty).trim() === '0')) ||
-        type.includes('เบิกสินค้า') ||
-        type.includes('เบิกใช้เครดิต') ||
-        itemDesc.startsWith('โอนเครดิต') ||
-        itemDesc.startsWith('หักลดเครดิต');
+      // If it's purely a product withdrawal without any treatment service performed,
+      // it should not consume a treatment session from the course.
+      const isPureProductWithdrawal =
+        (type.includes('เบิกสินค้า') || type.includes('เบิกใช้เครดิต') || itemDesc.startsWith('โอนเครดิต') || itemDesc.startsWith('หักลดเครดิต')) &&
+        (!rawService || rawService === rawProd);
 
-      if (isPureCreditRecord) {
-        creditHistories.push(h);
-      } else {
+      if (!isPureProductWithdrawal) {
         sessionHistories.push(h);
       }
     }
@@ -599,71 +616,113 @@ export function CoursePrintSheet({
         )}
 
         {/* Optional Credit / Product Withdrawal Sub-table */}
-        {(creditHistories.length > 0 || totalCredit > 0) && (
-          <div className="mt-2.5" style={{ breakInside: 'avoid' }}>
-            <h3 className="text-[10px] font-black text-orange-800 mb-1">
-              {totalCredit > 0
-                ? `ประวัติการเบิกสินค้า / ใช้วงเงินเครดิต (คงเหลือ ฿${remainCredit.toLocaleString()})`
-                : 'ประวัติการเบิกสินค้า / ของแถมจากคอร์ส'}
-            </h3>
-            <table className="w-full border-collapse border border-slate-400 text-[9.5px] table-fixed">
-              <thead className="bg-orange-50/70 text-slate-800">
-                <tr>
-                  <th className="border border-slate-400 py-1 px-1.5 text-center w-[24mm]">วันที่</th>
-                  <th className="border border-slate-400 py-1 px-2 text-left">รายการที่เบิก / หักวงเงิน</th>
-                  <th className="border border-slate-400 py-1 px-1.5 text-right w-[24mm]">ยอดเบิก (฿)</th>
-                  <th className="border border-slate-400 py-1 px-1 text-center w-[32mm]">ลายเซ็นลูกค้า</th>
-                  <th className="border border-slate-400 py-1 px-1 text-center w-[32mm]">ลายเซ็นพนักงาน</th>
-                </tr>
-              </thead>
-              <tbody>
-                {creditHistories.map((h, i) => {
-                  const amt = parseNumber(
-                    getFuzzyKey(h, ['ยอดสินค้า', 'ยอดจัดซื้อ', 'ยอดเงิน', 'ยอดเบิก', 'ยอดหัก', 'ยอดหักเครดิต', 'col_19'])
-                  );
-                  const cSig = getFuzzyKey(h, ['ลายเซนต์ลูกค้า', 'ลายเซ็นลูกค้า', 'customerSignature']);
-                  const sSig = getFuzzyKey(h, ['ลายเซนต์เจ้าหน้าที่', 'ลายเซ็นพนักงาน', 'staffSignature']);
-                  const hType = String(getFuzzyKey(h, ['ประเภท', 'col_4']) || '');
-                  const hQty = parseQty(getFuzzyKey(h, ['จำนวน', 'จำนวนที่ใช้', 'จำนวนเบิก', 'qty']));
-                  return (
-                    <tr key={`cred_${i}`} className="h-[9.5mm]" style={{ breakInside: 'avoid' }}>
-                      <td className="border border-slate-400 px-1.5 text-center font-mono">
-                        {String(getFuzzyKey(h, ['วันที่', 'col_1']) || '-')}
+        {(creditHistories.length > 0 || totalCredit > 0) && (() => {
+          const totalDrawnAmount = creditHistories.reduce((sum, h) => {
+            return sum + parseNumber(getFuzzyKey(h, ['ยอดสินค้า', 'ยอดจัดซื้อ', 'ยอดเงิน', 'ยอดเบิก', 'ยอดหัก', 'ยอดหักเครดิต', 'col_19']));
+          }, 0);
+
+          return (
+            <div className="mt-2.5" style={{ breakInside: 'avoid' }}>
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-[10px] font-black text-orange-800">
+                  {totalCredit > 0
+                    ? `ประวัติการเบิกสินค้า / ใช้วงเงินเครดิต (คงเหลือ ฿${remainCredit.toLocaleString()})`
+                    : 'ประวัติการเบิกสินค้า / ของแถมจากคอร์ส'}
+                </h3>
+                {totalDrawnAmount > 0 && (
+                  <span className="text-[9px] font-bold text-orange-950 bg-orange-100/80 px-2 py-0.5 rounded border border-orange-200">
+                    รวมมูลค่าเบิก: ฿{totalDrawnAmount.toLocaleString()}
+                  </span>
+                )}
+              </div>
+              <table className="w-full border-collapse border border-slate-400 text-[9.5px] table-fixed">
+                <thead className="bg-orange-50/70 text-slate-800">
+                  <tr>
+                    <th className="border border-slate-400 py-1 px-1.5 text-center w-[24mm]">วันที่</th>
+                    <th className="border border-slate-400 py-1 px-2 text-left">รายการที่เบิก / หักวงเงิน</th>
+                    <th className="border border-slate-400 py-1 px-1.5 text-right w-[24mm]">ยอดเบิก (฿)</th>
+                    <th className="border border-slate-400 py-1 px-1 text-center w-[32mm]">ลายเซ็นลูกค้า</th>
+                    <th className="border border-slate-400 py-1 px-1 text-center w-[32mm]">ลายเซ็นพนักงาน</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {creditHistories.map((h, i) => {
+                    const amt = parseNumber(
+                      getFuzzyKey(h, ['ยอดสินค้า', 'ยอดจัดซื้อ', 'ยอดเงิน', 'ยอดเบิก', 'ยอดหัก', 'ยอดหักเครดิต', 'col_19'])
+                    );
+                    const cSig = getFuzzyKey(h, ['ลายเซนต์ลูกค้า', 'ลายเซ็นลูกค้า', 'customerSignature']);
+                    const sSig = getFuzzyKey(h, ['ลายเซนต์เจ้าหน้าที่', 'ลายเซ็นพนักงาน', 'staffSignature']);
+                    const hType = String(getFuzzyKey(h, ['ประเภท', 'col_4']) || '');
+                    const hQty = parseQty(getFuzzyKey(h, ['จำนวน', 'จำนวนที่ใช้', 'จำนวนเบิก', 'qty']));
+
+                    // 🌟 Prioritize actual product names (col_18 / สินค้า) over treatment names (col_23 / รายการที่ทำ)
+                    const rawProd = String(getFuzzyKey(h, ['สินค้า', 'col_18', 'รายการสินค้า', 'รายการเบิก']) || '').trim();
+                    const rawService = String(getFuzzyKey(h, ['รายการที่ทำ', 'บริการ', 'col_23']) || '').trim();
+                    const rawAction = String(getFuzzyKey(h, ['รายการ']) || '').trim();
+                    const displayProduct = rawProd || rawAction || rawService || 'เบิกใช้เครดิต';
+
+                    return (
+                      <tr key={`cred_${i}`} className="min-h-[9.5mm]" style={{ breakInside: 'avoid' }}>
+                        <td className="border border-slate-400 px-1.5 text-center font-mono text-[9px] whitespace-nowrap align-middle">
+                          {String(getFuzzyKey(h, ['วันที่', 'col_1']) || '-')}
+                        </td>
+                        <td className="border border-slate-400 px-2 py-1 align-middle leading-tight">
+                          <div className="font-bold text-slate-900 break-words line-clamp-2">
+                            {displayProduct}
+                            {hQty > 1 ? ` (${hQty} ชิ้น)` : ''}
+                          </div>
+                          {rawProd && rawService && rawService !== rawProd && (
+                            <div className="text-[8px] text-slate-500 font-normal mt-0.5 truncate">
+                              บริการควบคู่: {rawService}
+                            </div>
+                          )}
+                        </td>
+                        <td className="border border-slate-400 px-1.5 text-right font-bold text-orange-800 whitespace-nowrap align-middle">
+                          {amt > 0 ? `฿${amt.toLocaleString()}` : (hType.includes('เบิกสินค้า') ? 'ของแถม / ฟรี' : '-')}
+                        </td>
+                        <td className="border border-slate-400 px-1 text-center align-middle">{renderSignatureCell(cSig)}</td>
+                        <td className="border border-slate-400 px-1 text-center align-middle">{renderSignatureCell(sSig, getFuzzyKey(h, ['พนักงาน', 'ชื่อเจ้าหน้าที่', 'ผู้ให้บริการ']))}</td>
+                      </tr>
+                    );
+                  })}
+                  {remainCredit > 0 &&
+                    [1, 2].map((blankIdx) => (
+                      <tr key={`cred_blank_${blankIdx}`} className="h-[9.5mm]" style={{ breakInside: 'avoid' }}>
+                        <td className="border border-slate-400 px-1.5 text-center align-bottom pb-1 text-slate-300 font-mono">
+                          ....../....../......
+                        </td>
+                        <td className="border border-slate-400 px-2 align-bottom pb-1">
+                          <div className="w-full border-b border-dotted border-slate-300"></div>
+                        </td>
+                        <td className="border border-slate-400 px-1.5 text-right align-bottom pb-1 text-slate-300">฿............</td>
+                        <td className="border border-slate-400 px-2 align-bottom pb-1">
+                          <div className="w-full border-b border-dotted border-slate-300"></div>
+                        </td>
+                        <td className="border border-slate-400 px-2 align-bottom pb-1">
+                          <div className="w-full border-b border-dotted border-slate-300"></div>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+                {creditHistories.length > 0 && (
+                  <tfoot className="bg-orange-50/60 font-bold text-slate-800 text-[9px]">
+                    <tr>
+                      <td colSpan={2} className="border border-slate-400 py-1 px-2 text-right">
+                        รวมยอดเบิกจากคอร์สทั้งสิ้น:
                       </td>
-                      <td className="border border-slate-400 px-2 truncate font-semibold">
-                        {String(getFuzzyKey(h, ['รายการ', 'สินค้า', 'col_23', 'col_18']) || 'เบิกใช้เครดิต')}
-                        {hQty > 1 ? ` (${hQty} ชิ้น)` : ''}
+                      <td className="border border-slate-400 py-1 px-1.5 text-right text-orange-900 font-black">
+                        ฿{totalDrawnAmount.toLocaleString()}
                       </td>
-                      <td className="border border-slate-400 px-1.5 text-right font-bold text-orange-800">
-                        {amt > 0 ? `฿${amt.toLocaleString()}` : (hType.includes('เบิกสินค้า') ? 'ของแถม / ฟรี' : '-')}
+                      <td colSpan={2} className="border border-slate-400 py-1 px-1 text-center text-[8.5px] text-slate-600 font-normal">
+                        {totalCredit > 0 ? `(คงเหลือวงเงิน ฿${remainCredit.toLocaleString()})` : `(เบิกครบ ${creditHistories.length} รายการ)`}
                       </td>
-                      <td className="border border-slate-400 px-1 text-center">{renderSignatureCell(cSig)}</td>
-                      <td className="border border-slate-400 px-1 text-center">{renderSignatureCell(sSig, getFuzzyKey(h, ['พนักงาน', 'ชื่อเจ้าหน้าที่', 'ผู้ให้บริการ']))}</td>
                     </tr>
-                  );
-                })}
-                {remainCredit > 0 &&
-                  [1, 2].map((blankIdx) => (
-                    <tr key={`cred_blank_${blankIdx}`} className="h-[9.5mm]" style={{ breakInside: 'avoid' }}>
-                      <td className="border border-slate-400 px-1.5 text-center align-bottom pb-1 text-slate-300 font-mono">
-                        ....../....../......
-                      </td>
-                      <td className="border border-slate-400 px-2 align-bottom pb-1">
-                        <div className="w-full border-b border-dotted border-slate-300"></div>
-                      </td>
-                      <td className="border border-slate-400 px-1.5 text-right align-bottom pb-1 text-slate-300">฿............</td>
-                      <td className="border border-slate-400 px-2 align-bottom pb-1">
-                        <div className="w-full border-b border-dotted border-slate-300"></div>
-                      </td>
-                      <td className="border border-slate-400 px-2 align-bottom pb-1">
-                        <div className="w-full border-b border-dotted border-slate-300"></div>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          );
+        })()}
       </div>
 
       {/* 4. Footer */}
