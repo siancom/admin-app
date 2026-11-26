@@ -3563,28 +3563,6 @@ const flexMessage = {
   const updateProductSelection = (id, field, value) => setUseCourseData(prev => ({ ...prev, productSelections: prev.productSelections.map(p => p.id === id ? { ...p, [field]: value } : p) }));
   const removeProductSelection = (id) => setUseCourseData(prev => ({ ...prev, productSelections: prev.productSelections.filter(p => p.id !== id) }));
 
-  // 🌟 ส่วนลด VIP ตามแบรนด์สินค้า 🌟
-  const VIP_DISCOUNT_MAP = {
-    'IRIS': 0.25,      // 25%
-    'JENESS': 0.20,    // 20%
-    'PUREFRESH': 0.20  // 20%
-  };
-
-  const getVipDiscountRate = (product) => {
-    const category = String(getFuzzyKey(product, ["หมวดสินค้า", "col_4"]) || '').trim().toUpperCase();
-    const unit = String(getFuzzyKey(product, ["หน่วยนับ", "col_7"]) || '').trim().toLowerCase();
-    
-    // ยกเว้นสินค้าประเภทซอง
-    if (unit.includes('ซอง')) return 0;
-    
-    // ตรวจสอบแบรนด์จากหมวดหมู่
-    if (category === 'IRIS' || category.includes('IRIS')) return VIP_DISCOUNT_MAP['IRIS'];
-    if (category === 'JENESS' || category.includes('JENESS')) return VIP_DISCOUNT_MAP['JENESS'];
-    if (category === 'PUREFRESH' || category.includes('PUREFRESH')) return VIP_DISCOUNT_MAP['PUREFRESH'];
-    
-    return 0; // ไม่เข้าเงื่อนไข = ไม่ลด
-  };
-
   // 🌟 บันทึกการตัดคอร์ส และ การเบิกสินค้า 🌟
   const submitUseCourse = async (e) => {
     e.preventDefault(); 

@@ -241,24 +241,39 @@ export const getProductSkincareStep = (p) => {
   const name = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2", "ชื่อ", "name"]) || '').trim();
   const lower = name.toLowerCase();
 
-  // 1. เส้นผม / ผิวกาย / แป้ง (เฉพาะที่ระบุชัดเจน)
+  // 1. ผลัดเซลล์ / ผงพอก / ผงเร่ง / ผงทุกชนิด / โคลน / สครับ / มาร์ค / พอกสด (Priority check เพื่อไม่ให้โดนคำว่า powder ดึงไป step 9)
+  if (
+    lower.includes('ผง') || lower.includes('ผลัดเซลล์') || lower.includes('พอก') ||
+    lower.includes('โคลน') || lower.includes('มาส์ก') || lower.includes('มาส์ฝ้า') || lower.includes('มาร์ค') ||
+    lower.includes('mask') || lower.includes('clay') || lower.includes('cray') ||
+    lower.includes('scrub') || lower.includes('สครับ') ||
+    lower.includes('aha') || lower.includes('แลคติก') || lower.includes('lactic') ||
+    lower.includes('peeling') || lower.includes('exfoliat')
+  ) {
+    // ยกเว้นถ้าเป็น แป้งพัฟ / แป้งทาหน้า ที่มีคำว่า แป้ง
+    if (!lower.includes('แป้ง') && !lower.includes('powder cake') && !lower.includes('powdercake')) {
+      return SKINCARE_STEPS[2]; // step 3
+    }
+  }
+
+  // 2. เส้นผม / ผิวกาย / แป้งแต่งหน้า / อุปกรณ์ (เฉพาะที่ระบุชัดเจน)
   if (
     lower.includes('ผม') || lower.includes('hair') || lower.includes('shampoo') || lower.includes('แชมพู') ||
     lower.includes('อาบน้ำ') || lower.includes('ผิวกาย') || lower.includes('body') || lower.includes('รักแร้') ||
-    lower.includes('แป้ง') || lower.includes('powder') || lower.includes('บัตรสมาชิก') || lower.includes('ฟองน้ำ') ||
-    lower.includes('เข็มกดสิว')
+    lower.includes('แป้ง') || lower.includes('powder cake') || lower.includes('powdercake') || lower.includes('loose powder') ||
+    lower.includes('บัตรสมาชิก') || lower.includes('ฟองน้ำ') || lower.includes('เข็มกดสิว')
   ) {
     return SKINCARE_STEPS[8]; // step 9
   }
 
-  // 2. กันแดด (Sunscreen) - ต้องเช็คก่อน "ครีม" เพราะมี "ครีมกันแดด"
+  // 3. กันแดด (Sunscreen) - ต้องเช็คก่อน "ครีม" เพราะมี "ครีมกันแดด"
   if (
     lower.includes('กันแดด') || lower.includes('sunscreen') || lower.includes('spf') || lower.includes('pa+')
   ) {
     return SKINCARE_STEPS[7]; // step 8
   }
 
-  // 3. คลีนซิ่ง & ล้างหน้า
+  // 4. คลีนซิ่ง & ล้างหน้า
   if (
     lower.includes('คลีนซิ่ง') || lower.includes('cleansing') || lower.includes('cleancing') ||
     lower.includes('สบู่') || lower.includes('soap') ||
@@ -269,12 +284,12 @@ export const getProductSkincareStep = (p) => {
     return SKINCARE_STEPS[0]; // step 1
   }
 
-  // 4. โทนเนอร์ & ปรับสภาพผิว
+  // 5. โทนเนอร์ & ปรับสภาพผิว
   if (lower.includes('โทนเนอร์') || lower.includes('toner') || lower.includes('softener lotion')) {
     return SKINCARE_STEPS[1]; // step 2
   }
 
-  // 5. ผลัดเซลล์ / ผงพอก / โคลน / สครับ
+  // 6. ผลัดเซลล์ / ผงพอก / โคลน / สครับ (เผื่อตกหล่น)
   if (
     lower.includes('ผงพอก') || lower.includes('ผงนวล') || lower.includes('ผงเร่ง') || lower.includes('ผงสิว') ||
     lower.includes('โคลน') || lower.includes('มาส์ก') || lower.includes('มาส์ฝ้า') || lower.includes('มาร์ค') ||
@@ -2883,7 +2898,7 @@ export default function POSSystem({
           let maxQty = 9999;
           let price = computeFinalPrice(item, isVipCustomer);
           let nameStr = String(getFuzzyKey(item, ["ชื่อสินค้า", "col_2"]));
-          const fullPrice = parseNumber(getFuzzyKey(item, ["ราคาขายเต็ม", "col_6"]));
+          const fullPrice = parseNumber(getFuzzyKey(item, ["ราคาขายเต็ม", "ราคา", "col_6"]));
 
           if (actionType === 'owner_purchase') {
              price = computeOwnerCostPrice(item);
@@ -6103,7 +6118,7 @@ export default function POSSystem({
                   const productCat = getProductCategory(p);
                   const salesScore = getProductSalesScore(p);
                   
-                  const fullPrice = parseNumber(getFuzzyKey(p, ["ราคาขายเต็ม", "col_6"]));
+                  const fullPrice = parseNumber(getFuzzyKey(p, ["ราคาขายเต็ม", "ราคา", "col_6"]));
                   const displayPrice = computeFinalPrice(p, isVipCustomer);
                   
                   const imageUrl = getPosProductImageUrl(p, wooImagesMap);
@@ -8765,7 +8780,7 @@ export default function POSSystem({
                                             }}
                                             className="px-2 py-1 rounded-lg text-[10px] font-bold bg-pink-50 hover:bg-pink-600 hover:text-white text-pink-700 border border-pink-200 shrink-0 shadow-2xs"
                                           >
-                                            + ซื้อสินค้า
+                                            + ซื้อเพิ่ม ฿{priceNum}
                                           </button>
                                         )}
                                       </div>
