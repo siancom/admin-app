@@ -13,8 +13,9 @@ export const getVipDiscountRate = (product) => {
   const code = String(getFuzzyKey(product, ["รหัส", "col_1", "code"]) || '').trim().toUpperCase();
   const unit = String(getFuzzyKey(product, ["หน่วยนับ", "col_5", "unit"]) || '').trim().toLowerCase();
   
-  // ยกเว้นสินค้าประเภทซอง
+  // ยกเว้นสินค้าประเภทซอง และสินค้าราคาพิเศษที่ไม่ร่วมส่วนลด (สบู่มินิ RTC013 ราคาเต็ม 50 บ. เท่านั้น)
   if (unit.includes('ซอง')) return 0;
+  if (code === 'RTC013' || name.includes('สบู่มินิ') || name.includes('MINIHERBALSOAP')) return 0;
   
   // ตรวจสอบแบรนด์จากหมวดหมู่, ชื่อสินค้า หรือ รหัสสินค้า (เช่น RTC, RTT, RTE, RTS, RTB, IQ, IR คือแบรนด์ IRIS ทั้งหมด)
   if (
@@ -40,6 +41,14 @@ import { parseNumber } from './parse';
 export const computeFinalPrice = (product, isVipCustomer) => {
     const fullPrice = parseNumber(getFuzzyKey(product, ["ราคาขายเต็ม", "ราคา", "col_6"]));
     if (!isVipCustomer) return fullPrice;
+    
+    const name = String(getFuzzyKey(product, ["ชื่อสินค้า", "col_2", "name"]) || '').trim().toUpperCase();
+    const code = String(getFuzzyKey(product, ["รหัส", "col_1", "code"]) || '').trim().toUpperCase();
+
+    // สินค้าราคาพิเศษที่ไม่ร่วมส่วนลด (สบู่มินิ RTC013 ราคาเต็ม 50 บ. เท่านั้น)
+    if (code === 'RTC013' || name.includes('สบู่มินิ') || name.includes('MINIHERBALSOAP')) {
+        return fullPrice;
+    }
     
     const unit = String(getFuzzyKey(product, ["หน่วยนับ", "col_5", "unit"]) || '').trim().toLowerCase();
     if (unit.includes('ซอง')) return fullPrice;

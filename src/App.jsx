@@ -155,6 +155,7 @@ import MemberCardPrintModal from './components/MemberCardPrintModal';
 import CloseCourseModal from './components/CloseCourseModal';
 import CourseDataInspectorModal from './components/CourseDataInspectorModal';
 import AddressManagerModal from './components/AddressManagerModal';
+import DailySalesBannerChart from './components/DailySalesBannerChart';
 import { fetch17Track } from './utils/wooProxy';
 // 📦 17TRACK — แปลงสถานะพัสดุเป็นไทย (ใช้ร่วมทุกหน้าที่แสดง trackingInfo)
 export const TRACK17_PHASE_TH = {
@@ -6671,6 +6672,15 @@ const flexMessage = {
                   </div>
                 </div>
               </div>
+
+              {/* 🌟 ยอดขายประจำวัน (Daily Sales Overview Banner & Interactive Chart) 🌟 */}
+              <DailySalesBannerChart
+                dailySales={dailySales}
+                orders={orders}
+                branches={branches}
+                globalBranch={globalBranch}
+                onNavigateToTab={(tab) => setActiveTab(tab)}
+              />
 
               <h2 className="text-lg font-black text-gray-800 flex items-center"><Users className="mr-2 text-indigo-500"/> ลูกค้า & ใบคอร์สรับบริการ</h2>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
