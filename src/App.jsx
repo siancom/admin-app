@@ -6715,6 +6715,10 @@ const flexMessage = {
                 setPosReturnToAppointmentsAfterCheckout(false);
                 setActiveTab('bookings');
               }}
+              onViewCourseDetails={(c) => {
+                const fullCourse = processedCourses.find(pc => pc.id === c.id || (c.courseRefKey && pc.courseRefKey === c.courseRefKey)) || c;
+                setSelectedCourse(fullCourse);
+              }}
             />
             </ErrorBoundary>
           )}
@@ -6940,6 +6944,10 @@ const flexMessage = {
                                       globalBranch={globalBranch}
                                       showToast={triggerToast}
                                       onGoToPosDeduction={handleGoToPosDeduction}
+                                      onViewCourseDetails={(c) => {
+                                        const fullCourse = processedCourses.find(pc => pc.id === c.id || (c.courseRefKey && pc.courseRefKey === c.courseRefKey)) || c;
+                                        setSelectedCourse(fullCourse);
+                                      }}
                                     />
 
                                     <div className="pt-2">
@@ -9607,8 +9615,19 @@ const flexMessage = {
                          showToast('คอร์สนี้ถูกปิดแล้ว ไม่สามารถตัดใช้บริการได้', 'error');
                          return;
                        }
-                       setPosPreselectedCustomer(selectedCustomer);
+                       const courseCustPhone = String(getFuzzyKey(selectedCourse, ["เบอร์โทร", "col_1"]) || '').replace(/\D/g, '');
+                       const matchedCust = customers.find(cu => {
+                         const cPhone = String(cu.computedPhone || cu.phone || '').replace(/\D/g, '');
+                         return cPhone && courseCustPhone && (cPhone === courseCustPhone || cPhone.endsWith(courseCustPhone) || courseCustPhone.endsWith(cPhone));
+                       }) || selectedCustomer || {
+                         id: selectedCourse.customerId || `cust_${courseCustPhone}`,
+                         name: String(getFuzzyKey(selectedCourse, ["ผู้ซื้อคอส", "col_9"]) || 'ลูกค้า'),
+                         phone: String(getFuzzyKey(selectedCourse, ["เบอร์โทร", "col_1"]) || '')
+                       };
+                       setPosPreselectedCustomer(matchedCust);
+                       setPosPreselectedUsageCourses([selectedCourse]);
                        setActiveTab('pos');
+                       setSelectedCourse(null);
                        setSelectedCustomer(null);
                        window.scrollTo({ top: 0, behavior: 'smooth' });
                      }} 
@@ -11804,6 +11823,10 @@ const flexMessage = {
             courseName: selectedCourse ? (selectedCourse["ชื่อคอส"] || selectedCourse.name) : booking.courseName,
             beforePhoto: beforePhoto || booking.beforePhoto
           });
+        }}
+        onViewCourseDetails={(c) => {
+          const fullCourse = processedCourses.find(pc => pc.id === c.id || (c.courseRefKey && pc.courseRefKey === c.courseRefKey)) || c;
+          setSelectedCourse(fullCourse);
         }}
       />
 

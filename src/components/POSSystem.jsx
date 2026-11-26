@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { AlertTriangle,
   Scissors, Search, Info, ShoppingCart, Package, Layers, User, Trash2, UserPlus,
   Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink,
-  Flame, TrendingUp, Tag, Droplet, Zap, Target, Heart, Edit3, AlertCircle, RefreshCw, PenTool
+  Flame, TrendingUp, Tag, Droplet, Zap, Target, Heart, Edit3, AlertCircle, RefreshCw, PenTool, Eye
 } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, getDocs, query, where, writeBatch, orderBy, limit, collection, arrayUnion } from 'firebase/firestore';
@@ -597,7 +597,8 @@ export default function POSSystem({
   onReturnToStaffDashboard = () => {},
   posActiveBookingId = null,
   posReturnToAppointmentsAfterCheckout = false,
-  onReturnToAppointments = () => {}
+  onReturnToAppointments = () => {},
+  onViewCourseDetails = () => {}
 }) {
   // 🌟 โหมดส่งยอดด่วน — เปิดหน้า EOD ทันที (ไม่เด้ง SOD) และแจ้ง parent เมื่อปิดหน้าต่าง
   const quickEodActiveRef = useRef(!!autoOpenEod);
@@ -6937,7 +6938,11 @@ export default function POSSystem({
                         <div 
                           key={c.id} 
                           onClick={() => {
-                            setSelectedCourseForUsage(c);
+                            if (onViewCourseDetails) {
+                              onViewCourseDetails(c);
+                            } else {
+                              setSelectedCourseForUsage(c);
+                            }
                           }}
                           className={`bg-white p-3 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-md border cursor-pointer transition-all active:scale-[0.99] flex flex-row items-center relative overflow-hidden group ${
                             isInService 
@@ -6946,8 +6951,9 @@ export default function POSSystem({
                                 ? 'border-amber-400 ring-2 ring-amber-300 shadow-amber-100 bg-amber-50/20'
                                 : isDeductSelected 
                                   ? 'border-purple-500 ring-2 ring-purple-400 shadow-purple-100 bg-purple-50/30 animate-pulse' 
-                                  : 'border-teal-100'
+                                  : 'border-teal-100 hover:border-teal-300'
                           }`}
+                          title="คลิกเพื่อดูรายละเอียดใบคอร์สและประวัติการใช้งาน"
                         >
                           <div className={`absolute top-0 left-0 w-1.5 h-full ${
                             isInService || isDeductSelected ? 'bg-purple-600 animate-pulse' : c.computedStatus === 'ยังคงเหลือ' ? 'bg-teal-400' : 'bg-gray-300'
@@ -6968,7 +6974,14 @@ export default function POSSystem({
                                    </span>
                                  )}
                                </div>
-                               <p className={`font-bold text-sm sm:text-base line-clamp-2 leading-tight ${isDeductSelected ? 'text-purple-950 font-black' : 'text-teal-700'}`} title={String(getFuzzyKey(c, ["ชื่อคอส", "col_8"]) || '-')}>
+                               <p 
+                                   className={`font-bold text-sm sm:text-base line-clamp-2 leading-tight hover:underline cursor-pointer ${isDeductSelected ? 'text-purple-950 font-black' : 'text-teal-700 hover:text-teal-900'}`} 
+                                   title="คลิกเพื่อดูรายละเอียดใบคอร์ส"
+                                   onClick={(e) => {
+                                     e.stopPropagation();
+                                     if (onViewCourseDetails) onViewCourseDetails(c);
+                                   }}
+                               >
                                    {String(getFuzzyKey(c, ["ชื่อคอส", "col_8"]) || '-')}
                                </p>
                             </div>
@@ -7046,9 +7059,21 @@ export default function POSSystem({
                                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600">{c.computedStatus || 'ยังคงเหลือ'}</span>
                                 )}
 
+                                <button
+                                    type="button"
+                                    onClick={(e) => { 
+                                      e.stopPropagation(); 
+                                      if (onViewCourseDetails) onViewCourseDetails(c); 
+                                    }}
+                                    className="text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded-lg transition-colors shadow-2xs border border-indigo-100 shrink-0 cursor-pointer"
+                                    title="ดูรายละเอียดใบคอร์สและประวัติการใช้"
+                                >
+                                    <Eye size={14} />
+                                </button>
+
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); setCourseQRModalData(c); }}
-                                    className="text-teal-600 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 p-1.5 rounded-lg transition-colors shadow-sm border border-teal-100"
+                                    className="text-teal-600 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 p-1.5 rounded-lg transition-colors shadow-sm border border-teal-100 shrink-0 cursor-pointer"
                                     title="แสดงคิวอาร์โค้ดคอร์ส"
                                 >
                                     <QrCode size={14} />

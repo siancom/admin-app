@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   X, CheckCircle2, Camera, Upload, Trash2, Sparkles, User, Phone, 
   Clock, MapPin, Calendar, Scissors, ShoppingCart, MessageSquare, 
-  ChevronRight, AlertCircle, RefreshCw, Layers, Search, QrCode
+  ChevronRight, AlertCircle, RefreshCw, Layers, Search, QrCode, Eye
 } from 'lucide-react';
 import { getFuzzyKey } from '../utils/fuzzy';
 import { getLocalYYYYMMDD } from '../utils/parse';
@@ -17,7 +17,8 @@ export default function SmartQueueCheckInModal({
   customers = [],
   globalBranch = 'เฉวง',
   onConfirmCheckIn,
-  onCheckInAndGoToPos
+  onCheckInAndGoToPos,
+  onViewCourseDetails
 }) {
   const [selectedBooking, setSelectedBooking] = useState(preselectedBooking);
   const [searchQuery, setSearchQuery] = useState('');
@@ -649,10 +650,23 @@ export default function SmartQueueCheckInModal({
                         </div>
                       </div>
 
-                      <div className="text-right shrink-0">
+                      <div className="text-right shrink-0 flex items-center gap-1.5">
                         <span className="inline-block text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
                           ใช้ไป {usedSessions}/{totalSessions} เหลือ {remainSessions}
                         </span>
+                        {onViewCourseDetails && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onViewCourseDetails(c);
+                            }}
+                            className="p-1 rounded-lg text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 border border-indigo-100 shadow-2xs cursor-pointer"
+                            title="ดูรายละเอียดใบคอร์ส"
+                          >
+                            <Eye size={13} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   );

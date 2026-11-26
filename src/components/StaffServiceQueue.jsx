@@ -3,7 +3,7 @@ import {
   Scissors, Camera, CheckCircle, Clock, Trash2, Plus, 
   User, Check, Sparkles, ChevronRight, X, AlertCircle, Search,
   Calendar, Phone, ArrowRight, Image as ImageIcon, RefreshCw,
-  CheckSquare, Square, BedDouble, UserCheck, Flame
+  CheckSquare, Square, BedDouble, UserCheck, Flame, Eye
 } from 'lucide-react';
 import { db } from '../config/firebase';
 import { collection, doc, writeBatch, deleteDoc, updateDoc } from 'firebase/firestore';
@@ -22,7 +22,8 @@ export default function StaffServiceQueue({
   activeStaff = null,
   globalBranch = '',
   showToast = () => {},
-  onGoToPosDeduction = () => {}
+  onGoToPosDeduction = () => {},
+  onViewCourseDetails = () => {}
 }) {
   const [timerNow, setTimerNow] = useState(Date.now());
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1027,9 +1028,24 @@ export default function StaffServiceQueue({
                               ⏳ รอรับบริการ
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-gray-100 text-gray-600">
-                              ยังคงเหลือ
-                            </span>
+                            <div className="flex items-center gap-1">
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-gray-100 text-gray-600">
+                                ยังคงเหลือ
+                              </span>
+                              {onViewCourseDetails && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onViewCourseDetails(c);
+                                  }}
+                                  className="p-1 rounded-lg text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 shadow-2xs cursor-pointer"
+                                  title="ดูรายละเอียดคอร์ส"
+                                >
+                                  <Eye size={12} />
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
 
