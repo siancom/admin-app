@@ -275,36 +275,48 @@ export default function SettingsPage({
     }
     setIsTestingGemini(true);
     setGeminiTestStatus(null);
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${keyToTest}`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-goog-api-key': keyToTest
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Ping test' }] }],
-          generationConfig: { maxOutputTokens: 5 }
-        })
-      });
-      if (!res.ok) {
+    const modelsToTest = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+    let lastErr = null;
+    let successModel = null;
+
+    for (const m of modelsToTest) {
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${keyToTest}`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-goog-api-key': keyToTest
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Ping test' }] }],
+            generationConfig: { maxOutputTokens: 5 }
+          })
+        });
+        if (res.ok) {
+          successModel = m;
+          break;
+        }
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error?.message || `HTTP ${res.status}`);
+        lastErr = errJson.error?.message || `HTTP ${res.status}`;
+      } catch (e) {
+        lastErr = e.message;
       }
+    }
+
+    if (successModel) {
       setGeminiTestStatus({
         success: true,
-        message: 'เชื่อมต่อกับ Google Gemini 2.0 Flash สำเร็จ! ระบบ AI อ่านบัตรและสแกนผิวพร้อมทำงานเต็มรูปแบบ 🚀'
+        message: `เชื่อมต่อกับ Google Gemini (${successModel}) สำเร็จ! ระบบ AI อ่านบัตรและสแกนผิวพร้อมทำงานเต็มรูปแบบ 🚀`
       });
-      showToast('✅ เชื่อมต่อ Gemini AI สำเร็จ!', 'success');
-    } catch (err) {
+      showToast(`✅ เชื่อมต่อสำเร็จด้วยโมเดล ${successModel}!`, 'success');
+    } else {
       setGeminiTestStatus({
         success: false,
-        message: err.message
+        message: lastErr || 'ไม่สามารถเชื่อมต่อกับ Google Gemini ได้'
       });
-      showToast('❌ การเชื่อมต่อไม่สำเร็จ: ' + err.message, 'error');
-    } finally {
-      setIsTestingGemini(false);
+      showToast('❌ การเชื่อมต่อไม่สำเร็จ: ' + lastErr, 'error');
     }
+    setIsTestingGemini(false);
   };
 
   const handleSaveGeminiKey = async () => {
@@ -1436,7 +1448,7 @@ export default function SettingsPage({
               <div>
                 <p className="text-xs font-black text-indigo-950">โมเดล AI ล่าสุดที่รองรับ:</p>
                 <p className="text-xs text-indigo-700">
-                  หลัก: <span className="font-bold underline">gemini-2.0-flash</span> • สำรอง: <span className="font-bold underline">gemini-1.5-flash</span> (ประมวลผลแม่นยำและรวดเร็ว)
+                  หลัก: <span className="font-bold underline">gemini-3.8-flash</span> • สำรอง: <span className="font-bold underline">gemini-3.5-flash / gemini-1.5-flash</span> (ประมวลผลแม่นยำและรวดเร็ว)
                 </p>
               </div>
             </div>

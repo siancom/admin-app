@@ -725,26 +725,26 @@ ${shopCatalogJson}
     let rawResult = null;
     try {
       rawResult = await ai.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-3.8-flash',
         contents,
         config: {
           responseMimeType: 'application/json'
         }
       });
     } catch (primaryErr) {
-      console.warn('gemini-2.0-flash attempt failed, trying gemini-1.5-flash:', primaryErr.message);
+      console.warn('gemini-3.8-flash attempt failed, trying gemini-3.5-flash:', primaryErr.message);
       try {
         rawResult = await ai.models.generateContent({
-          model: 'gemini-1.5-flash',
+          model: 'gemini-3.5-flash',
           contents,
           config: {
             responseMimeType: 'application/json'
           }
         });
       } catch (secErr) {
-        console.warn('gemini-1.5-flash attempt failed, trying gemini-1.5-pro:', secErr.message);
+        console.warn('gemini-3.5-flash attempt failed, trying gemini-1.5-flash:', secErr.message);
         rawResult = await ai.models.generateContent({
-          model: 'gemini-1.5-pro',
+          model: 'gemini-1.5-flash',
           contents,
           config: {
             responseMimeType: 'application/json'

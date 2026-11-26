@@ -4486,22 +4486,29 @@ const flexMessage = {
   const testGeminiApiKey = async (key) => {
     const k = (key || '').trim();
     if (!k) throw new Error('กรุณาระบุ API Key');
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${k}`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'x-goog-api-key': k
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: 'Ping' }] }],
-        generationConfig: { maxOutputTokens: 5 }
-      })
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error?.message || `HTTP ${res.status}`);
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+    let lastErr = null;
+    for (const m of modelsToTry) {
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${k}`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-goog-api-key': k
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Ping' }] }],
+            generationConfig: { maxOutputTokens: 5 }
+          })
+        });
+        if (res.ok) return true;
+        const err = await res.json().catch(() => ({}));
+        lastErr = err.error?.message || `HTTP ${res.status}`;
+      } catch (e) {
+        lastErr = e.message;
+      }
     }
-    return true;
+    throw new Error(lastErr || 'ไม่สามารถเชื่อมต่อกับ Google Gemini ได้');
   };
 
   const handleSaveGeminiApiKey = async () => {
@@ -4614,7 +4621,7 @@ const flexMessage = {
         }
       };
 
-      const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+      const modelsToTry = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
       let response = null;
       let lastErrMessage = null;
 
@@ -4811,7 +4818,7 @@ const flexMessage = {
           generationConfig: { responseMimeType: 'application/json', temperature: 0.2 }
         };
 
-        const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+        const modelsToTry = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
         let geminiRes = null;
         let lastErrMessage = null;
 
@@ -12806,7 +12813,7 @@ const flexMessage = {
                   <span>ระบบ AI ต้องใช้ Google Gemini API Key</span>
                 </p>
                 <p className="text-[11px] text-purple-700">
-                  รองรับโมเดลล่าสุด <strong className="underline">gemini-2.0-flash</strong> อ่านข้อมูลบัตรประชาชนไทย 13 หลัก และวิเคราะห์สภาพผิวหน้าอัตโนมัติ
+                  รองรับโมเดลล่าสุด <strong className="underline">gemini-3.8-flash</strong> อ่านข้อมูลบัตรประชาชนไทย 13 หลัก และวิเคราะห์สภาพผิวหน้าอัตโนมัติ
                 </p>
               </div>
 

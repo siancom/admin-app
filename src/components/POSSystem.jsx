@@ -3764,9 +3764,13 @@ export default function POSSystem({
       showToast('⚠️ ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป ฿' + appCreditPaidAmount.toLocaleString() + ' — ห้ามเลือก "ใช้เครดิต" ซ้ำ (เครดิตจะถูกหักสองครั้ง) กรุณาลดช่องเครดิตเป็น 0', 'error');
       return;
     }
-    if (totalCovered !== total && total > 0 && !isOwnerDirectUsage) {
-      showToast(`ยอดชำระเงินไม่ตรงกับยอดสุทธิ (ขาดอีก ฿${(total - totalCovered).toLocaleString()})`);
-      return;
+    if (totalCovered !== total && total > 0) {
+      if (isOwnerDirectUsage && totalCovered === 0) {
+        // สิทธิ์เจ้าของร้าน: ตรวจเช็คเบื้องต้นโดยไม่ได้ระบุยอดเงิน ให้ผ่านเป็นตรวจเช็คฟรี (฿0) ทันที
+      } else if (!isOwnerDirectUsage) {
+        showToast(`ยอดชำระเงินไม่ตรงกับยอดสุทธิ (ขาดอีก ฿${(total - totalCovered).toLocaleString()})`);
+        return;
+      }
     }
 
     if (appliedVoucherData && appliedVoucherData.conditionPaymentMethod && appliedVoucherData.conditionPaymentMethod !== 'all') {
@@ -3796,9 +3800,10 @@ export default function POSSystem({
       if (splitPayment.transfer > 0) paymentMethodsStrArr.push(`โอนเงิน: ${splitPayment.transfer}`);
       if (splitPayment.cod > 0) paymentMethodsStrArr.push(`ค้าง/COD: ${splitPayment.cod}`);
       if (splitPayment.credit > 0) paymentMethodsStrArr.push(`ตัดเครดิต: ${splitPayment.credit}`);
+      const isOwnerZeroPay = isOwnerDirectUsage && (totalCovered === 0 || total <= 0);
       const isUsageBill = hasCourseUsage || cart.some(i => i.type === 'usage') || isOwnerDirectUsage;
       const isClaimBill = hasCourseClaim || cart.some(i => i.type === 'claim_item');
-      const paymentMethodStr = paymentMethodsStrArr.join(', ') || (isOwnerDirectUsage ? 'ใช้คอส (เช็คเบื้องต้น)' : (isUsageBill ? 'ตัดคอร์ส' : (isClaimBill ? 'เบิกของแถม' : 'ฟรี/ส่วนลดเต็มจำนวน')));
+      const paymentMethodStr = paymentMethodsStrArr.join(', ') || (isOwnerZeroPay ? 'สิทธิ์เจ้าของร้าน (ตรวจเช็คฟรี)' : (isOwnerDirectUsage ? 'ใช้คอส (เช็คเบื้องต้น)' : (isUsageBill ? 'ตัดคอร์ส' : (isClaimBill ? 'เบิกของแถม' : 'ฟรี/ส่วนลดเต็มจำนวน'))));
       const batch = writeBatch(db);
       const delayedHistoryUpdates = [];
       
@@ -4204,8 +4209,8 @@ export default function POSSystem({
               "สินค้า": item.name,
               "col_18": item.name,
               "จำนวน": String(item.qty),
-              "ยอดเงิน": String(item.price * item.qty),
-              "col_19": String(item.price * item.qty),
+              "ยอดเงิน": String(isOwnerZeroPay ? 0 : item.price * item.qty),
+              "col_19": String(isOwnerZeroPay ? 0 : item.price * item.qty),
               "สาขา": String(globalBranch || "สำนักงานใหญ่"),
               "พนักงาน": paymentStaff || 'เจ้าของร้าน',
               "isService": true,
@@ -4413,8 +4418,8 @@ export default function POSSystem({
         hasMemberCard: Boolean(selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer),
         membershipStatus: (selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer) ? "บัตรสมาชิก" : "ทั่วไป",
         courseName: itemsStr.join(', '), // Summarize items
-        price: String(total),
-        discount: String(globalDiscount),
+        price: String(isOwnerZeroPay ? 0 : total),
+        discount: String(isOwnerZeroPay ? (Number(globalDiscount) + total) : globalDiscount),
         promotionId: selectedPromotion || null,
         promoDiscount: String(promoDiscount),
         qty: String(effectiveCart.reduce((sum, item) => sum + item.qty, 0)),
@@ -9537,15 +9542,27 @@ export default function POSSystem({
                     <button
                       type="button"
                       onClick={() => {
+                        setGlobalDiscount(subtotal - promoDiscount);
                         setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0, omise_promptpay: 0 });
-                        setDiscountType('amount');
-                        setDiscountVal(total);
                         showToast('ตั้งค่ายอดชำระเป็น ฿0 (ตรวจเช็คฟรี) เรียบร้อย', 'info');
                       }}
                       className="w-full py-2.5 px-3 bg-purple-50 hover:bg-purple-100 border-2 border-dashed border-purple-300 text-purple-700 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-colors cursor-pointer mb-2"
                     >
                       <Scissors size={15} />
                       <span>👑 สิทธิ์เจ้าของ: ตรวจเช็คฟรี / ใช้คอสไม่คิดเงิน (฿0)</span>
+                    </button>
+                  )}
+                  {isOwnerDirectUsage && total <= 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGlobalDiscount(0);
+                        setSplitPayment({ cash: 0, transfer: subtotal, cod: 0, credit: 0, omise_promptpay: 0 });
+                        showToast(`สลับเป็นเรียกเก็บเงินตามราคาคอร์ส (฿${subtotal.toLocaleString()}) แล้ว`, 'info');
+                      }}
+                      className="w-full py-2.5 px-3 bg-amber-50 hover:bg-amber-100 border-2 border-dashed border-amber-300 text-amber-700 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-colors cursor-pointer mb-2"
+                    >
+                      <span>💰 สลับกลับเป็นเรียกเก็บเงิน (฿{subtotal.toLocaleString()})</span>
                     </button>
                   )}
 
@@ -9791,13 +9808,16 @@ export default function POSSystem({
                               return showToast('กรุณาบันทึกรูปและให้ลูกค้ากับพนักงานเซ็นชื่อก่อนตัดยอด', 'warning');
                           }
                       }
+                      if (isOwnerDirectUsage && totalCovered === 0 && total > 0) {
+                          setGlobalDiscount(subtotal - promoDiscount);
+                      }
                       if (splitPayment.transfer > 0 && !omiseChargeData) {
                           setShowTransferChoiceModal(true);
                       } else {
                           handleCheckout();
                       }
                   }}
-                  disabled={isProcessing || (!isRequisitionMode && total > 0 && totalCovered !== total)}
+                  disabled={isProcessing || (!isRequisitionMode && !isOwnerDirectUsage && total > 0 && totalCovered !== total)}
                   className={`flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${
                     isProcessing 
                       ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
