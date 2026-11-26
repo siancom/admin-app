@@ -7,7 +7,7 @@ import {
   Printer, ShoppingBag, ArrowLeft, HeartPulse, ChevronRight, 
   CalendarPlus, UserPlus, Sparkles, Trash2, AlertTriangle, Layers, Database,
   Camera, Image as ImageIcon, ShieldCheck, ShieldAlert, RefreshCcw, PenTool, Edit3,
-  Bell, List, LayoutGrid, ScanLine, CalendarDays, ChevronLeft, ChevronUp, ChevronDown, BarChart3, Store, UserCheck, Wallet, Loader2, Scissors, Ticket, Gift, CreditCard, RefreshCw,
+  Bell, List, LayoutGrid, ScanLine, CalendarDays, ChevronLeft, ChevronUp, ChevronDown, BarChart3, Store, UserCheck, Wallet, Loader2, Scissors, Ticket, Gift, CreditCard, RefreshCw, Bot, Key, EyeOff,
   Send, MessageSquare, ToggleLeft, ToggleRight, TestTube, ExternalLink, Zap, Target, Droplet, Syringe, Pill, Truck, Star,
   Filter, RotateCcw, Lock, Unlock, CalendarClock, Save, FileCheck
 } from 'lucide-react';
@@ -409,6 +409,11 @@ export default function App() {
   });
   const [isAnalyzingSkin, setIsAnalyzingSkin] = useState(false);
   const [isScanningIdCard, setIsScanningIdCard] = useState(false);
+  const [isGeminiKeyModalOpen, setIsGeminiKeyModalOpen] = useState(false);
+  const [customGeminiApiKey, setCustomGeminiApiKey] = useState('');
+  const [showApiKeyText, setShowApiKeyText] = useState(false);
+  const [isTestingGeminiKey, setIsTestingGeminiKey] = useState(false);
+  const [pendingAiAction, setPendingAiAction] = useState(null);
   const customerCameraInputRef = useRef(null);
   const customerFileInputRef = useRef(null);
   const idCardCameraInputRef = useRef(null);
@@ -4458,6 +4463,73 @@ const flexMessage = {
     });
   };
 
+  // 🤖 Helper to get active Gemini API key from localStorage or Firestore
+  const getGeminiApiKey = async () => {
+    let key = (localStorage.getItem('gemini_api_key') || '').trim();
+    if (key && key.startsWith('AIzaSy') && key !== 'AIzaSyBwRZHwQ_sIzjYMVVsBDu3wYk8scjXJ5yc') {
+      return key;
+    }
+    try {
+      const snap = await getDoc(getDocRef('app_settings', 'ai'));
+      if (snap.exists() && snap.data().geminiApiKey) {
+        const k = snap.data().geminiApiKey.trim();
+        if (k && k.startsWith('AIzaSy') && k !== 'AIzaSyBwRZHwQ_sIzjYMVVsBDu3wYk8scjXJ5yc') {
+          return k;
+        }
+      }
+    } catch (e) {
+      console.warn('Error reading app_settings/ai:', e);
+    }
+    return '';
+  };
+
+  const testGeminiApiKey = async (key) => {
+    const k = (key || '').trim();
+    if (!k) throw new Error('กรุณาระบุ API Key');
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${k}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: 'Ping' }] }],
+        generationConfig: { maxOutputTokens: 5 }
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || `HTTP ${res.status}`);
+    }
+    return true;
+  };
+
+  const handleSaveGeminiApiKey = async () => {
+    const trimmed = customGeminiApiKey.trim();
+    if (!trimmed) {
+      showToast('กรุณาระบุ Gemini API Key', 'warning');
+      return;
+    }
+    setIsTestingGeminiKey(true);
+    try {
+      await testGeminiApiKey(trimmed);
+      await setDoc(getDocRef('app_settings', 'ai'), {
+        geminiApiKey: trimmed,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      localStorage.setItem('gemini_api_key', trimmed);
+      showToast('✅ เชื่อมต่อ Google Gemini AI สำเร็จ!', 'success');
+      setIsGeminiKeyModalOpen(false);
+
+      if (typeof pendingAiAction === 'function') {
+        const action = pendingAiAction;
+        setPendingAiAction(null);
+        setTimeout(() => action(), 300);
+      }
+    } catch (err) {
+      showToast('❌ การเชื่อมต่อไม่สำเร็จ: ' + err.message, 'error');
+    } finally {
+      setIsTestingGeminiKey(false);
+    }
+  };
+
   // 🪪 AI Thai National ID Card OCR Reader 🪪
   const handleAnalyzeIdCard = async (base64Data, target = 'new') => {
     if (!base64Data) return;
@@ -4465,15 +4537,11 @@ const flexMessage = {
       setIsScanningIdCard(true);
       showToast('กำลังส่งภาพบัตรประชาชนให้ Iris AI อ่านข้อมูล...', 'info');
 
-      // Fetch API Key from Firestore app_settings/ai or fallback
-      let apiKey = 'AIzaSyBwRZHwQ_sIzjYMVVsBDu3wYk8scjXJ5yc';
-      try {
-        const aiSnap = await getDoc(getDocRef('app_settings', 'ai'));
-        if (aiSnap.exists() && aiSnap.data().geminiApiKey) {
-          apiKey = aiSnap.data().geminiApiKey;
-        }
-      } catch (e) {
-        // use fallback apiKey
+      const apiKey = await getGeminiApiKey();
+      if (!apiKey) {
+        setPendingAiAction(() => () => handleAnalyzeIdCard(base64Data, target));
+        setIsGeminiKeyModalOpen(true);
+        throw new Error('กรุณาระบุ Google Gemini API Key เพื่อใช้งาน AI (สร้างฟรีได้ที่ aistudio.google.com/apikey)');
       }
 
       const prompt = `คุณคือระบบ AI OCR อัจฉริยะสำหรับอ่านข้อมูลจากบัตรประจำตัวประชาชนไทย (Thai National ID Card)
@@ -4543,24 +4611,33 @@ const flexMessage = {
         }
       };
 
-      let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestPayload)
-      });
+      const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+      let response = null;
+      let lastErrMessage = null;
 
-      if (!response.ok) {
-        // Fallback to gemini-flash-latest
-        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestPayload)
-        });
+      for (const model of modelsToTry) {
+        try {
+          response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestPayload)
+          });
+          if (response.ok) break;
+          const errJson = await response.json().catch(() => ({}));
+          lastErrMessage = errJson.error?.message || `HTTP ${response.status}`;
+          if (response.status === 400 || response.status === 403) break;
+        } catch (fetchErr) {
+          lastErrMessage = fetchErr.message;
+        }
       }
 
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error?.message || `HTTP ${response.status}`);
+      if (!response || !response.ok) {
+        if (response?.status === 403 || (lastErrMessage && (lastErrMessage.includes('leaked') || lastErrMessage.includes('API key') || lastErrMessage.includes('PERMISSION_DENIED')))) {
+          setPendingAiAction(() => () => handleAnalyzeIdCard(base64Data, target));
+          setIsGeminiKeyModalOpen(true);
+          throw new Error('Gemini API Key ถูกระงับหรือหมดอายุ (Google ตรวจพบคีย์รั่วไหล) กรุณาใส่ API Key ใหม่');
+        }
+        throw new Error(lastErrMessage || `HTTP ${response?.status || 'Error'}`);
       }
 
       const resData = await response.json();
@@ -4689,13 +4766,12 @@ const flexMessage = {
 
       // If Cloud Function failed or returned no scores/summary, fallback directly to Gemini API
       if (!data || (!data.scores && !data.summary)) {
-        let apiKey = 'AIzaSyBwRZHwQ_sIzjYMVVsBDu3wYk8scjXJ5yc';
-        try {
-          const aiSnap = await getDoc(getDocRef('app_settings', 'ai'));
-          if (aiSnap.exists() && aiSnap.data().geminiApiKey) {
-            apiKey = aiSnap.data().geminiApiKey;
-          }
-        } catch (e) {}
+        const apiKey = await getGeminiApiKey();
+        if (!apiKey) {
+          setPendingAiAction(() => () => handleAnalyzeCustomerPhoto(base64Data, target));
+          setIsGeminiKeyModalOpen(true);
+          throw new Error('กรุณาระบุ Google Gemini API Key เพื่อใช้งาน AI');
+        }
 
         const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
         const skinPrompt = `คุณคือผู้เชี่ยวชาญด้านผิวพรรณประจำ Iris Clinic (ไอริส คลินิก)
@@ -4729,18 +4805,39 @@ const flexMessage = {
           generationConfig: { responseMimeType: 'application/json', temperature: 0.2 }
         };
 
-        const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(reqPayload)
-        });
+        const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+        let geminiRes = null;
+        let lastErrMessage = null;
 
-        if (geminiRes.ok) {
+        for (const model of modelsToTry) {
+          try {
+            geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(reqPayload)
+            });
+            if (geminiRes.ok) break;
+            const errJson = await geminiRes.json().catch(() => ({}));
+            lastErrMessage = errJson.error?.message || `HTTP ${geminiRes.status}`;
+            if (geminiRes.status === 400 || geminiRes.status === 403) break;
+          } catch (e) {
+            lastErrMessage = e.message;
+          }
+        }
+
+        if (geminiRes && geminiRes.ok) {
           const resJson = await geminiRes.json();
           const raw = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
           if (raw) {
             data = JSON.parse(raw.replace(/```json/g, '').replace(/```/g, '').trim());
           }
+        } else {
+          if (geminiRes?.status === 403 || (lastErrMessage && (lastErrMessage.includes('leaked') || lastErrMessage.includes('API key') || lastErrMessage.includes('PERMISSION_DENIED')))) {
+            setPendingAiAction(() => () => handleAnalyzeCustomerPhoto(base64Data, target));
+            setIsGeminiKeyModalOpen(true);
+            throw new Error('Gemini API Key ถูกระงับหรือหมดอายุ (Google ตรวจพบคีย์รั่วไหล) กรุณาใส่ API Key ใหม่');
+          }
+          throw new Error(lastErrMessage || 'ไม่สามารถเชื่อมต่อ Gemini API ได้');
         }
       }
 
@@ -12667,6 +12764,104 @@ const flexMessage = {
           </div>
         );
       })()}
+
+      {/* 🤖 Gemini API Key Configuration Modal */}
+      {isGeminiKeyModalOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl flex flex-col">
+            {/* Header */}
+            <div className="p-4 bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-700 text-white flex justify-between items-center">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shadow-inner">
+                  <Bot size={20} />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm sm:text-base">ตั้งค่า Google Gemini AI</h3>
+                  <p className="text-[11px] text-purple-200">อ่านบัตร ปชช. ไทย & Iris Face Scan</p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setIsGeminiKeyModalOpen(false)} 
+                className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4">
+              <div className="p-3 bg-purple-50 rounded-2xl border border-purple-200 text-purple-900 text-xs leading-relaxed">
+                <p className="font-bold mb-1 flex items-center gap-1.5">
+                  <Sparkles size={14} className="text-purple-600" />
+                  <span>ระบบ AI ต้องใช้ Google Gemini API Key</span>
+                </p>
+                <p className="text-[11px] text-purple-700">
+                  รองรับโมเดลล่าสุด <strong className="underline">gemini-2.0-flash</strong> อ่านข้อมูลบัตรประชาชนไทย 13 หลัก และวิเคราะห์สภาพผิวหน้าอัตโนมัติ
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                  <Key size={14} className="text-amber-500" />
+                  <span>วาง API Key ที่นี่ (ขึ้นต้นด้วย AIzaSy...):</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showApiKeyText ? 'text' : 'password'}
+                    value={customGeminiApiKey}
+                    onChange={(e) => setCustomGeminiApiKey(e.target.value)}
+                    placeholder="AIzaSy..."
+                    className="w-full pl-3 pr-12 py-2.5 text-xs font-mono rounded-xl border border-slate-300 focus:ring-2 focus:ring-purple-500 outline-none bg-slate-50"
+                  />
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKeyText(p => !p)}
+                      className="p-1 text-slate-400 hover:text-slate-600"
+                      title={showApiKeyText ? 'ซ่อนคีย์' : 'แสดงคีย์'}
+                    >
+                      {showApiKeyText ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-center">
+                <a
+                  href="https://aistudio.google.com/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-bold underline"
+                >
+                  <span>สร้าง API Key ฟรีได้ที่ Google AI Studio</span>
+                  <ExternalLink size={12} />
+                </a>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setIsGeminiKeyModalOpen(false)}
+                className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-600 font-bold text-xs rounded-xl border border-slate-200 cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveGeminiApiKey}
+                disabled={isTestingGeminiKey || !customGeminiApiKey.trim()}
+                className="px-5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isTestingGeminiKey ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                <span>{isTestingGeminiKey ? 'กำลังทดสอบ & บันทึก...' : 'บันทึกและสแกนทันที'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {adminEnlargedPhoto && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/90 cursor-pointer" onClick={() => setAdminEnlargedPhoto(null)}>

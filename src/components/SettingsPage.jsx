@@ -7,7 +7,8 @@ import {
   Bell, Loader2, Send, X, Ticket, Star, TestTube, ExternalLink,
   Trash2, List, ChevronUp, ChevronDown, MessageSquare,
   FileText, Users, History as HistoryIcon, Calendar, ShoppingCart,
-  Package, Layers, Plus, ShieldAlert, Clock, Timer
+  Package, Layers, Plus, ShieldAlert, Clock, Timer,
+  Bot, Key, Eye, EyeOff, CheckCircle2
 } from 'lucide-react';
 import { ADMIN_FEATURE_GROUPS } from '../App';
 import { DEFAULT_BOOKING_CONFIG, calculateBookingDuration } from '../utils/bookingConfig';
@@ -237,12 +238,100 @@ export default function SettingsPage({
     setIsSavingOmise(false);
   };
 
+  // ─── Gemini AI Configuration ───
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [isSavingGeminiKey, setIsSavingGeminiKey] = useState(false);
+  const [isTestingGemini, setIsTestingGemini] = useState(false);
+  const [geminiTestStatus, setGeminiTestStatus] = useState(null);
+
+  useEffect(() => {
+    const fetchAiSettings = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'app_settings', 'ai'));
+        if (snap.exists() && snap.data().geminiApiKey) {
+          const k = snap.data().geminiApiKey.trim();
+          if (k !== 'AIzaSyBwRZHwQ_sIzjYMVVsBDu3wYk8scjXJ5yc') {
+            setGeminiApiKey(k);
+          }
+        } else {
+          const localKey = (localStorage.getItem('gemini_api_key') || '').trim();
+          if (localKey && localKey.startsWith('AIzaSy')) {
+            setGeminiApiKey(localKey);
+          }
+        }
+      } catch (e) {
+        console.error("Error fetching AI settings:", e);
+      }
+    };
+    fetchAiSettings();
+  }, []);
+
+  const testGeminiConnection = async () => {
+    const keyToTest = geminiApiKey.trim();
+    if (!keyToTest) {
+      showToast('กรุณากรอก API Key ก่อนทดสอบ', 'warning');
+      return;
+    }
+    setIsTestingGemini(true);
+    setGeminiTestStatus(null);
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${keyToTest}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: 'Ping test' }] }],
+          generationConfig: { maxOutputTokens: 5 }
+        })
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error?.message || `HTTP ${res.status}`);
+      }
+      setGeminiTestStatus({
+        success: true,
+        message: 'เชื่อมต่อกับ Google Gemini 2.0 Flash สำเร็จ! ระบบ AI อ่านบัตรและสแกนผิวพร้อมทำงานเต็มรูปแบบ 🚀'
+      });
+      showToast('✅ เชื่อมต่อ Gemini AI สำเร็จ!', 'success');
+    } catch (err) {
+      setGeminiTestStatus({
+        success: false,
+        message: err.message
+      });
+      showToast('❌ การเชื่อมต่อไม่สำเร็จ: ' + err.message, 'error');
+    } finally {
+      setIsTestingGemini(false);
+    }
+  };
+
+  const handleSaveGeminiKey = async () => {
+    const trimmed = geminiApiKey.trim();
+    setIsSavingGeminiKey(true);
+    try {
+      await setDoc(doc(db, 'app_settings', 'ai'), {
+        geminiApiKey: trimmed,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      if (trimmed) {
+        localStorage.setItem('gemini_api_key', trimmed);
+      } else {
+        localStorage.removeItem('gemini_api_key');
+      }
+      showToast('✅ บันทึกการตั้งค่า Gemini AI เรียบร้อยแล้ว', 'success');
+    } catch (e) {
+      showToast('เกิดข้อผิดพลาดในการบันทึก: ' + e.message, 'error');
+    } finally {
+      setIsSavingGeminiKey(false);
+    }
+  };
+
   // ─── Tab definitions ───
   const TABS = [
     { k: 'features', l: '🎛️ ฟีเจอร์แอปลูกค้า' },
     { k: 'booking',  l: '⏱️ เวลาบริการ & สล็อตคิว' },
     { k: 'line',     l: '💬 LINE & แจ้งเตือน' },
     { k: 'system',   l: '🏪 ระบบ & สาขา' },
+    { k: 'ai',       l: '🤖 ตั้งค่า AI (Gemini)' },
     { k: 'payment',  l: '💳 การชำระเงิน' },
     { k: 'survey',   l: '📋 แบบประเมิน AI' },
     { k: 'data',     l: '⚠️ ข้อมูล & ความปลอดภัย' },
@@ -1307,6 +1396,140 @@ export default function SettingsPage({
           </button>
         </div>
       </>)}
+
+      {/* ═══════════════════════════════════════════
+          🤖 TAB: ตั้งค่า Google Gemini AI
+          ═══════════════════════════════════════════ */}
+      {settingsSection === 'ai' && (
+        <div className="bg-white p-6 sm:p-8 rounded-[32px] shadow-sm border border-gray-100 space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-100 pb-6">
+            <div>
+              <h3 className="text-xl font-black text-gray-800 flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center shadow-md shrink-0">
+                  <Bot size={22} />
+                </div>
+                <span>ตั้งค่า Google Gemini AI (OCR บัตร & สแกนผิว)</span>
+              </h3>
+              <p className="text-sm text-gray-500 mt-1">
+                เชื่อมต่อ Google Gemini Generative AI เพื่อใช้งานฟังก์ชันอ่านบัตร ปชช. ไทย 13 หลักอัตโนมัติ และสแกนวิเคราะห์สภาพผิวหน้า Iris AI Face Scan
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`px-3 py-1.5 rounded-full font-bold text-xs flex items-center gap-1.5 ${
+                geminiApiKey 
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                  : 'bg-amber-50 text-amber-700 border border-amber-200'
+              }`}>
+                {geminiApiKey ? <CheckCircle size={14} className="text-emerald-600" /> : <AlertTriangle size={14} className="text-amber-600" />}
+                <span>{geminiApiKey ? 'ตั้งค่าแล้ว' : 'ยังไม่ได้ตั้งค่า'}</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Model info banner */}
+          <div className="bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 border border-indigo-100 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Sparkles size={20} className="text-indigo-600 shrink-0" />
+              <div>
+                <p className="text-xs font-black text-indigo-950">โมเดล AI ล่าสุดที่รองรับ:</p>
+                <p className="text-xs text-indigo-700">
+                  หลัก: <span className="font-bold underline">gemini-2.0-flash</span> • สำรอง: <span className="font-bold underline">gemini-1.5-flash</span> (ประมวลผลแม่นยำและรวดเร็ว)
+                </p>
+              </div>
+            </div>
+            <a 
+              href="https://aistudio.google.com/apikey" 
+              target="_blank" 
+              rel="noreferrer"
+              className="px-3.5 py-1.5 bg-white hover:bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors shrink-0"
+            >
+              <span>รับ API Key ฟรีที่ Google AI Studio</span>
+              <ExternalLink size={13} />
+            </a>
+          </div>
+
+          {/* Key input card */}
+          <div className="space-y-4 max-w-2xl">
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                <Key size={16} className="text-amber-500" />
+                <span>Google Gemini API Key:</span>
+              </label>
+              <div className="relative">
+                <input 
+                  type={showGeminiKey ? 'text' : 'password'}
+                  value={geminiApiKey}
+                  onChange={(e) => setGeminiApiKey(e.target.value)}
+                  placeholder="AIzaSy..."
+                  className="w-full pl-4 pr-24 py-3 rounded-2xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 font-mono text-sm outline-none bg-slate-50/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowGeminiKey(p => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1.5"
+                  title={showGeminiKey ? 'ซ่อนคีย์' : 'แสดงคีย์'}
+                >
+                  {showGeminiKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                * คีย์จะถูกจัดเก็บลง Firestore ในคอลเลกชัน <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-700">app_settings/ai</code> เพื่อใช้งานทั่วทั้งคลินิก
+              </p>
+            </div>
+
+            {/* Test result status */}
+            {geminiTestStatus && (
+              <div className={`p-3.5 rounded-2xl border text-xs font-medium flex items-start gap-2.5 ${
+                geminiTestStatus.success 
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}>
+                {geminiTestStatus.success ? <CheckCircle2 size={18} className="text-emerald-600 shrink-0 mt-0.5" /> : <AlertTriangle size={18} className="text-rose-600 shrink-0 mt-0.5" />}
+                <div className="flex-1 leading-relaxed">
+                  <p className="font-bold">{geminiTestStatus.success ? 'การเชื่อมต่อสำเร็จ' : 'การเชื่อมต่อล้มเหลว'}</p>
+                  <p className="text-[11px] mt-0.5 opacity-90">{geminiTestStatus.message}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={testGeminiConnection}
+                disabled={isTestingGemini || !geminiApiKey.trim()}
+                className="px-5 py-3 rounded-2xl font-bold text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isTestingGemini ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                <span>{isTestingGemini ? 'กำลังทดสอบ...' : 'ทดสอบการเชื่อมต่อ'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveGeminiKey}
+                disabled={isSavingGeminiKey}
+                className="px-6 py-3 rounded-2xl font-bold text-sm bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white flex items-center gap-2 shadow-md shadow-indigo-200 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isSavingGeminiKey ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                <span>{isSavingGeminiKey ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า AI'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Guide */}
+          <div className="mt-8 pt-6 border-t border-gray-100 max-w-2xl bg-slate-50/70 p-5 rounded-2xl border border-slate-200/80">
+            <h4 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
+              <Bot size={16} className="text-indigo-600" />
+              <span>วิธีขอรับ Google Gemini API Key ฟรี (3 ขั้นตอน):</span>
+            </h4>
+            <ol className="text-xs text-slate-600 space-y-2 list-decimal list-inside leading-relaxed font-medium">
+              <li>เปิดเว็บไซต์ <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-indigo-600 underline font-bold">Google AI Studio</a> แล้วเข้าสู่ระบบด้วยบัญชี Google (Gmail)</li>
+              <li>กดปุ่มสีน้ำเงิน <span className="font-bold text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-300">"+ Create API key"</span></li>
+              <li>คัดลอก (Copy) คีย์ที่ขึ้นต้นด้วย <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-300 font-bold text-slate-800">AIzaSy...</span> นำมาวางในช่องด้านบน แล้วกด <strong>"บันทึกการตั้งค่า AI"</strong></li>
+            </ol>
+          </div>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════
           💳 TAB: การชำระเงิน (Omise)

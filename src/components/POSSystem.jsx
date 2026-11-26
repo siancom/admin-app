@@ -702,6 +702,7 @@ export default function POSSystem({
   const [isLoadingCompare, setIsLoadingCompare] = useState(false);
   const [wooSyncDiff, setWooSyncDiff] = useState(null);
   const [selectedBed, setSelectedBed] = useState('');
+  const [isOwnerDirectUsage, setIsOwnerDirectUsage] = useState(false);
   
   const [showParkBedModal, setShowParkBedModal] = useState(false);
   const [parkBedNumber, setParkBedNumber] = useState('1');
@@ -3753,15 +3754,17 @@ export default function POSSystem({
     }
     if ((hasCourse || cart.some(i => i.type === 'claim_item')) && !selectedCustomer) {
       handleSelectWalkIn();
-      showToast('เลือกสิทธิ์ลูกค้าทั่วไป (Walk-in) ให้อัตโนมัติแล้ว กรุณากดยืนยันชำระเงินอีกครั้ง หรือกดระบุชื่อลูกค้า', 'info');
-      return;
+      if (!isOwnerDirectUsage) {
+        showToast('เลือกสิทธิ์ลูกค้าทั่วไป (Walk-in) ให้อัตโนมัติแล้ว กรุณากดยืนยันชำระเงินอีกครั้ง หรือกดระบุชื่อลูกค้า', 'info');
+        return;
+      }
     }
     // 🌟 กันหักเครดิตซ้ำ 2 ครั้ง: ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป → ห้ามเลือก "ใช้เครดิต" อีก
     if (appCreditPaidAmount > 0 && (splitPayment.credit || 0) > 0) {
       showToast('⚠️ ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป ฿' + appCreditPaidAmount.toLocaleString() + ' — ห้ามเลือก "ใช้เครดิต" ซ้ำ (เครดิตจะถูกหักสองครั้ง) กรุณาลดช่องเครดิตเป็น 0', 'error');
       return;
     }
-    if (totalCovered !== total && total > 0) {
+    if (totalCovered !== total && total > 0 && !isOwnerDirectUsage) {
       showToast(`ยอดชำระเงินไม่ตรงกับยอดสุทธิ (ขาดอีก ฿${(total - totalCovered).toLocaleString()})`);
       return;
     }
@@ -3793,9 +3796,9 @@ export default function POSSystem({
       if (splitPayment.transfer > 0) paymentMethodsStrArr.push(`โอนเงิน: ${splitPayment.transfer}`);
       if (splitPayment.cod > 0) paymentMethodsStrArr.push(`ค้าง/COD: ${splitPayment.cod}`);
       if (splitPayment.credit > 0) paymentMethodsStrArr.push(`ตัดเครดิต: ${splitPayment.credit}`);
-      const isUsageBill = hasCourseUsage || cart.some(i => i.type === 'usage');
+      const isUsageBill = hasCourseUsage || cart.some(i => i.type === 'usage') || isOwnerDirectUsage;
       const isClaimBill = hasCourseClaim || cart.some(i => i.type === 'claim_item');
-      const paymentMethodStr = paymentMethodsStrArr.join(', ') || (isUsageBill ? 'ตัดคอร์ส' : (isClaimBill ? 'เบิกของแถม' : 'ฟรี/ส่วนลดเต็มจำนวน'));
+      const paymentMethodStr = paymentMethodsStrArr.join(', ') || (isOwnerDirectUsage ? 'ใช้คอส (เช็คเบื้องต้น)' : (isUsageBill ? 'ตัดคอร์ส' : (isClaimBill ? 'เบิกของแถม' : 'ฟรี/ส่วนลดเต็มจำนวน')));
       const batch = writeBatch(db);
       const delayedHistoryUpdates = [];
       
@@ -4181,8 +4184,63 @@ export default function POSSystem({
           }
         }
         else if (item.type === 'course' || item.type === 'single_course') {
-          // Generate Course instances per quantity
-          for (let i = 0; i < item.qty; i++) {
+          if (isOwnerDirectUsage) {
+            // 👑 สิทธิ์เจ้าของร้าน: ชำระเงินเป็นใช้คอส (ตรวจเช็คเบื้องต้น ไม่สร้างใบคอร์ส และไม่ต้องตัดคอร์ส)
+            const historyRef = doc(getCol('histories'));
+            const custSignatureUrl = custSigRef.current?.toDataURL() || customerSignature || null;
+            const staffSignatureUrl = staffSigRef.current?.toDataURL() || staffSignature || null;
+
+            batch.set(historyRef, {
+              "วันที่": customDateObj.toLocaleDateString('th-TH'),
+              "เวลา": customDateObj.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+              "ชื่อลูกค้า": cName,
+              "เบอร์โทร": cPhone,
+              "cleanPhone": custCleanPhone,
+              "หมายเลขคำสั่งซื้อ": orderNo,
+              "ประเภท": "ใช้คอส (เช็คเบื้องต้น)",
+              "col_4": "ใช้คอส (เช็คเบื้องต้น)",
+              "สถานะ": "เรียบร้อย",
+              "รายการ": item.name,
+              "สินค้า": item.name,
+              "col_18": item.name,
+              "จำนวน": String(item.qty),
+              "ยอดเงิน": String(item.price * item.qty),
+              "col_19": String(item.price * item.qty),
+              "สาขา": String(globalBranch || "สำนักงานใหญ่"),
+              "พนักงาน": paymentStaff || 'เจ้าของร้าน',
+              "isService": true,
+              "isOwnerDirectUsage": true,
+              "customerPhoto": paymentPhotos.before[0] || paymentPhotos.after[0] || null,
+              "customerPhotos": paymentPhotos,
+              "customerSignature": custSignatureUrl,
+              "staffSignature": staffSignatureUrl
+            });
+
+            // บันทึกเตียงหากมีการเลือกเตียงสำหรับ Walk-in
+            if (selectedBed && globalBranch) {
+              const bedBookingRef = doc(getCol('bookings'));
+              const nowIso = customDateObj.toISOString();
+              const dateStr = getLocalYYYYMMDD(customDateObj);
+              const timeStr = customDateObj.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+              batch.set(bedBookingRef, {
+                  customerName: cName,
+                  phone: cPhone,
+                  serviceName: item.name,
+                  customerId: selectedCustomer ? selectedCustomer.id : '',
+                  dateTime: `${dateStr} ${timeStr}`,
+                  date: dateStr,
+                  time: timeStr,
+                  branch: String(globalBranch || "เฉวง"),
+                  status: 'กำลังใช้บริการ',
+                  serviceStartTime: nowIso,
+                  createdAt: nowIso,
+                  bedNumber: String(selectedBed),
+                  isWalkIn: true
+              });
+            }
+          } else {
+            // Generate Course instances per quantity
+            for (let i = 0; i < item.qty; i++) {
             const courseNo = `IC${Date.now().toString().slice(-6)}${i}`;
             const courseRef = doc(getCol('courses'));
             const courseTotalQty = String(
@@ -4302,6 +4360,7 @@ export default function POSSystem({
               "isWalkIn": Boolean(selectedCustomer?.isWalkIn),
               "hasMemberCard": Boolean(selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer)
             });
+            }
           }
         }
       }
@@ -4535,7 +4594,11 @@ export default function POSSystem({
         }
       }
 
-      showToast('ชำระเงินสำเร็จ!', 'success');
+      if (isOwnerDirectUsage) {
+        showToast('✨ บันทึกการใช้คอส (เช็คเบื้องต้น) เรียบร้อยแล้ว!', 'success');
+      } else {
+        showToast('ชำระเงินสำเร็จ!', 'success');
+      }
       
       // 🌟 อัปเดตสถานะคอร์สที่กำลังให้บริการ ให้เปลี่ยนเป็น "เรียบร้อย" เมื่อจ่ายเงินครบ 🌟
       try {
@@ -4654,6 +4717,7 @@ export default function POSSystem({
       setSelectedCustomer(null);
       setActiveWcOrderId(null);
       setActiveCustomerAppOrderIds([]);
+      setIsOwnerDirectUsage(false);
       setIsMobileCartOpen(false); // Close cart immediately so receipt shows properly
       setActiveTab('products'); // 🌟 ชำระเงินเสร็จให้กลับมาหน้าขายครีมทุกครั้ง
 
@@ -7878,96 +7942,112 @@ export default function POSSystem({
             )}
           </div>
 
-          <div className="flex gap-2">
-            {!isRequisitionMode && (
-              <>
-                <button 
-                  onClick={() => {
-                    if (cart.length === 0) {
-                      showToast('ไม่มีสินค้าในตะกร้า');
-                      return;
-                    }
-                    setShowParkBedModal(true);
-                  }}
-                  disabled={cart.length === 0}
-                  className={`w-1/4 py-3 rounded-2xl font-bold text-[12px] flex flex-col items-center justify-center gap-1 transition-all shadow-lg active:scale-95 ${cart.length === 0 ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-200'}`}
-                >
-                  <QrCode size={18} /> พักบิล
-                </button>
-                <button 
-                  onClick={() => {
-                    if (cart.length === 0) {
-                      showToast('ไม่มีสินค้าในตะกร้า');
-                      return;
-                    }
-                    if (!selectedCustomer) {
-                        showToast('โปรดเลือกลูกค้าก่อนทำรายการจัดส่ง', 'error');
-                        return;
-                    }
-                    
-                    // เตรียมข้อมูลสำหรับจัดส่งถ้ายังไม่มี
-                    if (!shippingAddress) {
-                        const name = String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]) || '');
-                        const phone = String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]) || '');
-                        const address = String(getFuzzyKey(selectedCustomer, ["ที่อยู่", "col_4", "address"]) || '');
-                        if (name || phone || address) {
-                            setShippingAddress(`${name}\n${phone}\n${address}`.trim());
-                        }
-                    }
-                    
-                    // ไปที่หน้าชำระเงิน
-                    setOrderChannel('chat'); // หรือค่าเริ่มต้นสำหรับการขายออนไลน์
-                    setCheckoutStep(1);
-                    setShowPaymentModal(true);
-                    
-                    // หน่วงเวลาเล็กน้อยให้ Modal แรกแสดงก่อน แล้วค่อยเปิดหน้าต่าง iShip
-                    setTimeout(() => {
-                        setIshipModal({ isOpen: true });
-                    }, 300);
-                  }}
-                  disabled={cart.length === 0}
-                  className={`w-1/4 py-3 rounded-2xl font-bold text-[12px] flex flex-col items-center justify-center gap-1 transition-all shadow-lg active:scale-95 ${cart.length === 0 ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'bg-sky-500 hover:bg-sky-600 text-white shadow-sky-200'}`}
-                >
-                  <Package size={18} /> ขนส่ง
-                </button>
-              </>
+          <div className="space-y-2">
+            {/* 👑 ปุ่มชำระเงินเป็นใช้คอสได้กรณีที่เป็นเจ้าของ */}
+            {globalRole === 'owner' && !isRequisitionMode && cart.some(i => i.type === 'course' || i.type === 'single_course') && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (cart.length === 0) return;
+                  setIsOwnerDirectUsage(true);
+                  if (!selectedCustomer) {
+                    handleSelectWalkIn();
+                  }
+                  if (!splitPayment.cash && !splitPayment.transfer && !splitPayment.cod && !splitPayment.credit) {
+                    setSplitPayment({ cash: 0, transfer: total, cod: 0, credit: 0 });
+                  }
+                  setCheckoutStep(1);
+                  setShowPaymentModal(true);
+                }}
+                disabled={cart.length === 0}
+                className="w-full py-3.5 px-4 bg-gradient-to-r from-purple-600 via-indigo-600 to-violet-700 hover:from-purple-700 hover:to-indigo-800 text-white rounded-2xl font-black text-base flex items-center justify-center gap-2 transition-all shadow-lg shadow-purple-200 active:scale-95 cursor-pointer"
+                title="ชำระเงินและใช้บริการคอร์สทันที ไม่ต้องสร้างใบคอร์สและไม่ต้องตัดคอร์สซ้ำ"
+              >
+                <Scissors size={20} className="text-purple-200" />
+                <span>ชำระเงินเป็นใช้คอส (เจ้าของร้าน / เช็คเบื้องต้น)</span>
+              </button>
             )}
-            <button 
-              onClick={() => {
-                if (cart.length === 0) {
-                  showToast('ไม่มีสินค้าในตะกร้า');
-                  return;
-                }
-                const hasCourse = cart.some(i => i.type === 'course' || i.type === 'single_course');
-                if (hasCourse && !selectedCustomer && !isRequisitionMode) {
-                  showToast('มีรายการคอร์สในตะกร้า โปรดเลือกลูกค้าก่อนชำระเงิน', 'error');
-                  return;
-                }
-                if (!splitPayment.cash && !splitPayment.transfer && !splitPayment.cod && !splitPayment.credit) {
-                  setSplitPayment({ cash: 0, transfer: total, cod: 0, credit: 0 });
-                }
-                setCheckoutStep(1);
-                setShowPaymentModal(true);
-              }}
-              disabled={cart.length === 0}
-              className={`flex-1 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${
-                cart.length === 0 
-                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
-                  : (isRequisitionMode 
-                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' 
-                      : (total <= 0 
-                          ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-orange-200' 
-                          : 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200'))
-              }`}
-            >
-              {isRequisitionMode ? (
-                <><Package size={24} /> สร้างใบเบิกสินค้า (PO)</>
-              ) : cart.some(i => i.type === 'usage' || i.type === 'claim_item') ? (
-                <>{total <= 0 ? <Scissors size={24} /> : <CheckCircle size={24} />} {cart.some(i => i.type === 'usage') ? (total <= 0 ? 'ดำเนินการตัดคอส' : 'ดำเนินการตัดคอร์สและชำระเงิน') : 'ดำเนินการเบิกสินค้า'}</>
-              ) : (
-                <><CheckCircle size={24} /> ดำเนินการชำระเงิน</>
+
+            <div className="flex gap-2">
+              {!isRequisitionMode && (
+                <>
+                  <button 
+                    onClick={() => setShowParkBedModal(true)}
+                    disabled={cart.length === 0}
+                    className="w-1/4 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-bold text-[12px] flex flex-col items-center justify-center gap-1 transition-all shadow-lg shadow-amber-200 active:scale-95 disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed disabled:shadow-none"
+                  >
+                    <Clock size={18} /> พักบิล
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (cart.length === 0) {
+                        showToast('ไม่มีสินค้าในตะกร้า');
+                        return;
+                      }
+                      if (selectedCustomer) {
+                        const addr = selectedCustomer.address || selectedCustomer.addressNo || '';
+                        if (addr) setShippingAddress(addr);
+                      }
+                      setOrderChannel('chat');
+                      setCheckoutStep(1);
+                      setShowPaymentModal(true);
+                      setTimeout(() => {
+                        setIshipModal({ isOpen: true });
+                      }, 300);
+                    }}
+                    disabled={cart.length === 0}
+                    className={`w-1/4 py-3 rounded-2xl font-bold text-[12px] flex flex-col items-center justify-center gap-1 transition-all shadow-lg active:scale-95 ${cart.length === 0 ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' : 'bg-sky-500 hover:bg-sky-600 text-white shadow-sky-200'}`}
+                  >
+                    <Package size={18} /> ขนส่ง
+                  </button>
+                </>
               )}
-            </button>
+              <button 
+                onClick={() => {
+                  if (cart.length === 0) {
+                    showToast('ไม่มีสินค้าในตะกร้า');
+                    return;
+                  }
+                  const hasCourse = cart.some(i => i.type === 'course' || i.type === 'single_course');
+                  if (hasCourse && !selectedCustomer && !isRequisitionMode) {
+                    if (globalRole === 'owner') {
+                      setIsOwnerDirectUsage(true);
+                      handleSelectWalkIn();
+                    } else {
+                      showToast('มีรายการคอร์สในตะกร้า โปรดเลือกลูกค้าก่อนชำระเงิน', 'error');
+                      return;
+                    }
+                  } else if (hasCourse && globalRole === 'owner') {
+                    // keep current isOwnerDirectUsage setting
+                  } else {
+                    setIsOwnerDirectUsage(false);
+                  }
+                  if (!splitPayment.cash && !splitPayment.transfer && !splitPayment.cod && !splitPayment.credit) {
+                    setSplitPayment({ cash: 0, transfer: total, cod: 0, credit: 0 });
+                  }
+                  setCheckoutStep(1);
+                  setShowPaymentModal(true);
+                }}
+                disabled={cart.length === 0}
+                className={`flex-1 py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${
+                  cart.length === 0 
+                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
+                    : (isRequisitionMode 
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' 
+                        : (total <= 0 
+                            ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-orange-200' 
+                            : 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200'))
+                }`}
+              >
+                {isRequisitionMode ? (
+                  <><Package size={24} /> สร้างใบเบิกสินค้า (PO)</>
+                ) : cart.some(i => i.type === 'usage' || i.type === 'claim_item') ? (
+                  <>{total <= 0 ? <Scissors size={24} /> : <CheckCircle size={24} />} {cart.some(i => i.type === 'usage') ? (total <= 0 ? 'ดำเนินการตัดคอส' : 'ดำเนินการตัดคอร์สและชำระเงิน') : 'ดำเนินการเบิกสินค้า'}</>
+                ) : (
+                  <><CheckCircle size={24} /> ดำเนินการชำระเงิน</>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -8087,21 +8167,28 @@ export default function POSSystem({
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-slate-800">
                 {checkoutStep === 1 ? (
-                  hasCourseUsage 
-                    ? 'ข้อมูลการรับบริการ' 
-                    : (hasCourseClaim 
-                        ? 'ข้อมูลการเบิกสินค้า / ของแถม' 
-                        : (isRequisitionMode ? 'ยืนยันการเบิกสินค้า (PO)' : 'ข้อมูลคำสั่งซื้อ & พนักงาน'))
+                  isOwnerDirectUsage
+                    ? '👑 ชำระเงินเป็นใช้คอส (เช็คเบื้องต้น)'
+                    : hasCourseUsage 
+                      ? 'ข้อมูลการรับบริการ' 
+                      : (hasCourseClaim 
+                          ? 'ข้อมูลการเบิกสินค้า / ของแถม' 
+                          : (isRequisitionMode ? 'ยืนยันการเบิกสินค้า (PO)' : 'ข้อมูลคำสั่งซื้อ & พนักงาน'))
                 ) : (
-                  'ช่องทางการชำระเงิน'
+                  isOwnerDirectUsage ? '👑 ช่องทางชำระเงิน (ใช้คอส/เช็คเบื้องต้น)' : 'ช่องทางการชำระเงิน'
                 )}
               </h2>
-              {!isRequisitionMode && total > 0 && (
+              {isOwnerDirectUsage && (
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1">
+                  <Scissors size={12} /> สิทธิ์เจ้าของร้าน
+                </span>
+              )}
+              {!isRequisitionMode && !isOwnerDirectUsage && total > 0 && (
                 <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold bg-pink-50 text-pink-700 border border-pink-200 flex items-center gap-1`}>
                   {hasCourseUsage ? <><Scissors size={12} /> ตัดคอร์ส + ชำระเงิน</> : `ขั้นตอน ${checkoutStep}/2`}
                 </span>
               )}
-              {!isRequisitionMode && total <= 0 && (
+              {!isRequisitionMode && !isOwnerDirectUsage && total <= 0 && (
                 <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-orange-50 text-orange-700 border border-orange-200 flex items-center gap-1">
                   <Scissors size={12} /> {hasCourseClaim && !hasCourseUsage ? 'เบิกของแถม' : 'ตัดคอสบริการ'}
                 </span>
@@ -8112,7 +8199,40 @@ export default function POSSystem({
 
           {/* STEP 1: Order Details, Staff, Service/Claim & Signatures */}
           <div className={`space-y-4 ${checkoutStep === 1 ? '' : 'hidden'}`}>
-            {hasCourseUsage && (
+            {/* 👑 สลับโหมดชำระเงินเป็นใช้คอส (เช็คเบื้องต้น) สำหรับเจ้าของ */}
+            {globalRole === 'owner' && cart.some(i => i.type === 'course' || i.type === 'single_course') && (
+              <div className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between ${isOwnerDirectUsage ? 'bg-purple-50/90 border-purple-200 shadow-2xs' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isOwnerDirectUsage ? 'bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-xs' : 'bg-slate-200 text-slate-500'}`}>
+                    <Scissors size={18} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                      <span>{isOwnerDirectUsage ? 'โหมดชำระเงินเป็นใช้คอส' : 'โหมดซื้อคอร์สปกติ'}</span>
+                      {isOwnerDirectUsage && <span className="bg-purple-200/80 text-purple-900 text-[9px] font-bold px-1.5 py-0.2 rounded-full">เช็คเบื้องต้น</span>}
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      {isOwnerDirectUsage 
+                        ? '✨ เจ้าของร้านเช็คเบื้องต้น: ไม่สร้างใบคอร์ส และไม่ต้องกดตัดคอร์สซ้ำ' 
+                        : 'ระบบจะสร้างใบคอร์ส IC... เข้าสู่ระบบตามปกติ'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsOwnerDirectUsage(prev => !prev)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                    isOwnerDirectUsage 
+                      ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-sm' 
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                  }`}
+                >
+                  {isOwnerDirectUsage ? '✓ เปิดใช้คอส' : 'สลับเป็นใช้คอส'}
+                </button>
+              </div>
+            )}
+
+            {(hasCourseUsage || isOwnerDirectUsage) && (
                 <div>
                   <div className="text-sm font-semibold text-slate-700 mb-2">เข้าใช้เตียง (สำหรับ Walk-in)</div>
                   <select
@@ -9412,6 +9532,23 @@ export default function POSSystem({
                     {appCreditPaidAmount > 0 && <span className="text-emerald-600 text-xs font-bold">✓ จ่ายแล้วผ่านแอป ฿{appCreditPaidAmount.toLocaleString()}</span>}
                   </div>
 
+                  {/* 👑 ปุ่มตรวจเช็คฟรี 0 บาท สำหรับเจ้าของ */}
+                  {isOwnerDirectUsage && total > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0, omise_promptpay: 0 });
+                        setDiscountType('amount');
+                        setDiscountVal(total);
+                        showToast('ตั้งค่ายอดชำระเป็น ฿0 (ตรวจเช็คฟรี) เรียบร้อย', 'info');
+                      }}
+                      className="w-full py-2.5 px-3 bg-purple-50 hover:bg-purple-100 border-2 border-dashed border-purple-300 text-purple-700 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-colors cursor-pointer mb-2"
+                    >
+                      <Scissors size={15} />
+                      <span>👑 สิทธิ์เจ้าของ: ตรวจเช็คฟรี / ใช้คอสไม่คิดเงิน (฿0)</span>
+                    </button>
+                  )}
+
                   <button 
                     type="button"
                     onClick={() => {
@@ -9674,11 +9811,11 @@ export default function POSSystem({
                   ) : total <= 0 ? (
                     <>
                       <Scissors size={20} />
-                      <span>ตัดคอส</span>
+                      <span>{isOwnerDirectUsage ? 'ใช้คอส (เช็คเบื้องต้น)' : 'ตัดคอส'}</span>
                       <span className="bg-white/20 px-2 py-0.5 rounded-lg text-sm font-black">฿0</span>
                     </>
                   ) : (
-                    <><CheckCircle size={20} /> {isRequisitionMode ? 'ยืนยันการเบิกสินค้า' : (hasCourseUsage ? 'ยืนยันตัดคอร์สและชำระเงิน' : (hasCourseClaim ? 'ยืนยันการเบิกสินค้า' : 'ยืนยันการชำระเงิน'))}</>
+                    <><CheckCircle size={20} /> {isRequisitionMode ? 'ยืนยันการเบิกสินค้า' : (isOwnerDirectUsage ? 'ยืนยันชำระเงินและใช้คอส (เช็คเบื้องต้น)' : (hasCourseUsage ? 'ยืนยันตัดคอร์สและชำระเงิน' : (hasCourseClaim ? 'ยืนยันการเบิกสินค้า' : 'ยืนยันการชำระเงิน')))}</>
                   )}
                 </button>
               </>
