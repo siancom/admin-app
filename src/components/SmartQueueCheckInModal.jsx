@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   X, CheckCircle2, Camera, Upload, Trash2, Sparkles, User, Phone, 
   Clock, MapPin, Calendar, Scissors, ShoppingCart, MessageSquare, 
-  ChevronRight, AlertCircle, RefreshCw, Layers
+  ChevronRight, AlertCircle, RefreshCw, Layers, Search, QrCode
 } from 'lucide-react';
 import { getFuzzyKey } from '../utils/fuzzy';
+import { getLocalYYYYMMDD } from '../utils/parse';
+import BarcodeScannerModal from './BarcodeScannerModal';
 
 export default function SmartQueueCheckInModal({
   isOpen,
@@ -24,6 +26,9 @@ export default function SmartQueueCheckInModal({
   const [beforePhoto, setBeforePhoto] = useState(null);
   const [isCapturingPhoto, setIsCapturingPhoto] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
 
@@ -31,8 +36,9 @@ export default function SmartQueueCheckInModal({
   useEffect(() => {
     if (preselectedBooking) {
       setSelectedBooking(preselectedBooking);
+      setSearchQuery('');
     } else if (isOpen) {
-      // If opened without preselected, find the first upcoming booking of today
+      // Find today's upcoming booking if any
       const today = new Date().toISOString().split('T')[0];
       const todayUpcoming = bookings.find(b => {
         const dt = b.dateTime || b.date || '';
@@ -40,6 +46,7 @@ export default function SmartQueueCheckInModal({
         return dt.startsWith(today) && (st === 'ยืนยันแล้ว' || st === 'รอการยืนยัน');
       });
       setSelectedBooking(todayUpcoming || null);
+      setSearchQuery('');
     }
   }, [preselectedBooking, isOpen, bookings]);
 
@@ -72,36 +79,229 @@ export default function SmartQueueCheckInModal({
     }
   }, [selectedBooking, courses]);
 
-  if (!isOpen) return null;
+  // Audio Beep Feedback
+  const playBeep = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.15);
+      }
+    } catch (e) {}
+  };
 
-  // Filter available customer courses
-  const customerPhoneClean = selectedBooking ? String(selectedBooking.customerPhone || '').replace(/\D/g, '') : '';
-  const customerAvailableCourses = courses.filter(c => {
-    const cPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').replace(/\D/g, '');
-    const remainQty = Number(c.computedRemainQty ?? getFuzzyKey(c, ["ครั้งที่เหลือดิบ", "col_33", "col_4"]) ?? 1);
-    const remainCredit = Number(c.computedRemainCredit ?? getFuzzyKey(c, ["เครดิตที่ได้รับ", "col_14"]) ?? 0);
-    return cPhone && customerPhoneClean && (cPhone === customerPhoneClean || cPhone.endsWith(customerPhoneClean) || customerPhoneClean.endsWith(cPhone)) && (remainQty > 0 || remainCredit > 0);
-  });
+  // 🌟 UNIVERSAL IDENTIFIER: Scans/Searches QR, Phone, Customer ID, HN, Citizen ID, Ticket, Course Sheet
+  const handleIdentifyInput = (rawVal) => {
+    if (!rawVal || !String(rawVal).trim()) return;
+    let val = String(rawVal).trim();
+    playBeep();
 
-  // Filter queue for selection if changing
-  const filteredBookings = bookings.filter(b => {
-    if (b.status === 'เสร็จสิ้น' || b.status === 'ยกเลิก') return false;
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    const name = String(b.customerName || '').toLowerCase();
-    const phone = String(b.customerPhone || '').toLowerCase();
-    const ticket = String(b.ticketNo || '').toLowerCase();
-    return name.includes(q) || phone.includes(q) || ticket.includes(q);
-  });
+    // 1. Parse JSON if scanned QR is JSON format
+    try {
+      const parsed = JSON.parse(val);
+      if (parsed && typeof parsed === 'object') {
+        val = parsed.customerId || parsed.phone || parsed.bookingId || parsed.courseId || parsed.code || parsed.ticketNo || val;
+      }
+    } catch (e) {}
 
-  const isLineBooking = Boolean(
-    selectedBooking?.lineUid || 
-    selectedBooking?.source === 'line' || 
-    selectedBooking?.channel === 'line' || 
-    selectedBooking?.source === 'liff' || 
-    selectedBooking?.source === 'LIFF' || 
-    (!selectedBooking?.isAdminCreated && !selectedBooking?.isWalkIn && selectedBooking?.source !== 'POS' && selectedBooking?.source !== 'admin')
-  );
+    const valClean = String(val).trim();
+    const valDigits = valClean.replace(/\D/g, '');
+    const valLower = valClean.toLowerCase();
+
+    // 2. Check in Bookings (by id, ticketNo, bookingRef, phone, name)
+    const matchedBooking = bookings.find(b => {
+      const bId = String(b.id || '').toLowerCase();
+      const bTicket = String(b.ticketNo || '').toLowerCase();
+      const bRef = String(b.bookingRef || '').toLowerCase();
+      const bPhoneClean = String(b.customerPhone || '').replace(/\D/g, '');
+      const bName = String(b.customerName || '').toLowerCase();
+
+      return bId === valLower || 
+             bTicket === valLower || 
+             bRef === valLower || 
+             (valDigits.length >= 8 && bPhoneClean && (bPhoneClean === valDigits || bPhoneClean.endsWith(valDigits) || valDigits.endsWith(bPhoneClean))) ||
+             (valLower.length >= 3 && bName.includes(valLower));
+    });
+
+    if (matchedBooking) {
+      setSelectedBooking(matchedBooking);
+      setSearchQuery('');
+      setIsScannerOpen(false);
+      setFeedbackMessage(`✓ พบคิวนัดหมายของคุณ ${matchedBooking.customerName}`);
+      setTimeout(() => setFeedbackMessage(''), 3000);
+      return;
+    }
+
+    // 3. Check in Courses (e.g. Scanned A4 Course sheet QR or course reference)
+    const matchedCourse = courses.find(c => {
+      const cRef = String(c.courseRefKey || '').toLowerCase();
+      const cNo = String(getFuzzyKey(c, ["เลขที่ใบคอส", "col_2"]) || '').toLowerCase();
+      const cId = String(c.id || '').toLowerCase();
+      return (cRef && cRef === valLower) || (cNo && cNo === valLower) || (cId && cId === valLower);
+    });
+
+    if (matchedCourse) {
+      const cPhone = String(getFuzzyKey(matchedCourse, ["เบอร์โทร", "col_1"]) || '').replace(/\D/g, '');
+      const cCustName = String(getFuzzyKey(matchedCourse, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "col_9", "col_2"]) || 'ลูกค้า');
+
+      const matchedCust = customers.find(cust => {
+        const p = String(cust.computedPhone || cust.phone || '').replace(/\D/g, '');
+        return p && cPhone && (p === cPhone || p.endsWith(cPhone) || cPhone.endsWith(p));
+      });
+
+      const existingBk = bookings.find(b => {
+        const bPhoneClean = String(b.customerPhone || '').replace(/\D/g, '');
+        return bPhoneClean && cPhone && (bPhoneClean === cPhone || bPhoneClean.endsWith(cPhone) || cPhone.endsWith(bPhoneClean));
+      });
+
+      if (existingBk) {
+        setSelectedBooking(existingBk);
+        setSelectedCourse(matchedCourse);
+        setFeedbackMessage(`✓ พบใบคอร์สและคิวของคุณ ${existingBk.customerName}`);
+      } else {
+        const now = new Date();
+        const walkInBooking = {
+          id: `walkin_${Date.now()}`,
+          customerName: matchedCust ? (matchedCust.name || matchedCust.computedName) : cCustName,
+          customerPhone: cPhone,
+          customerId: matchedCust?.id || '',
+          branch: globalBranch || 'เฉวง',
+          isWalkIn: true,
+          courseName: matchedCourse["ชื่อคอส"] || matchedCourse.name || 'บริการทั่วไป',
+          dateTime: now.toISOString(),
+          date: getLocalYYYYMMDD(now),
+          time: now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+          status: 'รอการยืนยัน',
+          isVirtualWalkIn: true
+        };
+        setSelectedBooking(walkInBooking);
+        setSelectedCourse(matchedCourse);
+        setFeedbackMessage(`✓ พบใบคอร์สของคุณ ${walkInBooking.customerName} (ตั้งเป็น Walk-in พร้อมตัดคอส)`);
+      }
+
+      setSearchQuery('');
+      setIsScannerOpen(false);
+      setTimeout(() => setFeedbackMessage(''), 3000);
+      return;
+    }
+
+    // 4. Check in Customer Database (Member Card QR, Phone, Customer ID, HN, Citizen ID 13 digits)
+    const matchedCustomer = customers.find(c => {
+      const cId = String(c.id || '').toLowerCase();
+      const cNo = String(c.customerNo || c.memberCardNo || '').toLowerCase();
+      const cHn = String(c.hn || '').toLowerCase();
+      const cIdCard = String(c.idCard || c.citizenId || '').replace(/\D/g, '');
+      const cPhoneClean = String(c.computedPhone || c.phone || '').replace(/\D/g, '');
+      const cName = String(c.computedName || c.name || '').toLowerCase();
+
+      return cId === valLower || 
+             (cNo && cNo === valLower) || 
+             (cHn && cHn === valLower) ||
+             (valDigits.length === 13 && cIdCard === valDigits) ||
+             (valDigits.length >= 8 && cPhoneClean && (cPhoneClean === valDigits || cPhoneClean.endsWith(valDigits) || valDigits.endsWith(cPhoneClean))) ||
+             (valLower.length >= 3 && cName.includes(valLower));
+    });
+
+    if (matchedCustomer) {
+      const cPhone = String(matchedCustomer.computedPhone || matchedCustomer.phone || '').replace(/\D/g, '');
+      const existingBk = bookings.find(b => {
+        const bPhoneClean = String(b.customerPhone || '').replace(/\D/g, '');
+        return bPhoneClean && cPhone && (bPhoneClean === cPhone || bPhoneClean.endsWith(cPhone) || cPhone.endsWith(bPhoneClean));
+      });
+
+      if (existingBk) {
+        setSelectedBooking(existingBk);
+        setFeedbackMessage(`✓ พบคิวนัดหมายของคุณ ${matchedCustomer.name || matchedCustomer.computedName}`);
+      } else {
+        const now = new Date();
+        const walkInBooking = {
+          id: `walkin_${Date.now()}`,
+          customerName: matchedCustomer.name || matchedCustomer.computedName || 'ลูกค้า Walk-in',
+          customerPhone: matchedCustomer.phone || matchedCustomer.computedPhone || '',
+          customerId: matchedCustomer.id,
+          branch: globalBranch || 'เฉวง',
+          isWalkIn: true,
+          courseName: 'บริการทั่วไป (Walk-in)',
+          dateTime: now.toISOString(),
+          date: getLocalYYYYMMDD(now),
+          time: now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+          status: 'รอการยืนยัน',
+          isVirtualWalkIn: true
+        };
+        setSelectedBooking(walkInBooking);
+        setFeedbackMessage(`✓ พบข้อมูลสมาชิกคุณ ${walkInBooking.customerName} (ตั้งเป็น Walk-in)`);
+      }
+
+      setSearchQuery('');
+      setIsScannerOpen(false);
+      setTimeout(() => setFeedbackMessage(''), 3000);
+      return;
+    }
+
+    // 5. Fallback: Digits entered as phone number
+    if (valDigits.length >= 9) {
+      const now = new Date();
+      const walkInBooking = {
+        id: `walkin_${Date.now()}`,
+        customerName: `ลูกค้า ${valDigits}`,
+        customerPhone: valDigits,
+        branch: globalBranch || 'เฉวง',
+        isWalkIn: true,
+        courseName: 'บริการทั่วไป (Walk-in)',
+        dateTime: now.toISOString(),
+        date: getLocalYYYYMMDD(now),
+        time: now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+        status: 'รอการยืนยัน',
+        isVirtualWalkIn: true
+      };
+      setSelectedBooking(walkInBooking);
+      setSearchQuery('');
+      setIsScannerOpen(false);
+      setFeedbackMessage(`✓ ระบุเบอร์ ${valDigits} สำหรับเช็คอิน Walk-in`);
+      setTimeout(() => setFeedbackMessage(''), 3000);
+      return;
+    }
+
+    setFeedbackMessage(`⚠️ ไม่พบข้อมูลที่ตรงกับ "${rawVal}"`);
+    setTimeout(() => setFeedbackMessage(''), 4000);
+  };
+
+  // Autocomplete matching lists while typing
+  const matchingBookings = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase().trim();
+    const qDigits = q.replace(/\D/g, '');
+    return bookings.filter(b => {
+      if (b.status === 'เสร็จสิ้น' || b.status === 'ยกเลิก') return false;
+      const name = String(b.customerName || '').toLowerCase();
+      const phone = String(b.customerPhone || '').replace(/\D/g, '');
+      const ticket = String(b.ticketNo || '').toLowerCase();
+      const id = String(b.id || '').toLowerCase();
+      return name.includes(q) || (qDigits && phone.includes(qDigits)) || ticket.includes(q) || id.includes(q);
+    }).slice(0, 5);
+  }, [bookings, searchQuery]);
+
+  const matchingCustomers = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase().trim();
+    const qDigits = q.replace(/\D/g, '');
+    return customers.filter(c => {
+      const name = String(c.name || c.computedName || '').toLowerCase();
+      const phone = String(c.phone || c.computedPhone || '').replace(/\D/g, '');
+      const memberNo = String(c.memberCardNo || c.customerNo || '').toLowerCase();
+      const hn = String(c.hn || '').toLowerCase();
+      const idCard = String(c.idCard || c.citizenId || '').replace(/\D/g, '');
+      return name.includes(q) || (qDigits && phone.includes(qDigits)) || memberNo.includes(q) || hn.includes(q) || (qDigits && idCard.includes(qDigits));
+    }).slice(0, 5);
+  }, [customers, searchQuery]);
 
   // Handle Photo selection and compression
   const handlePhotoUpload = (e) => {
@@ -127,7 +327,7 @@ export default function SmartQueueCheckInModal({
         } else {
           if (height > MAX_HEIGHT) {
             width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
+            width = MAX_HEIGHT;
           }
         }
 
@@ -155,7 +355,10 @@ export default function SmartQueueCheckInModal({
         courseNo: selectedCourse ? (selectedCourse["เลขที่ใบคอส"] || selectedCourse.courseRefKey || selectedCourse.courseNo) : null,
         bedNumber: selectedBed,
         beforePhoto: beforePhoto || null,
-        selectedCourseObj: selectedCourse || null
+        selectedCourseObj: selectedCourse || null,
+        customerName: selectedBooking.customerName,
+        customerPhone: selectedBooking.customerPhone,
+        isVirtualWalkIn: selectedBooking.isVirtualWalkIn || false
       };
 
       if (goToPos && onCheckInAndGoToPos) {
@@ -170,6 +373,26 @@ export default function SmartQueueCheckInModal({
       setIsSubmitting(false);
     }
   };
+
+  if (!isOpen) return null;
+
+  // Filter available customer courses
+  const customerPhoneClean = selectedBooking ? String(selectedBooking.customerPhone || '').replace(/\D/g, '') : '';
+  const customerAvailableCourses = courses.filter(c => {
+    const cPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').replace(/\D/g, '');
+    const remainQty = Number(c.computedRemainQty ?? getFuzzyKey(c, ["ครั้งที่เหลือดิบ", "col_33", "col_4"]) ?? 1);
+    const remainCredit = Number(c.computedRemainCredit ?? getFuzzyKey(c, ["เครดิตที่ได้รับ", "col_14"]) ?? 0);
+    return cPhone && customerPhoneClean && (cPhone === customerPhoneClean || cPhone.endsWith(customerPhoneClean) || customerPhoneClean.endsWith(cPhone)) && (remainQty > 0 || remainCredit > 0);
+  });
+
+  const isLineBooking = Boolean(
+    selectedBooking?.lineUid || 
+    selectedBooking?.source === 'line' || 
+    selectedBooking?.channel === 'line' || 
+    selectedBooking?.source === 'liff' || 
+    selectedBooking?.source === 'LIFF' || 
+    (!selectedBooking?.isAdminCreated && !selectedBooking?.isWalkIn && selectedBooking?.source !== 'POS' && selectedBooking?.source !== 'admin')
+  );
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm print:hidden animate-in fade-in duration-150">
@@ -187,14 +410,14 @@ export default function SmartQueueCheckInModal({
                 <span className="text-[10px] bg-white/25 px-2 py-0.5 rounded-full font-bold">Smart Queue</span>
               </h3>
               <p className="text-[11px] text-emerald-100 font-medium">
-                เลือกคอร์สที่มี ถ่ายรูป Before และเตรียมตัดคอร์ส
+                สแกน QR ลูกค้า / ใบคอร์ส • เลือกคอร์ส • ถ่ายรูป Before
               </p>
             </div>
           </div>
           <button 
             type="button" 
             onClick={onClose} 
-            className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/30 flex items-center justify-center text-white transition-colors"
+            className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/30 flex items-center justify-center text-white transition-colors cursor-pointer"
           >
             <X size={18} />
           </button>
@@ -202,7 +425,124 @@ export default function SmartQueueCheckInModal({
 
         {/* Modal Scroll Body */}
         <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
+
+          {/* Feedback notification toast inside modal */}
+          {feedbackMessage && (
+            <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-2xl text-xs font-black text-emerald-800 flex items-center gap-2 animate-in fade-in">
+              <Sparkles size={15} className="text-emerald-600 shrink-0" />
+              <span>{feedbackMessage}</span>
+            </div>
+          )}
           
+          {/* 🌟 Universal Customer & Booking Search / Scan Bar */}
+          <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-black text-slate-800 flex items-center gap-1.5">
+                <Search size={14} className="text-teal-600" />
+                <span>ระบุตัวตนลูกค้า (สแกน QR / พิมพ์เบอร์ / รหัส / ชื่อ):</span>
+              </label>
+              {selectedBooking && (
+                <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200 font-bold">
+                  ✓ ระบุตัวตนแล้ว
+                </span>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleIdentifyInput(searchQuery);
+                    }
+                  }}
+                  placeholder="สแกน หรือพิมพ์ เบอร์โทร, เลขตั๋ว, รหัสสมาชิก, เลขบัตร ปชช., ชื่อ..."
+                  className="w-full pl-9 pr-3 py-2.5 text-xs rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-teal-500 bg-white shadow-2xs font-medium"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsScannerOpen(true)}
+                className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md shadow-teal-200 active:scale-95 transition-all shrink-0 cursor-pointer"
+                title="เปิดกล้องสแกน QR Code หรือบาร์โค้ด"
+              >
+                <QrCode size={16} />
+                <span>สแกน QR</span>
+              </button>
+            </div>
+
+            {/* Dropdown search suggestions when typing */}
+            {searchQuery.trim().length > 0 && (
+              <div className="max-h-48 overflow-y-auto space-y-1 bg-white border border-slate-200 rounded-xl p-1.5 shadow-md">
+                {/* Bookings matches */}
+                {matchingBookings.length > 0 && (
+                  <div>
+                    <div className="text-[9px] font-black uppercase text-slate-400 px-2 py-0.5">คิวนัดหมายที่ตรงกัน:</div>
+                    {matchingBookings.map(b => (
+                      <div
+                        key={b.id}
+                        onClick={() => { setSelectedBooking(b); setSearchQuery(''); }}
+                        className="px-2.5 py-1.5 rounded-lg text-xs hover:bg-teal-50 cursor-pointer flex items-center justify-between transition-colors"
+                      >
+                        <div>
+                          <span className="font-black text-slate-800">{b.customerName}</span>
+                          <span className="text-[11px] text-slate-500 font-mono ml-1.5">({b.customerPhone})</span>
+                        </div>
+                        <span className="text-[10px] text-teal-700 font-black bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                          {b.time || b.dateTime?.split('T')[1]?.substring(0, 5)} น.
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Customers matches */}
+                {matchingCustomers.length > 0 && (
+                  <div className="pt-1 border-t border-slate-100">
+                    <div className="text-[9px] font-black uppercase text-slate-400 px-2 py-0.5">ลูกค้าในระบบ (Customer DB):</div>
+                    {matchingCustomers.map(cust => (
+                      <div
+                        key={cust.id}
+                        onClick={() => { handleIdentifyInput(cust.phone || cust.id); setSearchQuery(''); }}
+                        className="px-2.5 py-1.5 rounded-lg text-xs hover:bg-indigo-50 cursor-pointer flex items-center justify-between transition-colors"
+                      >
+                        <div>
+                          <span className="font-black text-indigo-900">{cust.name || cust.computedName}</span>
+                          <span className="text-[11px] text-slate-500 font-mono ml-1.5">({cust.phone || cust.computedPhone})</span>
+                          {cust.memberCardNo && <span className="text-[9px] text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded ml-1">#{cust.memberCardNo}</span>}
+                        </div>
+                        <span className="text-[10px] text-indigo-700 font-bold">
+                          เลือกลูกค้า ↗
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {matchingBookings.length === 0 && matchingCustomers.length === 0 && (
+                  <div className="p-2 text-center text-xs text-slate-500">
+                    <span>ไม่พบข้อมูลที่ตรงกัน </span>
+                    {searchQuery.replace(/\D/g, '').length >= 9 && (
+                      <button
+                        type="button"
+                        onClick={() => handleIdentifyInput(searchQuery)}
+                        className="text-xs text-teal-600 font-bold underline ml-1 cursor-pointer"
+                      >
+                        เช็คอินเป็น Walk-in ด้วยเบอร์นี้ทันที
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Customer & Booking Info Card */}
           {selectedBooking ? (
             <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3.5 space-y-2.5">
@@ -249,43 +589,13 @@ export default function SmartQueueCheckInModal({
 
               {/* Course booked originally */}
               <div className="text-[11px] text-slate-600 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200/80 flex items-center justify-between">
-                <span className="font-medium text-slate-500">บริการที่จองไว้:</span>
+                <span className="font-medium text-slate-500">บริการที่นัดหมายไว้:</span>
                 <span className="font-black text-slate-800">{selectedBooking.courseName || 'บริการทั่วไป'}</span>
               </div>
             </div>
           ) : (
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-800 font-bold text-center">
-              กรุณาเลือกลูกค้าหรือคิวนัดหมายที่ต้องการเช็คอิน
-            </div>
-          )}
-
-          {/* Quick Booking Switcher if multiple bookings */}
-          {!preselectedBooking && (
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                ค้นหาหรือเปลี่ยนคิวที่ต้องการเช็คอิน:
-              </label>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="พิมพ์ชื่อ, เบอร์โทร หรือเลขตั๋ว..."
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-teal-500 bg-white"
-              />
-              {filteredBookings.length > 0 && searchQuery && (
-                <div className="mt-1.5 max-h-36 overflow-y-auto space-y-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-                  {filteredBookings.slice(0, 6).map(b => (
-                    <div
-                      key={b.id}
-                      onClick={() => { setSelectedBooking(b); setSearchQuery(''); }}
-                      className="px-2.5 py-1.5 rounded-lg text-xs hover:bg-teal-50 cursor-pointer flex items-center justify-between transition-colors"
-                    >
-                      <span className="font-bold text-slate-800">{b.customerName} ({b.customerPhone})</span>
-                      <span className="text-[10px] text-teal-600 font-black">{b.time || b.dateTime?.split('T')[1]?.substring(0, 5)} น.</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              กรุณากดปุ่ม <strong>[ สแกน QR ]</strong> หรือพิมพ์เบอร์โทร/ชื่อ เพื่อระบุตัวตนลูกค้า
             </div>
           )}
 
@@ -393,7 +703,7 @@ export default function SmartQueueCheckInModal({
                     key={bed || 'none'}
                     type="button"
                     onClick={() => setSelectedBed(bed)}
-                    className={`py-2 px-1 text-center rounded-xl text-xs font-bold transition-all border ${
+                    className={`py-2 px-1 text-center rounded-xl text-xs font-bold transition-all border cursor-pointer ${
                       isSelected
                         ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                         : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
@@ -417,7 +727,7 @@ export default function SmartQueueCheckInModal({
                 <button
                   type="button"
                   onClick={() => setBeforePhoto(null)}
-                  className="text-[10px] text-rose-500 hover:text-rose-700 font-bold flex items-center gap-0.5"
+                  className="text-[10px] text-rose-500 hover:text-rose-700 font-bold flex items-center gap-0.5 cursor-pointer"
                 >
                   <Trash2 size={11} /> ลบรูป
                 </button>
@@ -438,7 +748,7 @@ export default function SmartQueueCheckInModal({
                   <button
                     type="button"
                     onClick={() => cameraInputRef.current?.click()}
-                    className="p-1.5 bg-white text-slate-800 rounded-full shadow"
+                    className="p-1.5 bg-white text-slate-800 rounded-full shadow cursor-pointer"
                     title="ถ่ายใหม่"
                   >
                     <Camera size={14} />
@@ -446,7 +756,7 @@ export default function SmartQueueCheckInModal({
                   <button
                     type="button"
                     onClick={() => setBeforePhoto(null)}
-                    className="p-1.5 bg-rose-500 text-white rounded-full shadow"
+                    className="p-1.5 bg-rose-500 text-white rounded-full shadow cursor-pointer"
                     title="ลบ"
                   >
                     <Trash2 size={14} />
@@ -531,6 +841,18 @@ export default function SmartQueueCheckInModal({
         </div>
 
       </div>
+
+      {/* 📷 Built-in Camera Scanner Modal */}
+      {isScannerOpen && (
+        <BarcodeScannerModal
+          isOpen={isScannerOpen}
+          onClose={() => setIsScannerOpen(false)}
+          onScan={(scannedText) => {
+            handleIdentifyInput(scannedText);
+          }}
+        />
+      )}
+
     </div>
   );
 }

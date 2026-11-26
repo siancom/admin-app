@@ -435,7 +435,7 @@ export default function App() {
   // 📸 บันทึกข้อมูลเช็คอินอัจฉริยะ (เลือกคอร์ส, เตียง, รูป Before)
   const handleConfirmSmartCheckIn = async (bookingId, checkInData) => {
     try {
-      const { selectedCourse, selectedBed, beforePhoto, customerPhone, customerName } = checkInData;
+      const { selectedCourse, selectedBed, beforePhoto, customerPhone, customerName, isVirtualWalkIn } = checkInData;
       const updatePayload = {
         status: 'กำลังใช้บริการ',
         serviceStartTime: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
@@ -448,11 +448,33 @@ export default function App() {
         updatePayload.checkedInCourseName = selectedCourse["ชื่อคอส"] || selectedCourse.name || null;
       }
       
-      await updateDoc(getDocRef('bookings', bookingId), updatePayload);
+      let finalBookingId = bookingId;
+      if (isVirtualWalkIn || String(bookingId || '').startsWith('walkin_')) {
+        const now = new Date();
+        const newBookingData = {
+          customerName: customerName || 'ลูกค้า Walk-in',
+          customerPhone: customerPhone || '',
+          branch: globalBranch || 'เฉวง',
+          isWalkIn: true,
+          courseName: selectedCourse ? (selectedCourse["ชื่อคอส"] || selectedCourse.name) : 'บริการทั่วไป',
+          dateTime: now.toISOString(),
+          date: getLocalYYYYMMDD(now),
+          time: now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+          createdAt: now.toISOString(),
+          ...updatePayload
+        };
+        const docRef = await addDoc(getCol('bookings'), newBookingData);
+        finalBookingId = docRef.id;
+      } else {
+        await updateDoc(getDocRef('bookings', bookingId), updatePayload);
+      }
+
       triggerToast(`เช็คอินคุณ ${customerName || 'ลูกค้า'} สำเร็จ สถานะเป็น "กำลังใช้บริการ"`, 'success');
+      return finalBookingId;
     } catch (err) {
       console.error('Check-in error:', err);
       triggerToast('เกิดข้อผิดพลาดในการเช็คอิน: ' + err.message, 'error');
+      return bookingId;
     }
   };
   
@@ -11767,15 +11789,17 @@ const flexMessage = {
         globalBranch={globalBranch || 'เฉวง'}
         onConfirmCheckIn={handleConfirmSmartCheckIn}
         onCheckInAndGoToPos={async (booking, selectedCourse, beforePhoto, selectedBed) => {
-          await handleConfirmSmartCheckIn(booking.id, {
+          const finalId = await handleConfirmSmartCheckIn(booking.id, {
             selectedCourse,
             selectedBed,
             beforePhoto,
             customerPhone: booking.customerPhone,
-            customerName: booking.customerName
+            customerName: booking.customerName,
+            isVirtualWalkIn: booking.isVirtualWalkIn || String(booking.id || '').startsWith('walkin_')
           });
           handleGoToPosCutCourse({
             ...booking,
+            id: finalId || booking.id,
             checkedInCourseId: selectedCourse?.id,
             courseName: selectedCourse ? (selectedCourse["ชื่อคอส"] || selectedCourse.name) : booking.courseName,
             beforePhoto: beforePhoto || booking.beforePhoto
@@ -11790,19 +11814,56 @@ const flexMessage = {
           onScan={(data) => {
             setIsCheckInScannerOpen(false);
             if (!data) return;
-            const val = String(data).trim().toUpperCase();
-            const found = bookings.find(b => { 
-              const bPhone = String(b.customerPhone || '').trim().toUpperCase();
-              const bId = String(b.id || '').trim().toUpperCase();
-              const bTicket = String(b.ticketNo || '').trim().toUpperCase();
-              return bPhone === val || bId === val || bTicket === val;
+            const rawVal = String(data).trim();
+            const val = rawVal.toUpperCase();
+            const valDigits = rawVal.replace(/\D/g, '');
+
+            // 1. Try finding in bookings
+            const foundBooking = bookings.find(b => { 
+              const bPhone = String(b.customerPhone || '').replace(/\D/g, '');
+              const bId = String(b.id || '').toUpperCase();
+              const bTicket = String(b.ticketNo || '').toUpperCase();
+              return (bPhone && valDigits && bPhone === valDigits) || bId === val || bTicket === val;
             });
-            if (found) {
-              setSmartCheckInBooking(found);
+            if (foundBooking) {
+              setSmartCheckInBooking(foundBooking);
               setIsCheckInOpen(true);
-            } else {
-              handleCheckInSubmit(null, data);
+              return;
             }
+
+            // 2. Try finding in customers (HN, Member Card, Citizen ID, Phone, Customer ID)
+            const foundCustomer = customers.find(c => {
+              const cPhone = String(c.computedPhone || c.phone || '').replace(/\D/g, '');
+              const cIdCard = String(c.idCard || c.citizenId || '').replace(/\D/g, '');
+              const cNo = String(c.customerNo || c.memberCardNo || '').toUpperCase();
+              const cHn = String(c.hn || '').toUpperCase();
+              const cId = String(c.id || '').toUpperCase();
+              return cId === val || cNo === val || cHn === val || 
+                     (valDigits.length === 13 && cIdCard === valDigits) ||
+                     (valDigits.length >= 8 && cPhone && (cPhone === valDigits || cPhone.endsWith(valDigits) || valDigits.endsWith(cPhone)));
+            });
+            if (foundCustomer) {
+              const now = new Date();
+              setSmartCheckInBooking({
+                id: `walkin_${Date.now()}`,
+                customerName: foundCustomer.name || foundCustomer.computedName || 'ลูกค้า Walk-in',
+                customerPhone: foundCustomer.phone || foundCustomer.computedPhone || '',
+                customerId: foundCustomer.id,
+                branch: globalBranch || 'เฉวง',
+                isWalkIn: true,
+                courseName: 'บริการทั่วไป (Walk-in)',
+                dateTime: now.toISOString(),
+                date: getLocalYYYYMMDD(now),
+                time: now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+                status: 'รอการยืนยัน',
+                isVirtualWalkIn: true
+              });
+              setIsCheckInOpen(true);
+              return;
+            }
+
+            // 3. Fallback to general check-in submit
+            handleCheckInSubmit(null, data);
           }} 
         />
       </React.Suspense>
