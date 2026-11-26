@@ -283,3 +283,25 @@ export function findAutoMatchedProduct(giftName, productsList) {
 
   return null;
 }
+
+/**
+ * 🔍 ตรวจสอบว่ารายการประวัตินี้มาจากระบบเก่า (AppSheet Migration) หรือไม่
+ * ระบบใหม่ (POS) จะมี orderNo/หมายเลขคำสั่งซื้อ ขึ้นต้นด้วย ORD-, POS-, IC-
+ * หรือมี source: 'POS' / 'SHOPEE', หรือมี usedServices, orderId
+ */
+export function isLegacyHistory(h) {
+  if (!h) return false;
+  const source = String(h.source || '').toUpperCase();
+  if (source === 'POS' || source === 'SHOPEE') return false;
+
+  const orderNo = String(h.หมายเลขคำสั่งซื้อ || h.orderNo || h.orderId || h.เลขที่บิล || h.อ้างอิง || '').trim().toUpperCase();
+  if (orderNo.startsWith('ORD-') || orderNo.startsWith('POS-') || orderNo.startsWith('IC-')) {
+    return false;
+  }
+
+  if (Array.isArray(h.usedServices) && h.usedServices.length > 0) return false;
+  if (h.orderId || h.posOrderId) return false;
+  if (h.checkInBookingId || h.checkInId) return false;
+
+  return true;
+}

@@ -1816,9 +1816,13 @@ export default function SettingsPage({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-6">
                 {deleteButtons.map((btn, idx) => (
                   <button key={idx} onClick={() => setConfirmDeleteModal({ isOpen: true, type: btn.type, data: btn.data })} disabled={btn.data.length === 0}
-                    className="bg-red-50 hover:bg-red-100 disabled:bg-gray-50 disabled:text-gray-300 text-red-600 border border-red-100 disabled:border-gray-200 p-4 rounded-2xl text-sm font-bold flex items-center justify-between transition-colors group shadow-sm active:scale-95">
+                    className={`p-4 rounded-2xl text-sm font-bold flex items-center justify-between transition-colors group shadow-sm active:scale-95 ${
+                      btn.isSpecial
+                        ? 'bg-purple-50 hover:bg-purple-100 disabled:bg-gray-50 disabled:text-gray-300 text-purple-700 border border-purple-200 disabled:border-gray-200'
+                        : 'bg-red-50 hover:bg-red-100 disabled:bg-gray-50 disabled:text-gray-300 text-red-600 border border-red-100 disabled:border-gray-200'
+                    }`}>
                     <span className="flex items-center"><Trash2 size={18} className="mr-2"/> {btn.label}</span>
-                    <span className="bg-white group-disabled:bg-gray-100 px-2.5 py-1 rounded-lg text-[10px] border border-red-100 group-disabled:border-gray-200">{btn.data.length} รายการ</span>
+                    <span className={`px-2.5 py-1 rounded-lg text-[10px] border ${btn.isSpecial ? 'bg-white text-purple-700 border-purple-200' : 'bg-white text-red-600 border-red-100'} group-disabled:bg-gray-100 group-disabled:border-gray-200`}>{btn.data.length} รายการ</span>
                   </button>
                 ))}
               </div>

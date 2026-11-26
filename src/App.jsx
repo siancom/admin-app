@@ -50,7 +50,7 @@ import { getFuzzyKey } from './utils/fuzzy';
 import { 
   isUsageType, isAddType, isFreeUsageApp as isFreeUsage, extractHistoryQty, 
   isMoleHistoryRecord, checkWarranty, getHistoryDateKey, getHistorySortTime, 
-  getHistoryBranch, isHistoryUsageRecord 
+  getHistoryBranch, isHistoryUsageRecord, isLegacyHistory 
 } from './utils/courseUtils';
 import { handleProfileImgError, parseImageUrl, getProfilePicData } from './utils/imageUtils';
 import { getSafeDateTime, getBookingStatus, getOrderStatus } from './utils/dateUtils';
@@ -311,8 +311,14 @@ export default function App() {
   const [historyCategoryFilter, setHistoryCategoryFilter] = useState('all'); 
   const [historyBranchFilter, setHistoryBranchFilter] = useState('all'); 
   const [historyActionTypeFilter, setHistoryActionTypeFilter] = useState('all'); 
+  const [historySourceFilter, setHistorySourceFilter] = useState('all'); // 'all', 'pos', 'legacy'
   const [historySortBy, setHistorySortBy] = useState('newest'); 
   const [historyLimit, setHistoryLimit] = useState(60); 
+
+  // 🌟 รายการประวัติจากระบบเก่า (AppSheet Migration)
+  const legacyHistories = useMemo(() => {
+    return (histories || []).filter(isLegacyHistory);
+  }, [histories]); 
   const [bookingViewMode, setBookingViewMode] = useState('timeline');
   const [customerViewMode, setCustomerViewMode] = useState('grid'); 
   const [customerSortBy, setCustomerSortBy] = useState('accumulated');
@@ -2384,6 +2390,13 @@ export default function App() {
         if (historyActionTypeFilter === 'credit' && !type.includes('เครดิต') && !type.includes('โอน') && !type.includes('หักเงิน')) return false;
       }
 
+      // 7. Source filter: all, pos, legacy
+      if (historySourceFilter !== 'all') {
+        const isLeg = isLegacyHistory(h);
+        if (historySourceFilter === 'pos' && isLeg) return false;
+        if (historySourceFilter === 'legacy' && !isLeg) return false;
+      }
+
       return true;
     }).sort((a, b) => {
       if (historySortBy === 'oldest') {
@@ -2397,7 +2410,7 @@ export default function App() {
       // default: newest first
       return getHistorySortTime(b) - getHistorySortTime(a);
     });
-  }, [histories, searchTerm, historyPeriodFilter, historyStartDate, historyEndDate, historyBranchFilter, historyCategoryFilter, historyActionTypeFilter, historySortBy]);
+  }, [histories, searchTerm, historyPeriodFilter, historyStartDate, historyEndDate, historyBranchFilter, historyCategoryFilter, historyActionTypeFilter, historySourceFilter, historySortBy]);
 
   const sortedHistories = filteredHistories;
 
@@ -2534,13 +2547,19 @@ export default function App() {
         if (br !== targetBr) return;
       }
 
+      if (historySourceFilter !== 'all') {
+        const isLeg = isLegacyHistory(h);
+        if (historySourceFilter === 'pos' && isLeg) return;
+        if (historySourceFilter === 'legacy' && !isLeg) return;
+      }
+
       counts.all++;
       const cat = getHistoryCategoryInfo(h).id;
       if (counts[cat] !== undefined) counts[cat]++;
       else counts.other++;
     });
     return counts;
-  }, [histories, historyPeriodFilter, historyStartDate, historyEndDate, historyBranchFilter]);
+  }, [histories, historyPeriodFilter, historyStartDate, historyEndDate, historyBranchFilter, historySourceFilter]);
 
   const historyFilteredSummary = useMemo(() => {
     const branches = {};
@@ -3315,7 +3334,16 @@ export default function App() {
 
   const executeDeleteData = async () => {
     const { type, data } = confirmDeleteModal;
-    const cmap = { 'รายการคอร์สตั้งต้น': 'master_courses', 'ใบคอร์ส': 'courses', 'ลูกค้า': 'customers', 'ประวัติ': 'histories', 'การจองคิว': 'bookings', 'คำสั่งซื้อ': 'orders', 'สินค้า': 'products' };
+    const cmap = { 
+      'รายการคอร์สตั้งต้น': 'master_courses', 
+      'ใบคอร์ส': 'courses', 
+      'ลูกค้า': 'customers', 
+      'ประวัติ': 'histories', 
+      'ประวัติจากระบบเก่า': 'histories',
+      'การจองคิว': 'bookings', 
+      'คำสั่งซื้อ': 'orders', 
+      'สินค้า': 'products' 
+    };
     const validCollections = ['master_courses', 'courses', 'customers', 'histories', 'bookings', 'orders', 'products'];
     const collectionName = cmap[type] || (validCollections.includes(type) ? type : null); 
     if (!collectionName) return;
@@ -6358,7 +6386,8 @@ const flexMessage = {
     { type: 'รายการคอร์สตั้งต้น', data: masterCourses, label: 'ล้างคอร์สตั้งต้น' },
     { type: 'ใบคอร์ส', data: courses, label: 'ล้างใบคอร์ส' },
     { type: 'ลูกค้า', data: customersRaw, label: 'ล้างลูกค้า' },
-    { type: 'ประวัติ', data: histories, label: 'ล้างประวัติ' },
+    { type: 'ประวัติ', data: histories, label: 'ล้างประวัติ (ทั้งหมด)' },
+    { type: 'ประวัติจากระบบเก่า', data: legacyHistories, label: 'ล้างประวัติจากระบบเก่า', isSpecial: true },
     { type: 'การจองคิว', data: bookings, label: 'ล้างการจองคิว' },
     { type: 'คำสั่งซื้อ', data: orders, label: 'ล้างคำสั่งซื้อ' },
     { type: 'สินค้า', data: products, label: 'ล้างสินค้า' },
@@ -8835,21 +8864,53 @@ const flexMessage = {
                           </select>
                        </div>
 
+                       {/* Source Filter Dropdown */}
+                       <div className="relative">
+                          <select 
+                             value={historySourceFilter} 
+                             onChange={(e) => setHistorySourceFilter(e.target.value)} 
+                             className="bg-purple-50 hover:bg-purple-100 rounded-xl px-3 py-2 text-xs font-bold outline-none border border-purple-200 text-purple-700 cursor-pointer transition-colors"
+                          >
+                             <option value="all">ทุกแหล่งที่มา</option>
+                             <option value="pos">ระบบใหม่ (POS)</option>
+                             <option value="legacy">ระบบเก่า (AppSheet)</option>
+                          </select>
+                       </div>
+
+                       {/* ปุ่มล้างประวัติจากระบบเก่า */}
+                       <button 
+                          type="button"
+                          onClick={() => {
+                             setConfirmDeleteModal({ 
+                                isOpen: true, 
+                                type: 'ประวัติจากระบบเก่า', 
+                                data: legacyHistories 
+                             });
+                          }} 
+                          disabled={legacyHistories.length === 0}
+                          className="px-3 py-2 rounded-xl text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 transition-colors flex items-center gap-1.5 shadow-2xs active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed shrink-0 cursor-pointer"
+                          title="ลบเฉพาะประวัติที่มาจากระบบเก่า (ไม่กระทบ POS)"
+                       >
+                          <Trash2 size={13} />
+                          <span>ล้างประวัติจากระบบเก่า ({legacyHistories.length})</span>
+                       </button>
+
                        {/* Reset Filter Button */}
-                       {(historyPeriodFilter !== 'all' || historyBranchFilter !== 'all' || historyCategoryFilter !== 'all' || historyActionTypeFilter !== 'all' || searchInput !== '' || historyStartDate !== '' || historyEndDate !== '') && (
+                       {(historyPeriodFilter !== 'all' || historyBranchFilter !== 'all' || historyCategoryFilter !== 'all' || historyActionTypeFilter !== 'all' || historySourceFilter !== 'all' || searchInput !== '' || historyStartDate !== '' || historyEndDate !== '') && (
                           <button 
                              onClick={() => {
                                 setHistoryPeriodFilter('all');
                                 setHistoryBranchFilter('all');
                                 setHistoryCategoryFilter('all');
                                 setHistoryActionTypeFilter('all');
+                                setHistorySourceFilter('all');
                                 setHistorySortBy('newest');
                                 setSearchInput('');
                                 setHistoryStartDate('');
                                 setHistoryEndDate('');
                                 setHistoryLimit(60);
                              }}
-                             className="px-2.5 py-2 rounded-xl text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors flex items-center gap-1 shrink-0"
+                             className="px-2.5 py-2 rounded-xl text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
                              title="ล้างตัวกรองทั้งหมด"
                           >
                              <RotateCcw size={12} /> ล้างตัวกรอง
@@ -9785,7 +9846,30 @@ const flexMessage = {
                    );
                 })()}
 
-                <h3 className="font-black text-gray-800 mb-3 flex items-center"><HistoryIcon size={18} className="mr-2 text-gray-400"/> ประวัติการรับบริการ / หักเครดิตสินค้า</h3>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                   <h3 className="font-black text-gray-800 flex items-center">
+                      <HistoryIcon size={18} className="mr-2 text-gray-400"/> ประวัติการรับบริการ / หักเครดิตสินค้า
+                   </h3>
+                   {(() => {
+                       const courseLegacyHistories = selectedCourse.myHistories?.filter(isLegacyHistory) || [];
+                       if (courseLegacyHistories.length === 0) return null;
+                       return (
+                           <button
+                               type="button"
+                               onClick={() => setConfirmDeleteModal({
+                                   isOpen: true,
+                                   type: 'ประวัติจากระบบเก่า',
+                                   data: courseLegacyHistories
+                               })}
+                               className="text-xs text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 self-start sm:self-auto shadow-2xs active:scale-95 cursor-pointer"
+                               title="ลบเฉพาะประวัติของคอร์สนี้ที่มาจากระบบเก่า"
+                           >
+                               <Trash2 size={13} />
+                               <span>ล้างประวัติระบบเก่าของคอร์สนี้ ({courseLegacyHistories.length})</span>
+                           </button>
+                       );
+                   })()}
+                </div>
                 
                 <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
                    {(() => {
@@ -10083,7 +10167,35 @@ const flexMessage = {
 
                     {customerModalTab === 'courseUsage' && (
                         <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-                            <HistoryTable histories={getCustomerCourseUsage(selectedCustomer)} showActions={true} onRefund={handleRefundCourse} />
+                            {(() => {
+                                const usages = getCustomerCourseUsage(selectedCustomer);
+                                const legacyUsages = usages.filter(isLegacyHistory);
+                                return (
+                                    <>
+                                        {legacyUsages.length > 0 && (
+                                            <div className="flex justify-between items-center p-3 bg-purple-50/70 border-b border-purple-100 px-5">
+                                                <span className="text-xs font-bold text-purple-900">
+                                                    มีประวัติจากระบบเก่า {legacyUsages.length} รายการ
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setConfirmDeleteModal({
+                                                        isOpen: true,
+                                                        type: 'ประวัติจากระบบเก่า',
+                                                        data: legacyUsages
+                                                    })}
+                                                    className="text-xs text-rose-600 bg-white hover:bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+                                                    title="ลบเฉพาะประวัติใช้คอร์สของลูกค้ารายนี้ที่มาจากระบบเก่า"
+                                                >
+                                                    <Trash2 size={13} />
+                                                    <span>ล้างประวัติระบบเก่า ({legacyUsages.length})</span>
+                                                </button>
+                                            </div>
+                                        )}
+                                        <HistoryTable histories={usages} showActions={true} onRefund={handleRefundCourse} />
+                                    </>
+                                );
+                            })()}
                         </div>
                     )}
 
@@ -13122,12 +13234,13 @@ const flexMessage = {
             <div className="bg-white w-full max-w-sm rounded-[32px] p-6 sm:p-8 shadow-2xl animate-in zoom-in-95 text-center">
                 <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4"><AlertTriangle size={32}/></div>
                 <h3 className="text-xl font-black text-gray-800 mb-2">ยืนยันการลบข้อมูล</h3>
-                <p className="text-sm text-gray-500 mb-6">คุณกำลังจะลบข้อมูล 
+                <p className="text-sm text-gray-500 mb-4">คุณกำลังจะลบข้อมูล 
                   {(() => {
                     const displayType = {
                       'courses': 'ใบคอร์ส',
                       'customers': 'ลูกค้า',
-                      'histories': 'ประวัติ',
+                      'histories': 'ประวัติ (ทั้งหมด)',
+                      'ประวัติจากระบบเก่า': 'ประวัติจากระบบเก่า (AppSheet Migration)',
                       'bookings': 'การจองคิว',
                       'orders': 'คำสั่งซื้อ',
                       'products': 'สินค้า',
@@ -13137,6 +13250,12 @@ const flexMessage = {
                   })()}
                   จำนวน {confirmDeleteModal.data.length} รายการ การกระทำนี้ไม่สามารถย้อนกลับได้
                 </p>
+                {confirmDeleteModal.type === 'ประวัติจากระบบเก่า' && (
+                  <div className="mb-5 p-3 bg-emerald-50 text-emerald-800 rounded-2xl text-xs font-bold border border-emerald-200 text-left flex items-start gap-2 shadow-2xs">
+                    <span className="text-base shrink-0">🛡️</span>
+                    <span>ประวัติการขาย, การตัดคอร์ส และออเดอร์จากระบบใหม่ (POS) ทั้งหมดจะถูกเก็บรักษาไว้อย่างปลอดภัย 100%</span>
+                  </div>
+                )}
                 <div className="flex gap-3">
                     <button onClick={() => setConfirmDeleteModal({ isOpen: false, type: '', data: [] })} className="flex-1 py-3.5 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors">ยกเลิก</button>
                     <button onClick={executeDeleteData} className="flex-1 py-3.5 rounded-xl font-black text-white bg-red-500 hover:bg-red-600 shadow-md transition-all active:scale-95">ยืนยันลบข้อมูล</button>
