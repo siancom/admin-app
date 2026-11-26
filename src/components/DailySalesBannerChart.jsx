@@ -186,7 +186,19 @@ export default function DailySalesBannerChart({
   const todayIso = useMemo(() => getLocalYYYYMMDD(new Date()), []);
 
   // Compute daily sales map for past 30 days
-  const { chartData, todayStats, yesterdayStats, mtdTotal, mtdDaysCount, peakDay } = useMemo(() => {
+  const { 
+    chartData, 
+    todayStats, 
+    yesterdayStats, 
+    mtdTotal, 
+    mtdPosTotal,
+    mtdPosOrdersCount,
+    mtdPosDaysCount,
+    mtdEodTotal,
+    mtdEodDaysCount,
+    mtdDaysCount, 
+    peakDay 
+  } = useMemo(() => {
     // Generate dates for current range
     const dates = [];
     for (let i = dayRange - 1; i >= 0; i--) {
@@ -292,6 +304,8 @@ export default function DailySalesBannerChart({
         thaiYearShort,
         fullLabel: `${dayName} ${day} ${monthName} ${year + 543}`,
         total: dayTotal,
+        posTotal: ordData.total,
+        eodTotal: eodData ? eodData.totalSales : 0,
         cash: ordData.cash || (eodData ? eodData.cashSales : 0),
         transfer: ordData.transfer || (eodData ? eodData.transferSales : 0),
         orderCount: ordData.orderCount,
@@ -306,28 +320,62 @@ export default function DailySalesBannerChart({
     const yesterdayIso = getLocalYYYYMMDD(yesterdayDate);
 
     const todayItem = chartItems.find(i => i.dateStr === todayIso) || {
-      total: 0, cash: 0, transfer: 0, orderCount: 0
+      total: 0, posTotal: 0, eodTotal: 0, cash: 0, transfer: 0, orderCount: 0
     };
     const yesterdayItem = chartItems.find(i => i.dateStr === yesterdayIso) || {
-      total: 0, cash: 0, transfer: 0, orderCount: 0
+      total: 0, posTotal: 0, eodTotal: 0, cash: 0, transfer: 0, orderCount: 0
     };
 
     // Month-to-date calculation (all days from 1st of current month up to today)
     const currentMonthPrefix = todayIso.substring(0, 7);
-    let mtdSum = 0;
-    let mtdCount = 0;
+
+    // 1. ยอดสะสมจริงจาก POS (บิลขายหน้าร้าน)
+    let mtdPosSum = 0;
+    let mtdPosOrdersCount = 0;
+    let mtdPosDaysCount = 0;
     Object.entries(ordersByDate).forEach(([dStr, val]) => {
       if (dStr.startsWith(currentMonthPrefix) && dStr <= todayIso) {
-        mtdSum += val.total;
-        if (val.total > 0) mtdCount++;
+        mtdPosSum += val.total;
+        mtdPosOrdersCount += val.orderCount;
+        if (val.total > 0) mtdPosDaysCount++;
       }
     });
-    // Add any EOD extra for this month
+
+    // 2. ยอดสะสมจากการส่งยอด (ใบส่งยอดประจำวัน EOD)
+    let mtdEodSum = 0;
+    let mtdEodDaysCount = 0;
+    dailySales.forEach(ds => {
+      if (selectedBranch && selectedBranch !== 'ทั้งหมด') {
+        const dsBranch = normalizeBranchName(ds.branch || 'เฉวง');
+        const sBranch = normalizeBranchName(selectedBranch);
+        if (dsBranch !== sBranch) return;
+      }
+      const dateIso = extractIsoDate(ds.date) || extractIsoDate(ds.createdAt);
+      if (dateIso && dateIso.startsWith(currentMonthPrefix) && dateIso <= todayIso) {
+        const tSales = parseNumber(ds.totalSales);
+        const manualTransfer = parseNumber(ds.manualTransfer || 0);
+        const diff = parseNumber(ds.difference || 0);
+        const extra = manualTransfer + diff;
+        const dayEod = tSales > 0 ? tSales : (parseNumber(ds.cashSales) + parseNumber(ds.transferSales) + extra);
+        mtdEodSum += dayEod;
+        if (dayEod > 0) mtdEodDaysCount++;
+      }
+    });
+
+    // 3. ยอดรวมผสมสำหรับภาพรวม (Combined MTD)
+    let mtdCombinedSum = 0;
+    let mtdCombinedCount = 0;
+    Object.entries(ordersByDate).forEach(([dStr, val]) => {
+      if (dStr.startsWith(currentMonthPrefix) && dStr <= todayIso) {
+        mtdCombinedSum += val.total;
+        if (val.total > 0) mtdCombinedCount++;
+      }
+    });
     Object.entries(eodByDate).forEach(([dStr, eod]) => {
       if (dStr.startsWith(currentMonthPrefix) && dStr <= todayIso) {
         if (!ordersByDate[dStr] && eod.totalSales > 0) {
-          mtdSum += eod.totalSales;
-          mtdCount++;
+          mtdCombinedSum += eod.totalSales;
+          mtdCombinedCount++;
         }
       }
     });
@@ -337,8 +385,13 @@ export default function DailySalesBannerChart({
       maxVal: maxVal > 0 ? maxVal : 10000,
       todayStats: todayItem,
       yesterdayStats: yesterdayItem,
-      mtdTotal: mtdSum,
-      mtdDaysCount: mtdCount > 0 ? mtdCount : 1,
+      mtdTotal: mtdCombinedSum,
+      mtdPosTotal: mtdPosSum,
+      mtdPosOrdersCount,
+      mtdPosDaysCount,
+      mtdEodTotal: mtdEodSum,
+      mtdEodDaysCount,
+      mtdDaysCount: mtdCombinedCount > 0 ? mtdCombinedCount : 1,
       peakDay: peak
     };
   }, [orders, dailySales, selectedBranch, dayRange, todayIso]);
@@ -348,6 +401,7 @@ export default function DailySalesBannerChart({
   const pctFromYesterday = yesterdayStats.total > 0 
     ? Math.round((diffFromYesterday / yesterdayStats.total) * 100) 
     : (todayStats.total > 0 ? 100 : 0);
+  const mtdDiff = mtdPosTotal - mtdEodTotal;
 
   // Average per day in current timeframe
   const totalInPeriod = chartData.reduce((s, i) => s + i.total, 0);
@@ -536,21 +590,68 @@ export default function DailySalesBannerChart({
           </div>
         </div>
 
-        {/* KPI 3: ยอดสะสมเดือนนี้ (MTD) */}
-        <div className="bg-slate-800/50 hover:bg-slate-800/70 p-4 sm:p-5 rounded-2xl border border-indigo-500/20 backdrop-blur-md transition-all">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-bold text-slate-400">ยอดสะสมเดือนนี้ (MTD)</span>
-            <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30">
-              {new Date().toLocaleDateString('th-TH', { month: 'short' })}
+        {/* KPI 3: ยอดสะสมเดือนนี้ (MTD) - ยอดจาก POS คู่กับ ยอดส่งยอด */}
+        <div className="bg-slate-800/50 hover:bg-slate-800/70 p-3.5 sm:p-5 rounded-2xl border border-indigo-500/20 backdrop-blur-md transition-all flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                <Store size={14} className="text-purple-400" />
+                ยอดสะสมเดือนนี้ (MTD)
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30">
+                {new Date().toLocaleDateString('th-TH', { month: 'short' })}
+              </span>
+            </div>
+
+            {/* แถบคู่: ยอดจาก POS คู่กับ ยอดส่งยอด */}
+            <div className="space-y-1.5 sm:space-y-2">
+              {/* บรรทัด 1: ยอดจาก POS */}
+              <div className="flex items-center justify-between bg-slate-900/70 px-2.5 py-1.5 sm:py-2 rounded-xl border border-cyan-500/30">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-xs shadow-cyan-400/50" />
+                  <span className="text-[11px] sm:text-xs font-bold text-cyan-300">ยอด POS</span>
+                </div>
+                <div className="text-right flex items-baseline gap-1">
+                  <span className="text-base sm:text-lg font-black text-white tracking-tight">
+                    ฿{mtdPosTotal.toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    ({mtdPosOrdersCount} บิล)
+                  </span>
+                </div>
+              </div>
+
+              {/* บรรทัด 2: ยอดส่งยอด (EOD) */}
+              <div className="flex items-center justify-between bg-slate-900/70 px-2.5 py-1.5 sm:py-2 rounded-xl border border-purple-500/30">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-purple-400 shadow-xs shadow-purple-400/50" />
+                  <span className="text-[11px] sm:text-xs font-bold text-purple-300">ยอดส่งยอด</span>
+                </div>
+                <div className="text-right flex items-baseline gap-1">
+                  <span className="text-base sm:text-lg font-black text-purple-200 tracking-tight">
+                    ฿{mtdEodTotal.toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    ({mtdEodDaysCount} วัน)
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ส่วนท้าย: เปรียบเทียบส่วนต่าง และเฉลี่ยต่อวัน */}
+          <div className="mt-2.5 pt-2 border-t border-slate-700/60 flex items-center justify-between text-[11px] text-slate-400 flex-wrap gap-1">
+            <span className="flex items-center gap-1">
+              {mtdDiff === 0 ? (
+                <span className="text-emerald-400 font-bold">✓ ยอดตรงกัน</span>
+              ) : (
+                <span className={`font-semibold ${mtdDiff > 0 ? 'text-amber-300' : 'text-rose-400'}`}>
+                  ต่างกัน: ฿{Math.abs(mtdDiff).toLocaleString()}
+                </span>
+              )}
             </span>
-          </div>
-          <div className="text-2xl sm:text-3xl font-black text-purple-300 tracking-tight">
-            ฿{mtdTotal.toLocaleString()}
-          </div>
-          <div className="mt-2 text-[11px] sm:text-xs text-slate-400 flex items-center justify-between">
-            <span>เฉลี่ยต่อวัน:</span>
-            <span className="font-bold text-white">
-              ฿{Math.round(mtdTotal / (new Date().getDate() || 1)).toLocaleString()} / วัน
+            <span className="text-slate-300 font-medium">
+              เฉลี่ย: <strong className="text-white">฿{Math.round((mtdPosTotal || mtdEodTotal) / (new Date().getDate() || 1)).toLocaleString()}</strong>/วัน
             </span>
           </div>
         </div>
@@ -592,24 +693,28 @@ export default function DailySalesBannerChart({
           </div>
 
           {activeDay && (
-            <div className="flex items-center gap-3 sm:gap-4 text-xs font-bold flex-wrap">
+            <div className="flex items-center gap-2 sm:gap-3 text-xs font-bold flex-wrap">
               <span className="text-emerald-400">
                 ยอดขาย: ฿{activeDay.total.toLocaleString()}
               </span>
-              <span className="text-slate-400">
-                {activeDay.orderCount} บิล
+              <span className="text-cyan-300 bg-cyan-950/50 px-2 py-0.5 rounded-lg border border-cyan-500/30 text-[11px]">
+                POS: ฿{(activeDay.posTotal ?? activeDay.total).toLocaleString()} ({activeDay.orderCount} บิล)
               </span>
+              {activeDay.isSubmitted ? (
+                <span className="text-purple-300 bg-purple-950/50 px-2 py-0.5 rounded-lg border border-purple-500/30 text-[11px]">
+                  ส่งยอด: ฿{(activeDay.eodTotal || 0).toLocaleString()} ✓
+                </span>
+              ) : (
+                <span className="text-amber-300/80 text-[11px] font-normal">
+                  (ยังไม่ได้ส่งยอด)
+                </span>
+              )}
               <span className="text-cyan-400">
                 โอน: ฿{activeDay.transfer.toLocaleString()}
               </span>
               <span className="text-emerald-300">
                 สด: ฿{activeDay.cash.toLocaleString()}
               </span>
-              {activeDay.isSubmitted && (
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  ปิดยอดแล้ว ✓
-                </span>
-              )}
             </div>
           )}
         </div>
