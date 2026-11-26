@@ -138,7 +138,7 @@ export function CoursePrintSheet({
     const type = String(getFuzzyKey(h, ['ประเภท', 'col_4']) || '').trim();
     const itemDesc = String(getFuzzyKey(h, ['รายการ', 'สินค้า', 'col_23', 'col_18']) || '').trim();
     const deductVal = parseNumber(getFuzzyKey(h, ['ยอดสินค้า', 'ยอดจัดซื้อ', 'ยอดเงิน', 'ยอดเบิก', 'ยอดหัก', 'ยอดหักเครดิต', 'col_19']));
-    const rawQty = getFuzzyKey(h, ['จำนวน', 'จำนวนที่ใช้', 'ตัดคอร์ส', 'col_15']);
+    const rawQty = getFuzzyKey(h, ['จำนวน', 'จำนวนที่ใช้', 'ตัดคอร์ส']);
 
     if (isAddType(type)) {
       extraNoteHistories.push({ h, kind: 'add' });
@@ -624,7 +624,7 @@ export function CoursePrintSheet({
                   const cSig = getFuzzyKey(h, ['ลายเซนต์ลูกค้า', 'ลายเซ็นลูกค้า', 'customerSignature']);
                   const sSig = getFuzzyKey(h, ['ลายเซนต์เจ้าหน้าที่', 'ลายเซ็นพนักงาน', 'staffSignature']);
                   const hType = String(getFuzzyKey(h, ['ประเภท', 'col_4']) || '');
-                  const hQty = parseQty(getFuzzyKey(h, ['จำนวน', 'col_15']));
+                  const hQty = parseQty(getFuzzyKey(h, ['จำนวน', 'จำนวนที่ใช้', 'จำนวนเบิก', 'qty']));
                   return (
                     <tr key={`cred_${i}`} className="h-[9.5mm]" style={{ breakInside: 'avoid' }}>
                       <td className="border border-slate-400 px-1.5 text-center font-mono">

@@ -207,8 +207,11 @@ export default function AdminBookingForm({
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!form.name && !form.phone) {
-            return alert('กรุณาระบุชื่อหรือเบอร์โทรศัพท์ลูกค้าเพื่อทำการจอง');
+        const effectivePhone = (form.phone || customerSearch || '').trim();
+        const effectiveName = (form.name || '').trim() || (effectivePhone ? `ลูกค้า (${formatPhone(effectivePhone)})` : '');
+
+        if (!effectivePhone && !effectiveName) {
+            return alert('กรุณาระบุเบอร์โทรศัพท์หรือชื่อลูกค้าเพื่อทำการจอง');
         }
         if (!form.date || !form.time) {
             return alert('กรุณาเลือกวันที่และเวลา');
@@ -217,6 +220,9 @@ export default function AdminBookingForm({
         setIsSubmitting(true);
         await onSubmit({ 
             ...form, 
+            name: effectiveName,
+            phone: effectivePhone,
+            customerPhone: effectivePhone,
             dateTime: dateTimeStr, 
             duration: totalDuration,
             guestsCount: Math.min(3, Math.max(1, Number(form.guestsCount || 1))) 
@@ -336,8 +342,13 @@ export default function AdminBookingForm({
                             placeholder="พิมพ์เบอร์โทร (08X-XXX-XXXX) หรือชื่อเพื่อค้นหาประวัติ..." 
                             value={customerSearch} 
                             onChange={e => {
-                                setCustomerSearch(e.target.value);
+                                const val = e.target.value;
+                                setCustomerSearch(val);
                                 setIsDropdownOpen(true);
+                                const digits = cleanDigits(val);
+                                if (digits.length >= 8 || /^[\d\s-]+$/.test(val)) {
+                                    setForm(prev => ({ ...prev, phone: digits || val.replace(/\s+/g, '') }));
+                                }
                             }}
                             onFocus={() => setIsDropdownOpen(true)}
                             className="w-full pl-9 pr-28 py-3 border-2 border-white bg-white rounded-2xl outline-none focus:border-teal-400 focus:ring-4 focus:ring-teal-400/10 transition-all font-medium text-gray-800 text-sm shadow-xs" 
@@ -382,14 +393,32 @@ export default function AdminBookingForm({
                                     <div className="text-xs text-gray-500 mt-0.5">
                                         เบอร์ / ชื่อ: <span className="font-bold text-gray-700 font-mono">{customerSearch}</span> (ลูกค้าใหม่)
                                     </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleTriggerRegister(customerSearch)}
-                                        className="mt-3 w-full py-2.5 px-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-xs font-black shadow-md active:scale-95 transition-all flex items-center justify-center gap-2"
-                                    >
-                                        <UserPlus size={16} />
-                                        <span>ลงทะเบียนลูกค้าใหม่ทันที (นำเบอร์ไปกรอกให้อัตโนมัติ)</span>
-                                    </button>
+                                    <div className="mt-3 flex flex-col gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const clean = cleanDigits(customerSearch) || customerSearch;
+                                                setForm(prev => ({ 
+                                                    ...prev, 
+                                                    phone: clean, 
+                                                    name: prev.name || `ลูกค้า (${formatPhone(clean)})` 
+                                                }));
+                                                setIsDropdownOpen(false);
+                                            }}
+                                            className="w-full py-2.5 px-4 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black shadow-md active:scale-95 transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <CheckCircle2 size={16} />
+                                            <span>⚡ ใช้เบอร์นี้จองทันที (ค่อยลงทะเบียนภายหลังได้)</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTriggerRegister(customerSearch)}
+                                            className="w-full py-2 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                                        >
+                                            <UserPlus size={14} />
+                                            <span>หรือลงทะเบียนลูกค้าใหม่ตอนนี้</span>
+                                        </button>
+                                    </div>
                                 </div>
                             ) : (
                                 filteredCustomers.map(c => {
@@ -426,29 +455,31 @@ export default function AdminBookingForm({
 
                 {/* Alert Box when customer not found in system (Prominent Call-to-Action) */}
                 {((isSearchPhoneEntered && !searchPhoneMatch && !selectedCustomer) || isSearchNotFound) && (
-                    <div className="mb-3 p-3 bg-gradient-to-r from-amber-50/90 to-orange-50/90 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs animate-in fade-in">
+                    <div className="mb-3 p-3 bg-gradient-to-r from-teal-50/90 via-emerald-50/90 to-teal-50/90 border border-teal-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs animate-in fade-in">
                         <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
-                                <AlertCircle size={18} />
+                            <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center shrink-0">
+                                <CheckCircle2 size={18} />
                             </div>
                             <div>
-                                <div className="text-xs font-black text-amber-900 flex items-center gap-1.5">
-                                    <span>ยังไม่พบประวัติในระบบ</span>
-                                    <span className="text-[9px] bg-amber-200/80 text-amber-900 px-1.5 py-0.5 rounded font-bold">ลูกค้าใหม่</span>
+                                <div className="text-xs font-black text-teal-900 flex items-center gap-1.5">
+                                    <span>เบอร์: <span className="font-mono font-bold text-teal-800">{customerSearch || form.phone}</span></span>
+                                    <span className="text-[9px] bg-teal-200/80 text-teal-900 px-1.5 py-0.5 rounded font-bold">ลูกค้าใหม่</span>
                                 </div>
-                                <div className="text-[11px] text-amber-700">
-                                    เบอร์: <span className="font-mono font-bold text-amber-900">{customerSearch || form.phone}</span> ยังไม่เคยลงทะเบียน
+                                <div className="text-[11px] text-teal-700">
+                                    ✓ สามารถกดจองได้ทันที ค่อยลงทะเบียนลูกค้าภายหลังได้ (ไม่ต้องกรอกชื่อด้านล่าง)
                                 </div>
                             </div>
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => handleTriggerRegister(customerSearch || form.phone)}
-                            className="shrink-0 flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-black rounded-xl shadow-md active:scale-95 transition-all"
-                        >
-                            <UserPlus size={14} />
-                            <span>ลงทะเบียนลูกค้าใหม่ทันที</span>
-                        </button>
+                        <div className="flex items-center gap-2 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => handleTriggerRegister(customerSearch || form.phone)}
+                                className="flex items-center justify-center gap-1 px-3 py-1.5 bg-white hover:bg-gray-50 border border-teal-300 text-teal-800 text-xs font-bold rounded-xl active:scale-95 transition-all"
+                            >
+                                <UserPlus size={13} />
+                                <span>ลงทะเบียนตอนนี้</span>
+                            </button>
+                        </div>
                     </div>
                 )}
 
@@ -456,15 +487,14 @@ export default function AdminBookingForm({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                     <div>
                         <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 ml-1">
-                            ชื่อลูกค้า <span className="text-rose-500">*</span>
+                            ชื่อลูกค้า <span className="text-gray-400 font-normal">(ไม่บังคับ - ลงทะเบียนภายหลังได้)</span>
                         </label>
                         <div className="relative">
                             <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                                 <User size={16} className="text-gray-400" />
                             </div>
                             <input 
-                                required
-                                placeholder="ระบุชื่อลูกค้า..." 
+                                placeholder="ระบุชื่อลูกค้า (ถ้ามี)..." 
                                 value={form.name} 
                                 onChange={e => setForm({...form, name: e.target.value})} 
                                 className="w-full pl-9 pr-4 py-3 border-2 border-white bg-white rounded-xl outline-none focus:border-teal-400 transition-all font-medium text-gray-800 text-sm shadow-xs" 
@@ -473,14 +503,13 @@ export default function AdminBookingForm({
                     </div>
                     <div>
                         <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 ml-1">
-                            เบอร์โทรศัพท์ <span className="text-rose-500">*</span>
+                            เบอร์โทรศัพท์ <span className="text-teal-600 font-normal">(ดึงจากช่องค้นหาอัตโนมัติ)</span>
                         </label>
                         <div className="relative flex items-center">
                             <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                                 <Phone size={16} className="text-gray-400" />
                             </div>
                             <input 
-                                required
                                 type="tel"
                                 placeholder="08X-XXX-XXXX" 
                                 value={form.phone} 
@@ -516,13 +545,13 @@ export default function AdminBookingForm({
                         </div>
                         {isFormPhoneNotFound && (
                             <div className="mt-1 ml-1 flex items-center justify-between text-[10px]">
-                                <span className="text-amber-700 font-bold">⚠️ ยังไม่มีข้อมูลเบอร์นี้ในระบบ</span>
+                                <span className="text-teal-700 font-medium">✓ เบอร์พร้อมใช้จองทันที (ลงทะเบียนภายหลังได้)</span>
                                 <button
                                     type="button"
                                     onClick={() => handleTriggerRegister(form.phone)}
                                     className="text-teal-700 hover:text-teal-900 underline font-bold"
                                 >
-                                    คลิกเพื่อลงทะเบียนใหม่
+                                    หรือลงทะเบียนตอนนี้
                                 </button>
                             </div>
                         )}

@@ -34,6 +34,8 @@ export function parseNumber(val) {
   if (val === undefined || val === null || val === '') return 0;
   if (typeof val === 'number') return val;
   const strVal = String(val).replace(new RegExp(',', 'g'), '').trim();
+  // 🛡️ Do not extract numbers from file paths, image URLs, or file extensions (e.g. .jpg, .png, Images/)
+  if (strVal.includes('/') || strVal.includes('\\') || /\.(jpg|jpeg|png|webp|gif|pdf)$/i.test(strVal)) return 0;
   const match = strVal.match(/-?\d+(?:\.\d+)?/);
   return match ? parseFloat(match[0]) : 0;
 }
@@ -43,6 +45,8 @@ export function parseQty(val) {
   const strVal = String(val).trim();
   if (strVal === '0' || strVal === '0 ครั้ง') return 0;
   if (strVal.includes('+')) return 1; // Support for product bundles
+  // 🛡️ If it's a file path, image URL, or filename, it's not a quantity!
+  if (strVal.includes('/') || strVal.includes('\\') || /\.(jpg|jpeg|png|webp|gif|pdf)$/i.test(strVal)) return 1;
   const num = Math.floor(parseNumber(val));
   return num >= 0 ? num : 0;
 }

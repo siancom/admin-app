@@ -13333,7 +13333,7 @@ export default function POSSystem({
                                 if (!hType.includes('เบิก')) return false;
                                 const hItem = String(getFuzzyKey(h, ["รายการ", "สินค้า", "col_23", "col_18"]) || '').replace(/\s+/g, '').toLowerCase();
                                 return hItem.includes(cleanItemName) || cleanItemName.includes(hItem);
-                             }).reduce((sum, h) => sum + Math.max(1, parseQty(getFuzzyKey(h, ["จำนวน", "col_15"])) || 1), 0);
+                             }).reduce((sum, h) => sum + Math.max(1, parseQty(getFuzzyKey(h, ["จำนวน", "จำนวนที่ใช้", "จำนวนเบิก"])) || 1), 0);
 
                              const rawClaimedCount = (selectedCourseForUsage.claimedItems || []).filter(c => {
                                 const cleanC = String(c || '').replace(/\s+/g, '').toLowerCase();

@@ -22,7 +22,8 @@ export function isAddType(typeStr) {
 }
 
 export function extractHistoryQty(h) {
-  const rawQty = getFuzzyKey(h, ["จำนวน", "จำนวนที่ใช้", "จำนวนที่ได้", "ตัดคอร์ส", "col_15"]);
+  // 🛡️ Note: col_15 in AppSheet histories is the photo path (รูปใบคอส/สินค้า), NOT quantity!
+  const rawQty = getFuzzyKey(h, ["จำนวน", "จำนวนที่ใช้", "จำนวนที่ได้", "ตัดคอร์ส", "จำนวนครั้งที่ใช้", "qty"]);
   if (rawQty !== undefined && rawQty !== '') {
     const parsed = parseQty(rawQty);
     if (parsed > 0 && parsed <= 500) return parsed;

@@ -1789,7 +1789,7 @@ export default function App() {
                       const hasValidSigs = (h.customerSignature?.length > 200 && h.staffSignature?.length > 200) || h.courseUpdatedDirectly === true;
                       
                       if (isLegacy || hasValidSigs) {
-                          const rawQty = getFuzzyKey(h, ["จำนวน", "จำนวนที่ใช้", "ตัดคอร์ส", "col_15"]);
+                          const rawQty = getFuzzyKey(h, ["จำนวน", "จำนวนที่ใช้", "ตัดคอร์ส"]);
                           const qty = extractHistoryQty(h); 
                           if (!(type.includes('เบิก') && (rawQty === undefined || rawQty === ''))) {
                               if (!h.courseUpdatedDirectly) {
@@ -1951,7 +1951,7 @@ export default function App() {
         initialCredit = 0;
       }
       
-      const courseOldBerq = parseNumber(getFuzzyKey(course, ["ยอดเบิกดิบ", "เบิกไปแล้ว", "ยอดเบิก", "ใช้เครดิต", "หักเครดิต", "col_15"]));
+      const courseOldBerq = parseNumber(getFuzzyKey(course, ["ยอดเบิกดิบ", "เบิกไปแล้ว", "ยอดเบิก", "ใช้เครดิต", "หักเครดิต", "ใช้เครดิตแล้ว", "col_28"]));
       const courseOldAccum = parseNumber(getFuzzyKey(course, ["ยอดสะสมดิบ", "ยอดสะสม", "col_16"]));
       
       let finalBerqAmount = courseOldBerq + courseOldAccum + totalAmountLinkedToCourse;
@@ -1993,7 +1993,7 @@ export default function App() {
           if (hType.includes('เบิก')) {
             const hItem = String(getFuzzyKey(h, ["รายการ", "สินค้า", "col_23", "col_18"]) || '').trim();
             if (hItem) {
-              const qty = Math.max(1, parseQty(getFuzzyKey(h, ["จำนวน", "col_15"])) || 1);
+              const qty = Math.max(1, parseQty(getFuzzyKey(h, ["จำนวน", "จำนวนที่ใช้"])) || 1);
               for (let i = 0; i < qty; i++) cancelledClaimItems.push(hItem);
             }
           }
@@ -3930,7 +3930,7 @@ const flexMessage = {
             const hType = String(getFuzzyKey(historyItem, ["ประเภท", "col_4"]) || '');
             const isClaim = hType.includes('เบิก') || hType === 'เบิกสินค้าจากคอร์ส';
             const claimedItemName = String(getFuzzyKey(historyItem, ["รายการ", "สินค้า", "col_23", "col_18"]) || '').trim();
-            const qtyToRevert = Math.max(1, parseQty(getFuzzyKey(historyItem, ["จำนวน", "col_15"])) || extractHistoryQty(historyItem) || 1);
+            const qtyToRevert = Math.max(1, parseQty(getFuzzyKey(historyItem, ["จำนวน", "จำนวนที่ใช้"])) || extractHistoryQty(historyItem) || 1);
 
             // Locate target course
             const targetCourseId = historyItem.courseId || historyItem["อ้างอิง"] || historyItem["เลขที่ใบคอส"];
@@ -9114,7 +9114,8 @@ const flexMessage = {
                        const typeStr = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '-');
                        const branchName = getHistoryBranch(h);
                        const refKey = String(getFuzzyKey(h, ["อ้างอิง", "เลขที่ใบคอส", "col_6", "courseRefKey"]) || '-');
-                       const staffName = String(getFuzzyKey(h, ["ผู้ให้บริการ", "พนักงาน", "staff", "col_20", "col_21"]) || '').trim();
+                       const rawStaffName = String(getFuzzyKey(h, ["ผู้ให้บริการ", "พนักงาน", "staff", "col_35", "col_21"]) || '').trim();
+                       const staffName = (/^[\d.,\s]+$/.test(rawStaffName) || rawStaffName.length <= 1) ? '' : rawStaffName;
                        const billNo = String(getFuzzyKey(h, ["หมายเลขคำสั่งซื้อ", "เลขที่บิล", "เลขที่", "col_3"]) || '').trim();
                        const amount = parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดเบิก", "ยอด", "col_19"]));
                        const qty = extractHistoryQty(h);
@@ -9167,7 +9168,7 @@ const flexMessage = {
                                    </p>
                                    {qty > 1 && (
                                       <span className="inline-block mt-1 text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.2 rounded-md">
-                                         ใช้งาน {qty} ครั้ง
+                                         {(typeStr.includes('ซื้อ') || typeStr.includes('สินค้า') || catInfo.label.includes('สินค้า')) ? `จำนวน ${qty} ชิ้น` : `ใช้งาน ${qty} ครั้ง`}
                                       </span>
                                    )}
                                 </div>
