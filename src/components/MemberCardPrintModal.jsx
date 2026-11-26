@@ -95,46 +95,42 @@ export default function MemberCardPrintModal({
 
     activeHistories.forEach((h, idx) => {
       const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '').trim();
-      const name = String(getFuzzyKey(h, ["รายการ", "สินค้า", "col_23", "col_18"]) || '').trim();
+      const rawProduct = String(getFuzzyKey(h, ["สินค้า", "col_18", "รายการสินค้า", "รายการเบิก"]) || '').trim();
+      const rawService = String(getFuzzyKey(h, ["รายการที่ทำ", "บริการ", "col_23", "รายการ"]) || '').trim();
+      const rawAction = String(getFuzzyKey(h, ["รายการ", "col_23", "สินค้า", "col_18"]) || '').trim();
       const amt = parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดเบิก", "ยอด", "col_19"]));
       const dateStr = String(getFuzzyKey(h, ["วันที่", "col_1"]) || '-');
       const staff = String(getFuzzyKey(h, ["พนักงาน", "ผู้ให้บริการ", "เจ้าหน้าที่", "staff"]) || '');
       const prodQty = String(getFuzzyKey(h, ["จำนวนสินค้าที่เบิก", "จำนวนเบิก", "จำนวนสินค้า"]) || '');
+      const isLegacy = !h.courseId;
 
-      // Check if deduction, spending, or reimbursement
-      const isDeductionOrSpent = type.includes('เบิก') || type.includes('จ่าย') || type.includes('หัก');
+      // ในระบบเก่าทุกยอดคือยอดซื้อสินค้า (col_19 = ยอดสินค้า)
+      // ลำดับการแสดงชื่อ: แสดงชื่อสินค้าก่อน ตามด้วยชื่อบริการ หรือการกระทำ
+      const displayName = rawProduct || rawService || rawAction || (amt > 0 ? 'สินค้า' : 'รายการ');
 
-      // Check if course or service session
-      const isCourseOrService = (
-        type.includes('คอร์ส') ||
-        type.includes('คอส') ||
-        type.includes('บริการ') ||
-        type.includes('รับบริการ') ||
-        name.includes('คอร์ส') ||
-        name.includes('คอส') ||
-        name.includes('ครั้ง')
-      );
+      // ตรวจสอบการหักเงิน/จ่ายเงินคืน
+      const isDeductionOrSpent = type.includes('จ่ายเงินคืน') || h.isRefund === true;
 
-      // Check product match in master products list
-      const isMatchingProduct = !isCourseOrService && products && products.some(p => {
-        const pName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2", "name"]) || '').trim();
-        return pName && (name.includes(pName) || pName.includes(name));
-      });
-
-      // Pure product accumulation logic (strictly matches App.jsx productEarned)
-      const isProduct = amt > 0 && !isDeductionOrSpent && !isCourseOrService && (
+      // ในระบบเก่า (AppSheet) ทุกยอดเงินที่บันทึกไว้ในประวัติ (col_19 = ยอดสินค้า) คือยอดซื้อสินค้าทั้งหมด
+      // ในระบบใหม่รวมรายการที่มีสินค้า, type สินค้า, หรือ amt > 0
+      const isProduct = amt > 0 && !isDeductionOrSpent && (
+        isLegacy ||
         type.includes('สินค้า') ||
         type.includes('จัดซื้อ') ||
-        isMatchingProduct
+        rawProduct.length > 0 ||
+        (products && products.some(p => {
+          const pName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2", "name"]) || '').trim();
+          return pName && (displayName.includes(pName) || pName.includes(displayName));
+        }))
       );
 
       items.push({
         id: h.id || `h_${idx}`,
         date: dateStr,
-        name: name || (isProduct ? 'สินค้า' : (isCourseOrService ? 'คอร์ส' : 'รายการ')),
+        name: displayName,
         amount: amt,
         recorder: staff || 'IRIS',
-        type: isProduct ? 'product' : (isCourseOrService ? 'course' : 'other'),
+        type: isProduct ? 'product' : 'other',
         isProduct: isProduct,
         isSpent: isDeductionOrSpent,
         timestamp: parseDateForSort(dateStr)
@@ -308,7 +304,7 @@ export default function MemberCardPrintModal({
                 onClick={() => setFilterMode('product')}
                 className={`py-1.5 rounded-lg transition-all text-center ${filterMode === 'product' ? 'bg-teal-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
               >
-                🛍️ เฉพาะสินค้า ({baseItems.filter(i => i.isProduct || i.type === 'old_balance').length + customItems.filter(i => i.isProduct).length})
+                🛍️ รายการสะสมสินค้า ({baseItems.filter(i => i.isProduct || i.type === 'old_balance').length + customItems.filter(i => i.isProduct).length})
               </button>
               <button
                 type="button"
@@ -621,7 +617,7 @@ export default function MemberCardPrintModal({
                     <div>
                       <div className="flex items-baseline gap-1">
                         <span className="text-[7px] font-bold text-teal-200/80 uppercase">
-                          {filterMode === 'product' ? 'ยอดสะสมสินค้า:' : 'ยอดสะสมรวม:'}
+                          ยอดสะสมสินค้า:
                         </span>
                         <span className="text-xs font-black text-amber-300 tracking-tight">฿{activeTotal.toLocaleString()}</span>
                       </div>

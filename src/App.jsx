@@ -1599,12 +1599,16 @@ export default function App() {
       myHistories.forEach(h => {
          const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '');
          const amt = parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอด", "col_19"]));
+         const isLegacy = !h.courseId;
+         const rawProduct = String(getFuzzyKey(h, ["สินค้า", "col_18", "รายการสินค้า", "รายการเบิก"]) || '').trim();
+         
          if (amt > 0) {
-             if (type.includes('เบิก') || type.includes('จ่าย') || type.includes('หัก')) {
+             if (type.includes('จ่ายเงินคืน') || h.isRefund === true) {
                  historySpent += amt;
              } else {
                  historyEarned += amt;
-                 if (type.includes('สินค้า')) {
+                 // ในระบบเก่าทุกยอดที่มียอดเงินคือยอดซื้อสินค้า (col_19 = ยอดสินค้า)
+                 if (isLegacy || type.includes('สินค้า') || rawProduct.length > 0) {
                      productEarned += amt;
                  }
              }
