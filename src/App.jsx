@@ -4466,14 +4466,14 @@ const flexMessage = {
   // 🤖 Helper to get active Gemini API key from localStorage or Firestore
   const getGeminiApiKey = async () => {
     let key = (localStorage.getItem('gemini_api_key') || '').trim();
-    if (key && key.startsWith('AIzaSy') && key !== 'AIzaSyBwRZHwQ_sIzjYMVVsBDu3wYk8scjXJ5yc') {
+    if (key && key.length > 10 && key !== 'AIzaSyBwRZHwQ_sIzjYMVVsBDu3wYk8scjXJ5yc') {
       return key;
     }
     try {
       const snap = await getDoc(getDocRef('app_settings', 'ai'));
       if (snap.exists() && snap.data().geminiApiKey) {
         const k = snap.data().geminiApiKey.trim();
-        if (k && k.startsWith('AIzaSy') && k !== 'AIzaSyBwRZHwQ_sIzjYMVVsBDu3wYk8scjXJ5yc') {
+        if (k && k.length > 10 && k !== 'AIzaSyBwRZHwQ_sIzjYMVVsBDu3wYk8scjXJ5yc') {
           return k;
         }
       }
@@ -4488,7 +4488,10 @@ const flexMessage = {
     if (!k) throw new Error('กรุณาระบุ API Key');
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${k}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-goog-api-key': k
+      },
       body: JSON.stringify({
         contents: [{ parts: [{ text: 'Ping' }] }],
         generationConfig: { maxOutputTokens: 5 }
@@ -4619,7 +4622,10 @@ const flexMessage = {
         try {
           response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'x-goog-api-key': apiKey
+            },
             body: JSON.stringify(requestPayload)
           });
           if (response.ok) break;
@@ -4813,7 +4819,10 @@ const flexMessage = {
           try {
             geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 
+                'Content-Type': 'application/json',
+                'x-goog-api-key': apiKey
+              },
               body: JSON.stringify(reqPayload)
             });
             if (geminiRes.ok) break;
@@ -12804,14 +12813,14 @@ const flexMessage = {
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
                   <Key size={14} className="text-amber-500" />
-                  <span>วาง API Key ที่นี่ (ขึ้นต้นด้วย AIzaSy...):</span>
+                  <span>วาง API Key ที่นี่ (ขึ้นต้นด้วย AQ... หรือ AIzaSy...):</span>
                 </label>
                 <div className="relative">
                   <input
                     type={showApiKeyText ? 'text' : 'password'}
                     value={customGeminiApiKey}
                     onChange={(e) => setCustomGeminiApiKey(e.target.value)}
-                    placeholder="AIzaSy..."
+                    placeholder="AQ... หรือ AIzaSy..."
                     className="w-full pl-3 pr-12 py-2.5 text-xs font-mono rounded-xl border border-slate-300 focus:ring-2 focus:ring-purple-500 outline-none bg-slate-50"
                   />
                   <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">

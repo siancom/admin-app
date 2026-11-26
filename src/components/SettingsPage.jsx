@@ -256,7 +256,7 @@ export default function SettingsPage({
           }
         } else {
           const localKey = (localStorage.getItem('gemini_api_key') || '').trim();
-          if (localKey && localKey.startsWith('AIzaSy')) {
+          if (localKey && localKey !== 'AIzaSyBwRZHwQ_sIzjYMVVsBDu3wYk8scjXJ5yc' && localKey.length > 5) {
             setGeminiApiKey(localKey);
           }
         }
@@ -278,7 +278,10 @@ export default function SettingsPage({
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${keyToTest}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-goog-api-key': keyToTest
+        },
         body: JSON.stringify({
           contents: [{ parts: [{ text: 'Ping test' }] }],
           generationConfig: { maxOutputTokens: 5 }
@@ -1460,7 +1463,7 @@ export default function SettingsPage({
                   type={showGeminiKey ? 'text' : 'password'}
                   value={geminiApiKey}
                   onChange={(e) => setGeminiApiKey(e.target.value)}
-                  placeholder="AIzaSy..."
+                  placeholder="AQ... หรือ AIzaSy..."
                   className="w-full pl-4 pr-24 py-3 rounded-2xl border border-gray-200 focus:ring-2 focus:ring-indigo-500 font-mono text-sm outline-none bg-slate-50/50"
                 />
                 <button
@@ -1525,7 +1528,7 @@ export default function SettingsPage({
             <ol className="text-xs text-slate-600 space-y-2 list-decimal list-inside leading-relaxed font-medium">
               <li>เปิดเว็บไซต์ <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-indigo-600 underline font-bold">Google AI Studio</a> แล้วเข้าสู่ระบบด้วยบัญชี Google (Gmail)</li>
               <li>กดปุ่มสีน้ำเงิน <span className="font-bold text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-300">"+ Create API key"</span></li>
-              <li>คัดลอก (Copy) คีย์ที่ขึ้นต้นด้วย <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-300 font-bold text-slate-800">AIzaSy...</span> นำมาวางในช่องด้านบน แล้วกด <strong>"บันทึกการตั้งค่า AI"</strong></li>
+              <li>คัดลอก (Copy) คีย์ที่ได้รับ (เช่น ขึ้นต้นด้วย <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-300 font-bold text-slate-800">AQ...</span> หรือ <span className="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-300 font-bold text-slate-800">AIzaSy...</span>) นำมาวางในช่องด้านบน แล้วกด <strong>"บันทึกการตั้งค่า AI"</strong></li>
             </ol>
           </div>
         </div>
