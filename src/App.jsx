@@ -157,6 +157,7 @@ import CourseDataInspectorModal from './components/CourseDataInspectorModal';
 import AddressManagerModal from './components/AddressManagerModal';
 import DailySalesBannerChart from './components/DailySalesBannerChart';
 import IrisPatientIntakeModal from './components/IrisPatientIntakeModal';
+import SmartQueueCheckInModal from './components/SmartQueueCheckInModal';
 import { fetch17Track } from './utils/wooProxy';
 // 📦 17TRACK — แปลงสถานะพัสดุเป็นไทย (ใช้ร่วมทุกหน้าที่แสดง trackingInfo)
 export const TRACK17_PHASE_TH = {
@@ -339,6 +340,114 @@ export default function App() {
     setPosPreselectedStaffName('');
     setActiveTab('dashboard');
     setStaffDashboardTab('used_course');
+  };
+
+  const [smartCheckInBooking, setSmartCheckInBooking] = useState(null);
+  const [posActiveBookingId, setPosActiveBookingId] = useState(null);
+  const [posReturnToAppointmentsAfterCheckout, setPosReturnToAppointmentsAfterCheckout] = useState(false);
+
+  // ✂️ เปิด POS ตัดคอร์สจากคิวนัดหมาย (ส่งลูกค้า, คอร์สที่เลือก, รูป Before)
+  const handleGoToPosCutCourse = (booking) => {
+    if (!booking) return;
+    const bPhone = String(booking.customerPhone || '').replace(/\D/g, '');
+    const cust = customers.find(c => {
+      const cPhone = String(c.computedPhone || c.phone || '').replace(/\D/g, '');
+      return cPhone && bPhone && (cPhone === bPhone || cPhone.endsWith(bPhone) || bPhone.endsWith(cPhone));
+    }) || {
+      id: booking.customerId || `cust_${bPhone}`,
+      name: booking.customerName || 'ลูกค้าคิว',
+      phone: booking.customerPhone || '',
+      computedName: booking.customerName || 'ลูกค้าคิว',
+      computedPhone: booking.customerPhone || ''
+    };
+
+    // ค้นหาคอร์สคงเหลือของลูกค้ารายนี้
+    const custCourses = processedCourses.filter(c => {
+      const cPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').replace(/\D/g, '');
+      const remainQty = Number(c.computedRemainQty ?? getFuzzyKey(c, ["ครั้งที่เหลือดิบ", "col_33", "col_4"]) ?? 1);
+      return cPhone && bPhone && (cPhone === bPhone || cPhone.endsWith(bPhone) || bPhone.endsWith(cPhone)) && remainQty > 0;
+    });
+
+    let targetCourse = null;
+    if (booking.checkedInCourseId) {
+      targetCourse = custCourses.find(c => c.id === booking.checkedInCourseId);
+    }
+    if (!targetCourse && booking.courseName) {
+      const bCourseLower = String(booking.courseName).toLowerCase();
+      targetCourse = custCourses.find(c => {
+        const cName = String(c["ชื่อคอส"] || c.name || '').toLowerCase();
+        return cName && (cName.includes(bCourseLower) || bCourseLower.includes(cName));
+      });
+    }
+    if (!targetCourse && custCourses.length > 0) {
+      targetCourse = custCourses[0];
+    }
+
+    setPosPreselectedCustomer(cust);
+    if (targetCourse) {
+      setPosPreselectedUsageCourses([targetCourse]);
+    } else {
+      setPosPreselectedUsageCourses([]);
+    }
+    if (booking.beforePhoto) {
+      setPosPreselectedBeforePhotos([booking.beforePhoto]);
+    } else {
+      setPosPreselectedBeforePhotos([]);
+    }
+    setPosActiveBookingId(booking.id);
+    setPosReturnToAppointmentsAfterCheckout(true);
+    setPosInitialTab('my_courses');
+    setActiveTab('pos');
+    triggerToast(`เปิด POS ตัดคอสสำหรับ ${booking.customerName || 'ลูกค้า'}`, 'info');
+  };
+
+  // 🛒 เปิด POS ซื้อครีม / ผลิตภัณฑ์ให้ลูกค้าของคิวนี้
+  const handleGoToPosBuyProducts = (booking) => {
+    if (!booking) return;
+    const bPhone = String(booking.customerPhone || '').replace(/\D/g, '');
+    const cust = customers.find(c => {
+      const cPhone = String(c.computedPhone || c.phone || '').replace(/\D/g, '');
+      return cPhone && bPhone && (cPhone === bPhone || cPhone.endsWith(bPhone) || bPhone.endsWith(cPhone));
+    }) || {
+      id: booking.customerId || `cust_${bPhone}`,
+      name: booking.customerName || 'ลูกค้าคิว',
+      phone: booking.customerPhone || '',
+      computedName: booking.customerName || 'ลูกค้าคิว',
+      computedPhone: booking.customerPhone || ''
+    };
+
+    setPosPreselectedCustomer(cust);
+    setPosPreselectedUsageCourses([]);
+    setPosPreselectedBeforePhotos([]);
+    setPosActiveBookingId(booking.id);
+    setPosReturnToAppointmentsAfterCheckout(true);
+    setPosInitialTab('products');
+    setActiveTab('pos');
+    triggerToast(`เปิด POS ซื้อครีม / สินค้าให้ ${booking.customerName || 'ลูกค้า'}`, 'info');
+  };
+
+  // 📸 บันทึกข้อมูลเช็คอินอัจฉริยะ (เลือกคอร์ส, เตียง, รูป Before)
+  const handleConfirmSmartCheckIn = async (bookingId, checkInData) => {
+    try {
+      const { selectedCourse, selectedBed, beforePhoto, customerPhone, customerName } = checkInData;
+      const updatePayload = {
+        status: 'กำลังใช้บริการ',
+        serviceStartTime: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+        checkedInAt: new Date().toISOString()
+      };
+      if (selectedBed) updatePayload.bedNumber = selectedBed;
+      if (beforePhoto) updatePayload.beforePhoto = beforePhoto;
+      if (selectedCourse) {
+        updatePayload.checkedInCourseId = selectedCourse.id || null;
+        updatePayload.checkedInCourseName = selectedCourse["ชื่อคอส"] || selectedCourse.name || null;
+      }
+      
+      await updateDoc(getDocRef('bookings', bookingId), updatePayload);
+      triggerToast(`เช็คอินคุณ ${customerName || 'ลูกค้า'} สำเร็จ สถานะเป็น "กำลังใช้บริการ"`, 'success');
+    } catch (err) {
+      console.error('Check-in error:', err);
+      triggerToast('เกิดข้อผิดพลาดในการเช็คอิน: ' + err.message, 'error');
+    }
   };
   
   const [isPrintMode, setIsPrintMode] = useState(false);
@@ -6552,6 +6661,13 @@ const flexMessage = {
               onQuickEodFinished={handleQuickEodFinished}
               initialTab={posInitialTab}
               onClearInitialTab={() => setPosInitialTab(null)}
+              posActiveBookingId={posActiveBookingId}
+              posReturnToAppointmentsAfterCheckout={posReturnToAppointmentsAfterCheckout}
+              onReturnToAppointments={() => {
+                setPosActiveBookingId(null);
+                setPosReturnToAppointmentsAfterCheckout(false);
+                setActiveTab('bookings');
+              }}
             />
             </ErrorBoundary>
           )}
@@ -7144,11 +7260,35 @@ const flexMessage = {
                                                             <div className={`absolute top-0 left-0 w-2 h-full ${st === 'รอการยืนยัน' ? 'bg-amber-400' : st === 'ยืนยันแล้ว' ? 'bg-blue-500' : st === 'กำลังใช้บริการ' ? 'bg-purple-500 animate-pulse' : st === 'เสร็จสิ้น' ? 'bg-emerald-500' : 'bg-gray-400'}`}></div>
                                                             <div className="flex-1 p-2.5 pl-4 flex flex-col justify-between">
                                                                 <div className="flex justify-between items-start mb-1.5">
-                                                                    <div className="flex items-center gap-1.5">
+                                                                    <div className="flex items-center gap-1.5 flex-wrap">
                                                                         <div className="w-5 h-5 rounded-full bg-white flex items-center justify-center text-gray-400 overflow-hidden border border-gray-200 shrink-0 shadow-sm">
                                                                             {picData ? <img src={picData.primary} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => handleProfileImgError(e, picData.fallback, 'block')} /> : <Users size={10} />}
                                                                         </div>
                                                                         <p className="font-bold text-gray-800 text-[11px] leading-tight truncate max-w-[100px]">{String(b.customerName || '-').split(' ')[0]}</p>
+                                                                        {(() => {
+                                                                            const isLineBooking = Boolean(
+                                                                                b.lineUid || 
+                                                                                b.source === 'line' || 
+                                                                                b.channel === 'line' || 
+                                                                                b.source === 'liff' || 
+                                                                                b.source === 'LIFF' || 
+                                                                                (b.source !== 'admin' && b.source !== 'POS' && !b.isAdminCreated && !b.isWalkIn && !b.createdByAdmin)
+                                                                            );
+                                                                            return isLineBooking ? (
+                                                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8.5px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 shadow-2xs" title="ลูกค้าจองเองผ่าน LINE">
+                                                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                                                                    <span>LINE</span>
+                                                                                </span>
+                                                                            ) : b.isWalkIn ? (
+                                                                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[8.5px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                                                                                    🚶 Walk-in
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[8.5px] font-bold bg-slate-50 text-slate-600 border border-slate-200 shrink-0">
+                                                                                    👤 แอดมิน
+                                                                                </span>
+                                                                            );
+                                                                        })()}
                                                                         {Number(b.guestsCount || b.pax || 1) > 1 && (
                                                                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700 border border-purple-200 text-[9px] font-black shrink-0" title={`จองบริการพร้อมกัน ${b.guestsCount || b.pax} ท่าน`}>
                                                                                 👥 {b.guestsCount || b.pax} ท่าน
@@ -7224,17 +7364,65 @@ const flexMessage = {
                                                                     const extraCount = Number(bookingConfig?.extraSlotOverrides?.[key] || 0);
 
                                                                     return (
-                                                                        <div className="mt-2 pt-1.5 border-t border-gray-100/80 flex items-center justify-between gap-1">
-                                                                            <div className="flex items-center gap-1">
+                                                                        <div className="mt-2 pt-1.5 border-t border-gray-100/80 flex flex-wrap items-center justify-between gap-1">
+                                                                            <div className="flex items-center gap-1 flex-wrap">
+                                                                                {/* If in progress -> [ ✂️ ตัดคอส ] */}
+                                                                                {st === 'กำลังใช้บริการ' && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            handleGoToPosCutCourse(b);
+                                                                                        }}
+                                                                                        className="px-2 py-0.5 rounded-lg text-[9px] font-black flex items-center gap-1 bg-gradient-to-r from-orange-500 to-pink-600 hover:from-orange-600 hover:to-pink-700 text-white shadow-xs active:scale-95 transition-all"
+                                                                                        title="ตัดคอร์สที่ POS (ตัดยอดเสร็จสถานะจะปรับเป็นเสร็จสิ้นทันที)"
+                                                                                    >
+                                                                                        <Scissors size={10} />
+                                                                                        <span>ตัดคอส</span>
+                                                                                    </button>
+                                                                                )}
+
+                                                                                {/* If not in progress and not completed -> [ 📸 เช็คอิน ] */}
+                                                                                {st !== 'กำลังใช้บริการ' && st !== 'เสร็จสิ้น' && st !== 'ยกเลิก' && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            setSmartCheckInBooking(b);
+                                                                                            setIsCheckInOpen(true);
+                                                                                        }}
+                                                                                        className="px-2 py-0.5 rounded-lg text-[9px] font-black flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs active:scale-95 transition-all"
+                                                                                        title="เช็คอิน เลือกคอร์ส และถ่ายรูป Before"
+                                                                                    >
+                                                                                        <Camera size={10} />
+                                                                                        <span>เช็คอิน</span>
+                                                                                    </button>
+                                                                                )}
+
+                                                                                {/* [ 🛒 ซื้อครีม ] */}
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        handleGoToPosBuyProducts(b);
+                                                                                    }}
+                                                                                    className="px-2 py-0.5 rounded-lg text-[9px] font-black flex items-center gap-1 bg-pink-50 hover:bg-pink-100 text-pink-700 border border-pink-200 shadow-2xs active:scale-95 transition-all"
+                                                                                    title="เปิด POS ซื้อครีม / ผลิตภัณฑ์ให้ลูกค้ารายนี้"
+                                                                                >
+                                                                                    <ShoppingCart size={10} className="text-pink-600" />
+                                                                                    <span>ซื้อครีม</span>
+                                                                                </button>
+
                                                                                 <button
                                                                                     type="button"
                                                                                     onClick={(e) => { e.stopPropagation(); openRescheduleModal(b); }}
-                                                                                    className="px-2 py-0.5 rounded-lg text-[8.5px] font-black flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 active:scale-95 transition-all shadow-xs"
+                                                                                    className="px-1.5 py-0.5 rounded-lg text-[8.5px] font-bold flex items-center gap-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 active:scale-95 transition-all shadow-xs"
                                                                                     title="เลื่อนวัน/เวลานัดหมาย"
                                                                                 >
-                                                                                    <CalendarClock size={10} />
-                                                                                    <span>เลื่อนเวลา</span>
+                                                                                    <CalendarClock size={9} />
+                                                                                    <span>เลื่อน</span>
                                                                                 </button>
+
                                                                                 {extraCount > 0 ? (
                                                                                     <span className="text-[8.5px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
                                                                                         <Zap size={9} className="fill-emerald-500 text-emerald-600" />
@@ -7338,11 +7526,40 @@ const flexMessage = {
                                     <div className={`absolute top-0 left-0 w-2 h-full ${st === 'รอการยืนยัน' ? 'bg-amber-400' : st === 'ยืนยันแล้ว' ? 'bg-blue-500' : st === 'กำลังใช้บริการ' ? 'bg-purple-500 animate-pulse' : st === 'เสร็จสิ้น' ? 'bg-emerald-500' : 'bg-gray-400'}`}></div>
                                     <div className="flex-1 p-2.5 pl-4 flex flex-col justify-between">
                                         <div className="flex justify-between items-start mb-1.5">
-                                            <div className="flex items-center gap-1.5">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
                                                 <div className="w-5 h-5 rounded-full bg-white flex items-center justify-center text-gray-400 overflow-hidden border border-gray-200 shrink-0 shadow-sm">
                                                     {picData ? <img src={picData.primary} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => handleProfileImgError(e, picData.fallback, 'block')} /> : <Users size={10} />}
                                                 </div>
                                                 <p className="font-bold text-gray-800 text-[11px] leading-tight truncate max-w-[100px]">{String(b.customerName || '-').split(' ')[0]}</p>
+                                                {(() => {
+                                                    const isLineBooking = Boolean(
+                                                        b.lineUid || 
+                                                        b.source === 'line' || 
+                                                        b.channel === 'line' || 
+                                                        b.source === 'liff' || 
+                                                        b.source === 'LIFF' || 
+                                                        (b.source !== 'admin' && b.source !== 'POS' && !b.isAdminCreated && !b.isWalkIn && !b.createdByAdmin)
+                                                    );
+                                                    return isLineBooking ? (
+                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8.5px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0 shadow-2xs" title="ลูกค้าจองเองผ่าน LINE">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                                            <span>LINE</span>
+                                                        </span>
+                                                    ) : b.isWalkIn ? (
+                                                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[8.5px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shrink-0">
+                                                            🚶 Walk-in
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[8.5px] font-bold bg-slate-50 text-slate-600 border border-slate-200 shrink-0">
+                                                            👤 แอดมิน
+                                                        </span>
+                                                    );
+                                                })()}
+                                                {Number(b.guestsCount || b.pax || 1) > 1 && (
+                                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700 border border-purple-200 text-[9px] font-black shrink-0" title={`จองบริการพร้อมกัน ${b.guestsCount || b.pax} ท่าน`}>
+                                                        👥 {b.guestsCount || b.pax} ท่าน
+                                                    </span>
+                                                )}
                                             </div>
                                             <button onClick={(e) => { e.stopPropagation(); setBookingTicket(b); }} className={`px-2 py-0.5 rounded-full text-[9px] font-bold border transition-all hover:scale-105 active:scale-95 flex items-center gap-1 shadow-xs ${st === 'รอการยืนยัน' ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' : st === 'ยืนยันแล้ว' ? 'bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100' : st === 'กำลังใช้บริการ' ? 'bg-purple-50 text-purple-700 border-purple-300 hover:bg-purple-100 animate-pulse' : st === 'เสร็จสิ้น' ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100' : 'bg-gray-50 text-gray-700 border-gray-300 hover:bg-gray-100'}`} title="แตะเพื่อเปิดหน้าต่างปรับสถานะ">
                                                                         <span>{st}</span>
@@ -7415,17 +7632,65 @@ const flexMessage = {
                                             const extraCount = Number(bookingConfig?.extraSlotOverrides?.[key] || 0);
 
                                             return (
-                                                <div className="mt-2 pt-2 border-t border-gray-100/80 flex items-center justify-between gap-1">
-                                                    <div className="flex items-center gap-1">
+                                                <div className="mt-2 pt-2 border-t border-gray-100/80 flex flex-wrap items-center justify-between gap-1">
+                                                    <div className="flex items-center gap-1 flex-wrap">
+                                                        {/* If in progress -> [ ✂️ ตัดคอส ] */}
+                                                        {st === 'กำลังใช้บริการ' && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleGoToPosCutCourse(b);
+                                                                }}
+                                                                className="px-2 py-0.5 rounded-lg text-[9px] font-black flex items-center gap-1 bg-gradient-to-r from-orange-500 to-pink-600 hover:from-orange-600 hover:to-pink-700 text-white shadow-xs active:scale-95 transition-all"
+                                                                title="ตัดคอร์สที่ POS (ตัดยอดเสร็จสถานะจะปรับเป็นเสร็จสิ้นทันที)"
+                                                            >
+                                                                <Scissors size={10} />
+                                                                <span>ตัดคอส</span>
+                                                            </button>
+                                                        )}
+
+                                                        {/* If not in progress and not completed -> [ 📸 เช็คอิน ] */}
+                                                        {st !== 'กำลังใช้บริการ' && st !== 'เสร็จสิ้น' && st !== 'ยกเลิก' && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setSmartCheckInBooking(b);
+                                                                    setIsCheckInOpen(true);
+                                                                }}
+                                                                className="px-2 py-0.5 rounded-lg text-[9px] font-black flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs active:scale-95 transition-all"
+                                                                title="เช็คอิน เลือกคอร์ส และถ่ายรูป Before"
+                                                            >
+                                                                <Camera size={10} />
+                                                                <span>เช็คอิน</span>
+                                                            </button>
+                                                        )}
+
+                                                        {/* [ 🛒 ซื้อครีม ] */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleGoToPosBuyProducts(b);
+                                                            }}
+                                                            className="px-2 py-0.5 rounded-lg text-[9px] font-black flex items-center gap-1 bg-pink-50 hover:bg-pink-100 text-pink-700 border border-pink-200 shadow-2xs active:scale-95 transition-all"
+                                                            title="เปิด POS ซื้อครีม / ผลิตภัณฑ์ให้ลูกค้ารายนี้"
+                                                        >
+                                                            <ShoppingCart size={10} className="text-pink-600" />
+                                                            <span>ซื้อครีม</span>
+                                                        </button>
+
                                                         <button
                                                             type="button"
                                                             onClick={(e) => { e.stopPropagation(); openRescheduleModal(b); }}
-                                                            className="px-2 py-0.5 rounded-lg text-[9px] font-black flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 active:scale-95 transition-all shadow-xs"
+                                                            className="px-1.5 py-0.5 rounded-lg text-[8.5px] font-bold flex items-center gap-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 active:scale-95 transition-all shadow-xs"
                                                             title="เลื่อนวัน/เวลานัดหมาย"
                                                         >
-                                                            <CalendarClock size={11} />
-                                                            <span>เลื่อนเวลา</span>
+                                                            <CalendarClock size={10} />
+                                                            <span>เลื่อน</span>
                                                         </button>
+
                                                         {extraCount > 0 ? (
                                                             <span className="text-[9px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
                                                                 <Zap size={10} className="fill-emerald-500 text-emerald-600" />
@@ -11465,35 +11730,59 @@ const flexMessage = {
         </div>
       )}
 
-      {/* Check In Modal */}
-      <ModalWrapper isOpen={isCheckInOpen} onClose={() => setIsCheckInOpen(false)} title="เช็คอินรับบริการ" icon={ScanLine} colorClass="bg-emerald-100 text-emerald-600">
-         <form onSubmit={handleCheckInSubmit} className="space-y-4">
-             <div className="flex gap-2">
-                 <div className="flex-1">
-                     <InputField label="เบอร์โทรศัพท์ หรือ รหัสอ้างอิง" required placeholder="ค้นหาจากเบอร์ หรือ รหัสจอง..." value={checkInInput} onChange={e => setCheckInInput(e.target.value)} />
-                 </div>
-                 <div className="flex items-end">
-                     <button type="button" onClick={() => setIsCheckInScannerOpen(true)} className="h-[52px] px-4 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition-colors flex flex-col items-center justify-center">
-                         <QrCode size={20} />
-                         <span className="text-[10px] font-bold mt-1">สแกน</span>
-                     </button>
-                 </div>
-             </div>
-             <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 rounded-xl mt-4 shadow-lg active:scale-95 transition-all text-lg flex items-center justify-center"><CheckCircle className="mr-2"/> ยืนยันการเช็คอิน</button>
-         </form>
+      {/* 🌟 Smart Queue Check-In Modal with Active Courses & Before Photo */}
+      <SmartQueueCheckInModal
+        isOpen={isCheckInOpen}
+        onClose={() => {
+          setIsCheckInOpen(false);
+          setSmartCheckInBooking(null);
+        }}
+        preselectedBooking={smartCheckInBooking}
+        bookings={bookings}
+        courses={processedCourses}
+        customers={customers}
+        globalBranch={globalBranch || 'เฉวง'}
+        onConfirmCheckIn={handleConfirmSmartCheckIn}
+        onCheckInAndGoToPos={async (booking, selectedCourse, beforePhoto, selectedBed) => {
+          await handleConfirmSmartCheckIn(booking.id, {
+            selectedCourse,
+            selectedBed,
+            beforePhoto,
+            customerPhone: booking.customerPhone,
+            customerName: booking.customerName
+          });
+          handleGoToPosCutCourse({
+            ...booking,
+            checkedInCourseId: selectedCourse?.id,
+            courseName: selectedCourse ? (selectedCourse["ชื่อคอส"] || selectedCourse.name) : booking.courseName,
+            beforePhoto: beforePhoto || booking.beforePhoto
+          });
+        }}
+      />
 
-         <React.Suspense fallback={null}>
-            <BarcodeScannerModal 
-               isOpen={isCheckInScannerOpen} 
-               onClose={() => setIsCheckInScannerOpen(false)} 
-               onScan={(data) => {
-                  setCheckInInput(data);
-                  setIsCheckInScannerOpen(false);
-                  handleCheckInSubmit(null, data);
-               }} 
-            />
-         </React.Suspense>
-      </ModalWrapper>
+      <React.Suspense fallback={null}>
+        <BarcodeScannerModal 
+          isOpen={isCheckInScannerOpen} 
+          onClose={() => setIsCheckInScannerOpen(false)} 
+          onScan={(data) => {
+            setIsCheckInScannerOpen(false);
+            if (!data) return;
+            const val = String(data).trim().toUpperCase();
+            const found = bookings.find(b => { 
+              const bPhone = String(b.customerPhone || '').trim().toUpperCase();
+              const bId = String(b.id || '').trim().toUpperCase();
+              const bTicket = String(b.ticketNo || '').trim().toUpperCase();
+              return bPhone === val || bId === val || bTicket === val;
+            });
+            if (found) {
+              setSmartCheckInBooking(found);
+              setIsCheckInOpen(true);
+            } else {
+              handleCheckInSubmit(null, data);
+            }
+          }} 
+        />
+      </React.Suspense>
 
       {/* Confirmation Modal */}
       {actionConfirmModal.isOpen && (
@@ -11722,6 +12011,54 @@ const flexMessage = {
                     </div>
                   );
                 })()}
+
+                {/* 🌟 Quick POS & Check-In Actions */}
+                <div className="p-3 bg-gradient-to-r from-slate-50 to-indigo-50/40 border border-indigo-100 rounded-2xl space-y-2">
+                  <div className="text-[10px] font-black uppercase text-indigo-700 tracking-wider">ทางลัดอัจฉริยะ (Smart Actions)</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {currentSt === 'กำลังใช้บริการ' ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const b = bookingTicket;
+                          setBookingTicket(null);
+                          handleGoToPosCutCourse(b);
+                        }}
+                        className="py-2.5 px-3 bg-gradient-to-r from-orange-500 to-pink-600 hover:from-orange-600 hover:to-pink-700 text-white rounded-xl text-xs font-black shadow-md shadow-orange-200 flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                      >
+                        <Scissors size={15} />
+                        <span>ตัดคอสที่ POS</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const b = bookingTicket;
+                          setBookingTicket(null);
+                          setSmartCheckInBooking(b);
+                          setIsCheckInOpen(true);
+                        }}
+                        className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-md shadow-emerald-200 flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                      >
+                        <Camera size={15} />
+                        <span>เช็คอิน (Before)</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const b = bookingTicket;
+                        setBookingTicket(null);
+                        handleGoToPosBuyProducts(b);
+                      }}
+                      className="py-2.5 px-3 bg-white hover:bg-pink-50 text-pink-700 border border-pink-300 rounded-xl text-xs font-bold shadow-2xs flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                    >
+                      <ShoppingCart size={15} className="text-pink-600" />
+                      <span>ซื้อครีมที่ POS</span>
+                    </button>
+                  </div>
+                </div>
 
                 {/* Status Selection Buttons */}
                 <div>

@@ -594,7 +594,10 @@ export default function POSSystem({
   posPreselectedStaffName = '',
   activeStaff = null,
   posReturnToStaffAfterCheckout = false,
-  onReturnToStaffDashboard = () => {}
+  onReturnToStaffDashboard = () => {},
+  posActiveBookingId = null,
+  posReturnToAppointmentsAfterCheckout = false,
+  onReturnToAppointments = () => {}
 }) {
   // 🌟 โหมดส่งยอดด่วน — เปิดหน้า EOD ทันที (ไม่เด้ง SOD) และแจ้ง parent เมื่อปิดหน้าต่าง
   const quickEodActiveRef = useRef(!!autoOpenEod);
@@ -613,6 +616,13 @@ export default function POSSystem({
   const [hasCheckedSod, setHasCheckedSod] = useState(false);
   const [sodData, setSodData] = useState({ floatCash: '', submittedBy: '' });
   const [isSubmittingSod, setIsSubmittingSod] = useState(false);
+  const [activeBookingId, setActiveBookingId] = useState(posActiveBookingId);
+
+  useEffect(() => {
+    if (posActiveBookingId) {
+      setActiveBookingId(posActiveBookingId);
+    }
+  }, [posActiveBookingId]);
 
   // 🎁 State สำหรับการเลือกสินค้าตัดสต็อกของแถม
   const [selectingGiftItem, setSelectingGiftItem] = useState(null);
@@ -4560,21 +4570,47 @@ export default function POSSystem({
 
       // --- Auto-complete Active Queue (non-blocking: runs after commit) ---
       const custPhoneForQueue = cPhone;
-      if (custPhoneForQueue) {
+      const targetBkId = activeBookingId;
+      if (custPhoneForQueue || targetBkId) {
         (async () => {
           try {
-            const qBk = query(
-              collection(db, 'bookings'),
-              where('customerPhone', '==', custPhoneForQueue),
-              where('status', '==', 'กำลังใช้บริการ')
-            );
-            const snapBk = await getDocs(qBk);
-            if (!snapBk.empty) {
-              const queueBatch = writeBatch(db);
-              snapBk.forEach(docSnap => {
-                queueBatch.update(docSnap.ref, { status: 'เสร็จสิ้น', completedAt: new Date().toISOString() });
-              });
-              await queueBatch.commit();
+            const nowIso = new Date().toISOString();
+            const nowTimeStr = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+            
+            // Explicit target booking from queue card/check-in
+            if (targetBkId) {
+              try {
+                await updateDoc(doc(db, 'bookings', targetBkId), {
+                  status: 'เสร็จสิ้น',
+                  completedAt: nowIso,
+                  serviceEndTime: nowTimeStr,
+                  posReceiptNo: orderNo || null
+                });
+              } catch (errBk) {
+                console.warn('Failed to update explicit booking:', errBk);
+              }
+            }
+
+            // Customer phone active bookings
+            if (custPhoneForQueue) {
+              const qBk = query(
+                collection(db, 'bookings'),
+                where('customerPhone', '==', custPhoneForQueue),
+                where('status', '==', 'กำลังใช้บริการ')
+              );
+              const snapBk = await getDocs(qBk);
+              if (!snapBk.empty) {
+                const queueBatch = writeBatch(db);
+                snapBk.forEach(docSnap => {
+                  queueBatch.update(docSnap.ref, { 
+                    status: 'เสร็จสิ้น', 
+                    completedAt: nowIso,
+                    serviceEndTime: nowTimeStr,
+                    posReceiptNo: orderNo || null
+                  });
+                });
+                await queueBatch.commit();
+              }
             }
           } catch (e) {
             console.error('Error auto-completing queue:', e);
@@ -10433,6 +10469,32 @@ export default function POSSystem({
                 <span>ตัดยอด & ชำระเงินเรียบร้อย • กลับสู่หน้าหลักพนักงาน</span>
               </button>
             )}
+            {posReturnToAppointmentsAfterCheckout && (
+              <button 
+                type="button"
+                onClick={() => {
+                  setReceiptData(null);
+                  setCart([]);
+                  setAppCreditPaidAmount(0);
+                  setActiveCustomerAppOrderIds([]);
+                  setSelectedCustomer(null);
+                  setCustomerSearch('');
+                  setGlobalDiscount(0);
+                  setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0 });
+                  setShippingAddress('');
+                  setPosTrackingNo('');
+                  setOrderChannel('instore');
+                  setActiveWcOrderId(null);
+                  setIsMobileCartOpen(false);
+                  setActiveTab('products');
+                  if (onReturnToAppointments) onReturnToAppointments();
+                }}
+                className="w-full py-3.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-xl font-black shadow-lg shadow-indigo-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <CheckCircle size={18} />
+                <span>ตัดยอด & ปรับสถานะเรียบร้อย • กลับสู่หน้าจองคิวทันที</span>
+              </button>
+            )}
             <button 
               onClick={() => {
                 setReceiptData(null);
@@ -10451,11 +10513,13 @@ export default function POSSystem({
                 setActiveTab('products'); // 🌟 กลับหน้าขายครีมทุกครั้ง
                 if (posReturnToStaffAfterCheckout && onReturnToStaffDashboard) {
                   onReturnToStaffDashboard();
+                } else if (posReturnToAppointmentsAfterCheckout && onReturnToAppointments) {
+                  onReturnToAppointments();
                 }
               }}
               className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors"
             >
-              {posReturnToStaffAfterCheckout ? 'กลับสู่หน้าหลักพนักงาน' : 'ทำรายการใหม่'}
+              {posReturnToStaffAfterCheckout ? 'กลับสู่หน้าหลักพนักงาน' : posReturnToAppointmentsAfterCheckout ? 'กลับสู่หน้าจองคิว' : 'ทำรายการใหม่'}
             </button>
           </div>
         </div>
