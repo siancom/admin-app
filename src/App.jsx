@@ -1776,7 +1776,8 @@ export default function App() {
           baseUsed = Math.max(0, total - parseQty(oldRemainingRaw));
       }
 
-      let newSystemUsed = 0;
+      let legacyHistoriesUsed = 0;
+      let modernSystemUsed = 0;
       let newSystemAdded = 0;
       myHistories.forEach(h => {
           if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '').trim() === 'ยกเลิก') return;
@@ -1793,7 +1794,11 @@ export default function App() {
                           const qty = extractHistoryQty(h); 
                           if (!(type.includes('เบิก') && (rawQty === undefined || rawQty === ''))) {
                               if (!h.courseUpdatedDirectly) {
-                                  newSystemUsed += qty;
+                                  if (isLegacy) {
+                                      legacyHistoriesUsed += qty;
+                                  } else {
+                                      modernSystemUsed += qty;
+                                  }
                               }
                           }
                       }
@@ -1807,7 +1812,14 @@ export default function App() {
       });
 
       const currentTotal = total + newSystemAdded;
-      let finalUsed = baseUsed + newSystemUsed;
+      // 🛡️ Avoid double-counting legacy AppSheet courses:
+      // In legacy AppSheet, `course['ครั้งที่ใช้']` (baseUsed) was a snapshot of sessions used.
+      // The imported `histories` (legacyHistoriesUsed) are the individual session records.
+      // If legacyHistoriesUsed > 0, they already represent the logged sessions from AppSheet.
+      // Any sessions not captured in digital history records = Math.max(0, baseUsed - legacyHistoriesUsed).
+      // Total used = effectiveLegacyUsed + modernSystemUsed.
+      const effectiveLegacyUsed = Math.max(baseUsed, legacyHistoriesUsed);
+      let finalUsed = effectiveLegacyUsed + modernSystemUsed;
       // Cap used at total for ALL courses (not just POS) to prevent contradictory
       // displays like "486/10" caused by bogus legacy history entries (e.g. "หัก 453 ครั้ง").
       finalUsed = Math.min(currentTotal, finalUsed);
@@ -6189,20 +6201,30 @@ const flexMessage = {
                                   </td>
                                   <td className="py-4 px-5 align-middle">
                                       {(() => {
-                                          const rawAction = String(getFuzzyKey(h, ["รายการ", "สินค้า", "col_23", "col_18"]) || '');
+                                          const rawService = String(getFuzzyKey(h, ["รายการที่ทำ", "บริการ", "col_23", "รายการ"]) || '').trim();
+                                          const rawProduct = String(getFuzzyKey(h, ["สินค้า", "col_18", "รายการสินค้า", "รายการเบิก"]) || '').trim();
+                                          const rawAction = String(getFuzzyKey(h, ["รายการ", "col_23", "สินค้า", "col_18"]) || '');
                                           const displayAction = (rawAction === 'ตัดคอร์สผ่านระบบ POS' && Array.isArray(h.usedServices) && h.usedServices.length > 0)
                                               ? h.usedServices.join(', ')
-                                              : (rawAction || (isAdd ? 'อัพคอร์ส' : 'ตัดคอร์ส'));
+                                              : (rawService || rawAction || (isAdd ? 'อัพคอร์ส' : 'ตัดคอร์ส'));
                                           return (
                                               <>
-                                                  <div className="font-black text-gray-800 text-sm mb-2 leading-relaxed">{displayAction}</div>
+                                                  <div className="font-black text-gray-800 text-sm mb-1 leading-relaxed">{displayAction}</div>
                                                   {Array.isArray(h.usedServices) && h.usedServices.length > 0 && displayAction !== h.usedServices.join(', ') && (
-                                                      <div className="flex flex-wrap gap-1 mb-2">
+                                                      <div className="flex flex-wrap gap-1 mb-1.5">
                                                           {h.usedServices.map((srv, sIdx) => (
                                                               <span key={sIdx} className="text-[10px] bg-teal-50 text-teal-700 px-2 py-0.5 rounded-md font-medium border border-teal-100">
                                                                   {srv}
                                                               </span>
                                                           ))}
+                                                      </div>
+                                                  )}
+                                                  {rawProduct && rawProduct !== displayAction && (
+                                                      <div className="inline-flex items-start gap-1.5 bg-amber-50 text-amber-900 border border-amber-200/70 px-2.5 py-1 rounded-xl text-xs font-semibold my-1 max-w-full">
+                                                          <Package size={13} className="text-amber-600 shrink-0 mt-0.5" />
+                                                          <span className="leading-snug">
+                                                              <span className="font-bold text-amber-800">เบิกสินค้า:</span> {rawProduct}
+                                                          </span>
                                                       </div>
                                                   )}
                                               </>
@@ -9816,8 +9838,11 @@ const flexMessage = {
 
                 {(() => {
                    const freeUsages = selectedCourse.myHistories?.filter(h => {
-                       if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '') === 'ยกเลิก') return false;
-                       return isFreeUsage(h);
+                       if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '').trim() === 'ยกเลิก') return false;
+                       const deductVal = parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดเบิก", "ยอด", "col_19"]));
+                       const prod = String(getFuzzyKey(h, ["สินค้า", "col_18"]) || '').trim();
+                       // Pure free treatment services (without product requisition) show here; product requisitions show in the main table below!
+                       return isFreeUsage(h) && deductVal === 0 && prod.length === 0;
                    }) || [];
 
                    if (freeUsages.length === 0) return null;
@@ -9834,7 +9859,7 @@ const flexMessage = {
                                          <div>
                                              <span className="font-mono text-gray-500 mr-3">{String(getFuzzyKey(h, ["วันที่", "col_1"]) || '-')}</span>
                                              <span className="font-bold text-gray-800">
-                                                 {String(getFuzzyKey(h, ["รายการ", "สินค้า", "col_23", "col_18"]) || (isAdd ? 'อัพคอร์ส' : 'ตัดคอร์ส'))}
+                                                 {String(getFuzzyKey(h, ["รายการ", "col_23", "สินค้า", "col_18"]) || (isAdd ? 'อัพคอร์ส' : 'ตัดคอร์ส'))}
                                                  <span className="ml-2 text-[10px] bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded border border-rose-200">ฟรี</span>
                                              </span>
                                          </div>
@@ -9875,7 +9900,14 @@ const flexMessage = {
                 <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
                    {(() => {
                        const standardUsages = selectedCourse.myHistories?.filter(h => {
+                           if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '').trim() === 'ยกเลิก') return false;
                            const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '');
+                           const deductVal = parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดเบิก", "ยอด", "col_19"]));
+                           const prod = String(getFuzzyKey(h, ["สินค้า", "col_18"]) || '').trim();
+                           
+                           // If has product requisition / credit deduction, ALWAYS display in history table!
+                           if (deductVal > 0 || prod.length > 0) return true;
+                           
                            if (isFreeUsage(h)) return false; 
                            if (isUsageType(type)) return true;
                            return isAddType(type);
@@ -9890,6 +9922,56 @@ const flexMessage = {
                        );
                    })()}
                 </div>
+
+                {/* 📦 รายการสินค้า/เวชสำอางที่ลูกค้ารับหรือสั่งซื้อเพิ่มเติม */}
+                {(() => {
+                    const courseCustPhone = String(getFuzzyKey(selectedCourse, ["เบอร์โทร", "col_1"]) || '').replace(/\D/g, '');
+                    const courseCustName = String(getFuzzyKey(selectedCourse, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "col_9", "col_10"]) || '').replace(/\s+/g, '').toLowerCase();
+
+                    const additionalProducts = (histories || []).filter(h => {
+                        if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '').trim() === 'ยกเลิก') return false;
+                        if (selectedCourse.myHistories?.some(ch => ch.id === h.id)) return false;
+
+                        const hPhone = String(getFuzzyKey(h, ["เบอร์โทร", "col_3", "phone"]) || '').replace(/\D/g, '');
+                        const hName = String(getFuzzyKey(h, ["ชื่อลูกค้า", "ลูกค้า", "col_2"]) || '').replace(/\s+/g, '').toLowerCase();
+
+                        const isCust = (courseCustPhone && hPhone && (courseCustPhone === hPhone || courseCustPhone.endsWith(hPhone) || hPhone.endsWith(courseCustPhone))) ||
+                                       (courseCustName && hName && (courseCustName === hName || courseCustName.includes(hName) || hName.includes(courseCustName)));
+                        if (!isCust) return false;
+
+                        const amt = parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดเบิก", "ยอด", "col_19"]));
+                        const prod = String(getFuzzyKey(h, ["สินค้า", "col_18"]) || '').trim();
+                        const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '');
+                        return amt > 0 || prod.length > 0 || type.includes('สินค้า') || type.includes('เบิก');
+                    }).sort((a, b) => {
+                        const d1 = parseThaiDate(getFuzzyKey(a, ["วันที่", "col_1"]));
+                        const d2 = parseThaiDate(getFuzzyKey(b, ["วันที่", "col_1"]));
+                        if (d1 && d2) return d2.getTime() - d1.getTime();
+                        return 0;
+                    });
+
+                    if (additionalProducts.length === 0) return null;
+
+                    const totalAddVal = additionalProducts.reduce((sum, h) => sum + parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดเบิก", "ยอด", "col_19"])), 0);
+
+                    return (
+                        <div className="mt-8">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                                <h3 className="font-black text-gray-800 flex items-center">
+                                    <Package size={18} className="mr-2 text-amber-500" /> รายการสินค้า/เวชสำอางที่ลูกค้ารับหรือสั่งซื้อเพิ่มเติม ({additionalProducts.length} รายการ)
+                                </h3>
+                                <span className="text-xs font-black text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded-xl">
+                                    ยอดรวมเพิ่มเติม: ฿{totalAddVal.toLocaleString()}
+                                </span>
+                            </div>
+                            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+                                <div className="-mx-6 -my-6">
+                                    <HistoryTable histories={additionalProducts} showActions={false} />
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
              </div>
           </div>
         </div>
