@@ -537,6 +537,7 @@ export default function App() {
   const [actionConfirmModal, setActionConfirmModal] = useState({ isOpen: false, title: '', message: '', action: null, confirmText: 'ยืนยัน', confirmColor: 'bg-indigo-600 hover:bg-indigo-700' });
 
   const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
+  const [bookingPreselectedCustomer, setBookingPreselectedCustomer] = useState(null);
   const [isAddressManagerOpen, setIsAddressManagerOpen] = useState(false);
   const [newCustomerForm, setNewCustomerForm] = useState({ 
     firstName: '',
@@ -5337,12 +5338,49 @@ const flexMessage = {
         irisIntakeData: null
       }); 
       
-      // Auto-select for POS!
+      // Auto-select for POS & Booking!
       setPosPreselectedCustomer(createdCustomer);
+      setBookingPreselectedCustomer(createdCustomer);
       showToast(newCustomerForm.irisIntakeData ? 'เพิ่มลูกค้าใหม่และจัดเก็บประวัติ IrisPatient ลงแฟ้มเรียบร้อยแล้ว!' : 'เพิ่มลูกค้าใหม่และเลือกเข้าสู่ระบบเรียบร้อยแล้ว!', 'success'); 
     } catch (err) { 
       showToast(`ข้อผิดพลาด: ${err.message}`, 'error'); 
     } 
+  };
+
+  const handleOpenRegisterFromBooking = (prefilledPhone = '') => {
+    const clean = String(prefilledPhone || '').trim().replace(/\D/g, '');
+    setNewCustomerForm({ 
+      firstName: '',
+      lastName: '',
+      name: '', 
+      nickname: '',
+      phone: clean || String(prefilledPhone || '').trim(), 
+      gender: 'หญิง',
+      dob: '',
+      age: '',
+      citizenId: '',
+      issue: '',
+      photoFile: null,
+      photoPreview: null,
+      photoBase64: null,
+      aiSkinScanResult: null,
+      idCardPhotoFile: null,
+      idCardPhotoPreview: null,
+      idCardPhotoBase64: null,
+      addressNo: '',
+      subDistrict: '',
+      district: '',
+      province: '',
+      zipcode: '',
+      isVipUpgrade: false,
+      hasMemberCard: false,
+      memberCardNo: '',
+      memberCardPhotoFile: null,
+      memberCardPhotoPreview: null,
+      memberCardPhotoBase64: null,
+      irisIntakeData: null,
+    });
+    setIsAddCustomerOpen(true);
   };
 
   // 🌟 IrisPatient Intake Handlers 🌟
@@ -10857,6 +10895,7 @@ const flexMessage = {
         colorClass="bg-teal-100 text-teal-700"
         maxWidth="max-w-xl"
         noMaxHeight={true}
+        zIndex="z-[200]"
       >
         <form onSubmit={handleAddCustomer} className="space-y-4 max-h-[75vh] overflow-y-auto px-1 hide-scrollbar">
           
@@ -11536,13 +11575,15 @@ const flexMessage = {
       </ModalWrapper>
 
       {/* General Booking Modal - Customer App Style */}
-      {/* General Booking Modal - Customer App Style */}
       <ModalWrapper isOpen={isGeneralBookingOpen} onClose={() => setIsGeneralBookingOpen(false)} title="จองคิว / นัดหมายใหม่" icon={CalendarPlus} colorClass="bg-gradient-to-r from-teal-500 to-emerald-500 text-white">
          <AdminBookingForm
              customers={customers}
+             courses={courses}
              initialBranch={globalBranch || 'เฉวง'}
              isSlotTaken={isSlotTaken}
              bookingConfig={bookingConfig}
+             preselectedCustomer={bookingPreselectedCustomer}
+             onOpenRegisterCustomer={handleOpenRegisterFromBooking}
              onClose={() => setIsGeneralBookingOpen(false)}
              onSubmit={async (formData) => {
                  try { 

@@ -1,5 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { CalendarPlus, User, Users, Phone, Sparkles, MapPin, Loader2, Droplets, Zap, Crosshair, MessageCircle, Package, CalendarDays, Search, Clock } from 'lucide-react';
+import { 
+    CalendarPlus, User, Users, Phone, Sparkles, MapPin, Loader2, Droplets, Zap, 
+    Crosshair, MessageCircle, Package, CalendarDays, Search, Clock, 
+    UserPlus, CheckCircle2, AlertCircle, X, Crown, UserCheck, Check 
+} from 'lucide-react';
 import { getFuzzyKey } from '../utils/fuzzy';
 import { DEFAULT_BOOKING_CONFIG, calculateBookingDuration } from '../utils/bookingConfig';
 
@@ -19,7 +23,17 @@ const SERVICE_CHIPS = [
     { text: 'ใช้คอส', icon: Package }
 ];
 
-export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isSlotTaken, customers = [], bookingConfig = DEFAULT_BOOKING_CONFIG }) {
+export default function AdminBookingForm({ 
+    onSubmit, 
+    onClose, 
+    initialBranch, 
+    isSlotTaken, 
+    customers = [], 
+    courses = [],
+    preselectedCustomer = null,
+    onOpenRegisterCustomer,
+    bookingConfig = DEFAULT_BOOKING_CONFIG 
+}) {
     const [form, setForm] = useState({
         name: '',
         phone: '',
@@ -35,6 +49,7 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
     // Search states
     const [customerSearch, setCustomerSearch] = useState('');
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [selectedCustomer, setSelectedCustomer] = useState(null);
     const dropdownRef = useRef(null);
 
     // Close dropdown on outside click
@@ -48,23 +63,126 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
+    // Sync newly registered or preselected customer
+    useEffect(() => {
+        if (preselectedCustomer) {
+            const cName = String(getFuzzyKey(preselectedCustomer, ["ชื่อ", "col_1"]) || preselectedCustomer.computedName || preselectedCustomer.name || '').trim();
+            const cPhone = String(getFuzzyKey(preselectedCustomer, ["เบอร์โทร", "col_3", "phone"]) || preselectedCustomer.computedPhone || preselectedCustomer.phone || '').trim();
+            setForm(prev => ({ 
+                ...prev, 
+                name: cName || prev.name, 
+                phone: cPhone || prev.phone 
+            }));
+            setSelectedCustomer(preselectedCustomer);
+            setCustomerSearch('');
+            setIsDropdownOpen(false);
+        }
+    }, [preselectedCustomer]);
+
+    // Clean phone helper
+    const cleanDigits = (val) => String(val || '').replace(/\D/g, '');
+
+    const formatPhone = (val) => {
+        const raw = cleanDigits(val);
+        if (raw.length === 10) return `${raw.slice(0, 3)}-${raw.slice(3, 6)}-${raw.slice(6)}`;
+        if (raw.length === 9) return `${raw.slice(0, 2)}-${raw.slice(2, 5)}-${raw.slice(5)}`;
+        return val || '';
+    };
+
     // Filter customers
     const filteredCustomers = useMemo(() => {
-        if (!customerSearch) return customers.slice(0, 10); // Show top 10 initially
-        const searchStr = customerSearch.toLowerCase();
+        if (!customerSearch.trim()) return customers.slice(0, 8);
+        const searchStr = customerSearch.trim().toLowerCase();
+        const searchNums = cleanDigits(customerSearch);
+
         return customers.filter(c => {
-            const name = String(getFuzzyKey(c, ["ชื่อ", "col_1"]) || '').toLowerCase();
-            const phone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || '');
-            return name.includes(searchStr) || phone.includes(searchStr);
-        }).slice(0, 10);
+            const name = String(getFuzzyKey(c, ["ชื่อ", "col_1"]) || c.computedName || c.name || '').toLowerCase();
+            const phone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || c.computedPhone || c.phone || '');
+            const phoneNums = cleanDigits(phone);
+            const nickname = String(c.nickname || '').toLowerCase();
+            const citizenId = String(c.citizenId || c["เลขประจำตัวประชาชน"] || '');
+
+            const matchName = name.includes(searchStr);
+            const matchNickname = nickname.includes(searchStr);
+            const matchPhone = searchNums && phoneNums ? (phoneNums.includes(searchNums) || searchNums.includes(phoneNums)) : phone.includes(searchStr);
+            const matchCitizen = citizenId.includes(searchStr);
+
+            return matchName || matchNickname || matchPhone || matchCitizen;
+        }).slice(0, 8);
     }, [customers, customerSearch]);
 
+    // Check if customer exists by phone digits
+    const checkCustomerByPhone = (phoneStr) => {
+        const digits = cleanDigits(phoneStr);
+        if (!digits || digits.length < 9) return null;
+        return customers.find(c => {
+            const cPhone = cleanDigits(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || c.computedPhone || c.phone);
+            return cPhone && (cPhone === digits || cPhone.endsWith(digits) || digits.endsWith(cPhone));
+        });
+    };
+
+    // Lookups
+    const searchPhoneMatch = useMemo(() => {
+        return checkCustomerByPhone(customerSearch);
+    }, [customerSearch, customers]);
+
+    const formPhoneMatch = useMemo(() => {
+        return checkCustomerByPhone(form.phone);
+    }, [form.phone, customers]);
+
+    // Active verified customer
+    const currentCustomer = selectedCustomer || searchPhoneMatch || formPhoneMatch;
+
+    // Remaining active courses for current customer
+    const activeRemainingCourses = useMemo(() => {
+        if (!currentCustomer || !courses || courses.length === 0) return [];
+        const custId = currentCustomer.id;
+        const custPhone = cleanDigits(getFuzzyKey(currentCustomer, ["เบอร์โทร", "col_3", "phone"]) || currentCustomer.computedPhone || currentCustomer.phone);
+        const custName = String(getFuzzyKey(currentCustomer, ["ชื่อ", "col_1"]) || currentCustomer.computedName || currentCustomer.name || '').trim().toLowerCase();
+
+        return courses.filter(crs => {
+            const cCustId = crs.customerId || crs.customerRef;
+            const cPhone = cleanDigits(crs.customerPhone || crs.phone || crs["เบอร์โทร"]);
+            const cName = String(crs.customerName || crs.name || crs["ชื่อ"] || '').trim().toLowerCase();
+
+            const matchId = custId && cCustId && String(custId) === String(cCustId);
+            const matchPhone = custPhone && cPhone && (custPhone === cPhone || custPhone.endsWith(cPhone) || cPhone.endsWith(custPhone));
+            const matchName = custName && cName && custName === cName;
+
+            if (!matchId && !matchPhone && !matchName) return false;
+
+            const used = Number(crs.used || crs.usedCount || 0);
+            const total = Number(crs.total || crs.totalCount || crs.amount || 0);
+            return total > used;
+        });
+    }, [currentCustomer, courses]);
+
+    // Is new customer condition:
+    // Staff entered >= 9 digits or a query, but no matching customer found in system
+    const isSearchPhoneEntered = cleanDigits(customerSearch).length >= 9;
+    const isSearchNotFound = customerSearch.trim().length > 0 && filteredCustomers.length === 0;
+    const isFormPhoneNotFound = cleanDigits(form.phone).length >= 9 && !formPhoneMatch && !selectedCustomer;
+
     const handleSelectCustomer = (c) => {
-        const name = String(getFuzzyKey(c, ["ชื่อ", "col_1"]) || '');
-        const phone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || '');
+        const name = String(getFuzzyKey(c, ["ชื่อ", "col_1"]) || c.computedName || c.name || '');
+        const phone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || c.computedPhone || c.phone || '');
         setForm(prev => ({ ...prev, name, phone }));
+        setSelectedCustomer(c);
         setCustomerSearch('');
         setIsDropdownOpen(false);
+    };
+
+    const handleClearCustomer = () => {
+        setSelectedCustomer(null);
+        setForm(prev => ({ ...prev, name: '', phone: '' }));
+        setCustomerSearch('');
+    };
+
+    const handleTriggerRegister = (phoneCandidate) => {
+        const clean = cleanDigits(phoneCandidate) || String(phoneCandidate || '').trim();
+        if (onOpenRegisterCustomer) {
+            onOpenRegisterCustomer(clean);
+        }
     };
 
     // Generate dates for the next 7 days
@@ -73,7 +191,7 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
         for (let i = 0; i < 7; i++) {
             const d = new Date();
             d.setDate(d.getDate() + i);
-            const iso = d.toLocaleDateString('en-CA'); // YYYY-MM-DD
+            const iso = d.toLocaleDateString('en-CA');
             const dayName = d.toLocaleDateString('th-TH', { weekday: 'short' });
             const dateNum = d.getDate();
             const monthName = d.toLocaleDateString('th-TH', { month: 'short' });
@@ -89,7 +207,12 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!form.date || !form.time) return alert('กรุณาเลือกวันที่และเวลา');
+        if (!form.name && !form.phone) {
+            return alert('กรุณาระบุชื่อหรือเบอร์โทรศัพท์ลูกค้าเพื่อทำการจอง');
+        }
+        if (!form.date || !form.time) {
+            return alert('กรุณาเลือกวันที่และเวลา');
+        }
         const dateTimeStr = `${form.date}T${form.time}`;
         setIsSubmitting(true);
         await onSubmit({ 
@@ -104,43 +227,195 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
     return (
         <form onSubmit={handleSubmit} className="space-y-6">
             
-            {/* ข้อมูลลูกค้า (Searchable & Optional) */}
-            <div className="relative bg-gray-50/50 p-4 rounded-3xl border border-gray-100" ref={dropdownRef}>
+            {/* 🌟 ข้อมูลลูกค้าและระบบค้นหาอัจฉริยะ (Intelligent Customer Lookup) 🌟 */}
+            <div className="relative bg-gradient-to-b from-gray-50/90 to-slate-50/50 p-4 sm:p-5 rounded-3xl border border-gray-200/80 shadow-xs" ref={dropdownRef}>
+                
+                {/* Header with smart indicator */}
+                <div className="flex items-center justify-between mb-2 ml-1">
+                    <label className="flex items-center gap-1.5 text-[11px] font-black text-gray-700 uppercase tracking-wider">
+                        <Phone size={14} className="text-teal-600" />
+                        <span>เบอร์โทรศัพท์ / ค้นหาลูกค้า</span>
+                        <span className="text-rose-500 font-bold">*</span>
+                    </label>
+                    <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full font-bold border border-teal-200/80 flex items-center gap-1">
+                        <Sparkles size={11} className="text-teal-600" />
+                        ค้นหาประวัติอัตโนมัติ
+                    </span>
+                </div>
+
+                {/* Selected Customer Card (If customer already chosen/found) */}
+                {currentCustomer && (
+                    <div className="mb-3.5 bg-gradient-to-r from-emerald-50/95 via-teal-50/80 to-emerald-50/95 border-2 border-emerald-300/80 rounded-2xl p-3.5 shadow-xs animate-in fade-in zoom-in-95">
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white flex items-center justify-center font-black text-sm shadow-sm shrink-0 overflow-hidden">
+                                    {currentCustomer.imageUrl || currentCustomer.photoUrl || currentCustomer.customerPhoto ? (
+                                        <img 
+                                            src={currentCustomer.imageUrl || currentCustomer.photoUrl || currentCustomer.customerPhoto} 
+                                            alt="" 
+                                            className="w-full h-full object-cover" 
+                                        />
+                                    ) : (
+                                        <UserCheck size={20} />
+                                    )}
+                                </div>
+                                <div>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="font-black text-sm text-gray-900">
+                                            {form.name || getFuzzyKey(currentCustomer, ["ชื่อ", "col_1"]) || currentCustomer.computedName}
+                                        </span>
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-100/90 text-emerald-800 px-2 py-0.5 rounded-full border border-emerald-300">
+                                            <CheckCircle2 size={11} className="text-emerald-600" /> ลูกค้าเดิม (เคยใช้บริการ)
+                                        </span>
+                                        {(currentCustomer.isVipUpgrade || currentCustomer.hasMemberCard || String(currentCustomer["สถานะสมาชิก"] || '').includes('VIP')) && (
+                                            <span className="inline-flex items-center gap-0.5 text-[9px] font-black bg-amber-400 text-slate-900 px-1.5 py-0.5 rounded-md shadow-2xs">
+                                                <Crown size={10} /> VIP
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="text-xs font-mono font-medium text-emerald-700 mt-0.5 flex items-center gap-1">
+                                        <Phone size={12} className="text-emerald-600" />
+                                        <span>{formatPhone(form.phone || getFuzzyKey(currentCustomer, ["เบอร์โทร", "col_3", "phone"]) || currentCustomer.computedPhone)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleClearCustomer}
+                                className="px-2.5 py-1 text-xs text-gray-500 hover:text-rose-600 hover:bg-white rounded-xl border border-transparent hover:border-rose-200 transition-all font-bold shrink-0 flex items-center gap-1"
+                                title="ล้างเพื่อค้นหาลูกค้าท่านอื่น"
+                            >
+                                <X size={14} />
+                                <span>เปลี่ยน</span>
+                            </button>
+                        </div>
+
+                        {/* Active Remaining Courses Chips */}
+                        {activeRemainingCourses.length > 0 && (
+                            <div className="mt-2.5 pt-2 border-t border-emerald-200/80">
+                                <div className="text-[10px] font-bold text-emerald-800 mb-1 flex items-center gap-1">
+                                    <Package size={12} className="text-emerald-600" />
+                                    <span>คอร์สคงเหลือที่ใช้ได้ ({activeRemainingCourses.length} รายการ - แตะเพื่อเลือกใช้):</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {activeRemainingCourses.slice(0, 3).map((crs, idx) => {
+                                        const used = Number(crs.used || crs.usedCount || 0);
+                                        const total = Number(crs.total || crs.totalCount || crs.amount || 0);
+                                        const remain = Math.max(0, total - used);
+                                        const cName = crs.name || crs.courseName || 'คอร์ส';
+                                        return (
+                                            <button
+                                                key={crs.id || idx}
+                                                type="button"
+                                                onClick={() => {
+                                                    setForm(prev => ({ 
+                                                        ...prev, 
+                                                        service: prev.service ? `${prev.service}, ${cName}` : cName 
+                                                    }));
+                                                }}
+                                                className="text-[10px] font-bold bg-white text-emerald-900 border border-emerald-300 hover:border-emerald-500 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-all flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+                                            >
+                                                <span>{cName}</span>
+                                                <span className="text-emerald-600 font-mono font-black">(เหลือ {remain}/{total})</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Search / Phone Input */}
                 <div className="mb-3">
-                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 ml-1">ค้นหาลูกค้า (ไม่บังคับ)</label>
-                    <div className="relative">
+                    <div className="relative flex items-center">
                         <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                             <Search size={16} className="text-gray-400" />
                         </div>
                         <input 
-                            placeholder="พิมพ์ชื่อ หรือ เบอร์โทร เพื่อค้นหา..." 
+                            placeholder="พิมพ์เบอร์โทร (08X-XXX-XXXX) หรือชื่อเพื่อค้นหาประวัติ..." 
                             value={customerSearch} 
                             onChange={e => {
                                 setCustomerSearch(e.target.value);
                                 setIsDropdownOpen(true);
                             }}
                             onFocus={() => setIsDropdownOpen(true)}
-                            className="w-full pl-9 pr-4 py-3 border-2 border-white bg-white rounded-xl outline-none focus:border-teal-400 transition-all font-medium text-gray-800 text-sm shadow-sm" 
+                            className="w-full pl-9 pr-28 py-3 border-2 border-white bg-white rounded-2xl outline-none focus:border-teal-400 focus:ring-4 focus:ring-teal-400/10 transition-all font-medium text-gray-800 text-sm shadow-xs" 
                         />
+
+                        {/* Action buttons at the back of the input (ด้านหลังช่องค้นหา) */}
+                        <div className="absolute inset-y-0 right-1.5 flex items-center gap-1">
+                            {/* If searched phone/text is not in system, show registration icon/button */}
+                            {(isSearchNotFound || (isSearchPhoneEntered && !searchPhoneMatch)) && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleTriggerRegister(customerSearch || form.phone)}
+                                    className="px-2.5 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-xs font-black shadow-sm active:scale-95 transition-all flex items-center gap-1 animate-pulse"
+                                    title="ไม่พบประวัติ - กดเพื่อลงทะเบียนลูกค้าใหม่ทันที"
+                                >
+                                    <UserPlus size={14} />
+                                    <span>+ ลงทะเบียน</span>
+                                </button>
+                            )}
+
+                            {customerSearch && (
+                                <button
+                                    type="button"
+                                    onClick={() => setCustomerSearch('')}
+                                    className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg"
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
                     </div>
                     
-                    {/* Customer Dropdown */}
-                    {isDropdownOpen && (
-                        <div className="absolute z-10 left-0 right-0 mt-1 bg-white rounded-xl shadow-xl border border-gray-100 max-h-48 overflow-y-auto">
+                    {/* Customer Dropdown Results */}
+                    {isDropdownOpen && customerSearch.trim() && (
+                        <div className="absolute z-20 left-0 right-0 mt-1.5 bg-white rounded-2xl shadow-xl border border-gray-100 max-h-56 overflow-y-auto divide-y divide-gray-50">
                             {filteredCustomers.length === 0 ? (
-                                <div className="p-4 text-center text-gray-500 text-xs">ไม่พบลูกค้า</div>
+                                <div className="p-4 text-center">
+                                    <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-2 border border-amber-200">
+                                        <AlertCircle size={20} />
+                                    </div>
+                                    <div className="font-black text-sm text-gray-800">ไม่พบประวัติลูกค้าในระบบ</div>
+                                    <div className="text-xs text-gray-500 mt-0.5">
+                                        เบอร์ / ชื่อ: <span className="font-bold text-gray-700 font-mono">{customerSearch}</span> (ลูกค้าใหม่)
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleTriggerRegister(customerSearch)}
+                                        className="mt-3 w-full py-2.5 px-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-xs font-black shadow-md active:scale-95 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <UserPlus size={16} />
+                                        <span>ลงทะเบียนลูกค้าใหม่ทันที (นำเบอร์ไปกรอกให้อัตโนมัติ)</span>
+                                    </button>
+                                </div>
                             ) : (
                                 filteredCustomers.map(c => {
-                                    const cName = getFuzzyKey(c, ["ชื่อ", "col_1"]);
-                                    const cPhone = getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]);
+                                    const cName = getFuzzyKey(c, ["ชื่อ", "col_1"]) || c.computedName || c.name;
+                                    const cPhone = getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone"]) || c.computedPhone || c.phone;
+                                    const isVip = c.isVipUpgrade || c.hasMemberCard || String(c["สถานะสมาชิก"] || '').includes('VIP');
                                     return (
                                         <div 
                                             key={c.id} 
                                             onClick={() => handleSelectCustomer(c)}
-                                            className="px-4 py-3 hover:bg-teal-50 cursor-pointer border-b border-gray-50 last:border-0 transition-colors flex justify-between items-center"
+                                            className="px-4 py-3 hover:bg-teal-50/80 cursor-pointer transition-colors flex justify-between items-center gap-2 group"
                                         >
-                                            <div className="font-bold text-sm text-gray-800">{cName}</div>
-                                            <div className="text-xs font-mono text-gray-500">{cPhone}</div>
+                                            <div>
+                                                <div className="font-black text-sm text-gray-800 group-hover:text-teal-700 flex items-center gap-1.5">
+                                                    <span>{cName}</span>
+                                                    {isVip && (
+                                                        <span className="text-[9px] font-black bg-amber-400 text-slate-900 px-1 rounded">VIP</span>
+                                                    )}
+                                                </div>
+                                                <div className="text-xs font-mono text-gray-500 mt-0.5">{formatPhone(cPhone)}</div>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 group-hover:bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
+                                                    ✓ ลูกค้าเดิม
+                                                </span>
+                                            </div>
                                         </div>
                                     );
                                 })
@@ -149,24 +424,108 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
                     )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Alert Box when customer not found in system (Prominent Call-to-Action) */}
+                {((isSearchPhoneEntered && !searchPhoneMatch && !selectedCustomer) || isSearchNotFound) && (
+                    <div className="mb-3 p-3 bg-gradient-to-r from-amber-50/90 to-orange-50/90 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs animate-in fade-in">
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                                <AlertCircle size={18} />
+                            </div>
+                            <div>
+                                <div className="text-xs font-black text-amber-900 flex items-center gap-1.5">
+                                    <span>ยังไม่พบประวัติในระบบ</span>
+                                    <span className="text-[9px] bg-amber-200/80 text-amber-900 px-1.5 py-0.5 rounded font-bold">ลูกค้าใหม่</span>
+                                </div>
+                                <div className="text-[11px] text-amber-700">
+                                    เบอร์: <span className="font-mono font-bold text-amber-900">{customerSearch || form.phone}</span> ยังไม่เคยลงทะเบียน
+                                </div>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => handleTriggerRegister(customerSearch || form.phone)}
+                            className="shrink-0 flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white text-xs font-black rounded-xl shadow-md active:scale-95 transition-all"
+                        >
+                            <UserPlus size={14} />
+                            <span>ลงทะเบียนลูกค้าใหม่ทันที</span>
+                        </button>
+                    </div>
+                )}
+
+                {/* Form Customer Details: Name and Phone */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                     <div>
-                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 ml-1">ชื่อลูกค้า (ถ้ามี)</label>
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 ml-1">
+                            ชื่อลูกค้า <span className="text-rose-500">*</span>
+                        </label>
                         <div className="relative">
                             <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                                 <User size={16} className="text-gray-400" />
                             </div>
-                            <input placeholder="ระบุชื่อลูกค้า (ลูกค้าทั่วไป)" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full pl-9 pr-4 py-3 border-2 border-white bg-white rounded-xl outline-none focus:border-teal-400 transition-all font-medium text-gray-800 text-sm shadow-sm" />
+                            <input 
+                                required
+                                placeholder="ระบุชื่อลูกค้า..." 
+                                value={form.name} 
+                                onChange={e => setForm({...form, name: e.target.value})} 
+                                className="w-full pl-9 pr-4 py-3 border-2 border-white bg-white rounded-xl outline-none focus:border-teal-400 transition-all font-medium text-gray-800 text-sm shadow-xs" 
+                            />
                         </div>
                     </div>
                     <div>
-                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 ml-1">เบอร์โทรศัพท์ (ถ้ามี)</label>
-                        <div className="relative">
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 ml-1">
+                            เบอร์โทรศัพท์ <span className="text-rose-500">*</span>
+                        </label>
+                        <div className="relative flex items-center">
                             <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                                 <Phone size={16} className="text-gray-400" />
                             </div>
-                            <input placeholder="08X-XXX-XXXX" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} className="w-full pl-9 pr-4 py-3 border-2 border-white bg-white rounded-xl outline-none focus:border-teal-400 transition-all font-medium text-gray-800 text-sm shadow-sm" />
+                            <input 
+                                required
+                                type="tel"
+                                placeholder="08X-XXX-XXXX" 
+                                value={form.phone} 
+                                onChange={e => {
+                                    const val = e.target.value;
+                                    setForm({...form, phone: val});
+                                }} 
+                                className="w-full pl-9 pr-24 py-3 border-2 border-white bg-white rounded-xl outline-none focus:border-teal-400 transition-all font-medium text-gray-800 text-sm shadow-xs font-mono" 
+                            />
+
+                            {/* Icon button at the back of phone field (ด้านหลังช่องเบอร์โทร) */}
+                            {isFormPhoneNotFound && (
+                                <div className="absolute inset-y-0 right-1.5 flex items-center">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleTriggerRegister(form.phone)}
+                                        className="px-2 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-[11px] font-black shadow-xs active:scale-95 transition-all flex items-center gap-1"
+                                        title="เบอร์นี้ยังไม่มีในระบบ - กดเพื่อลงทะเบียนลูกค้าใหม่"
+                                    >
+                                        <UserPlus size={13} />
+                                        <span>+ ลงทะเบียน</span>
+                                    </button>
+                                </div>
+                            )}
+
+                            {formPhoneMatch && (
+                                <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none">
+                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                        ✓ ในระบบ
+                                    </span>
+                                </div>
+                            )}
                         </div>
+                        {isFormPhoneNotFound && (
+                            <div className="mt-1 ml-1 flex items-center justify-between text-[10px]">
+                                <span className="text-amber-700 font-bold">⚠️ ยังไม่มีข้อมูลเบอร์นี้ในระบบ</span>
+                                <button
+                                    type="button"
+                                    onClick={() => handleTriggerRegister(form.phone)}
+                                    className="text-teal-700 hover:text-teal-900 underline font-bold"
+                                >
+                                    คลิกเพื่อลงทะเบียนใหม่
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -291,7 +650,7 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
                 <input 
                     type="text" required
                     value={form.service} 
-                    onChange={e => setForm({...form, service: e.target.value})}
+                    onChange={e => setForm({...form, service: e.target.value})} 
                     placeholder="หรือพิมพ์บริการอื่นๆ..." 
                     className="w-full px-4 py-3 border-2 border-gray-100 bg-gray-50/50 rounded-2xl outline-none focus:border-teal-400 focus:bg-white focus:ring-4 focus:ring-teal-400/10 transition-all font-medium text-gray-800"
                 />
@@ -325,7 +684,7 @@ export default function AdminBookingForm({ onSubmit, onClose, initialBranch, isS
 
             {/* Submit Button */}
             <div className="pt-2">
-               <button type="submit" disabled={isSubmitting} className="w-full bg-teal-500 hover:bg-teal-600 text-white font-black py-4 rounded-2xl shadow-lg shadow-teal-500/30 active:scale-95 transition-all flex items-center justify-center gap-2 text-base">
+               <button type="submit" disabled={isSubmitting} className="w-full bg-teal-500 hover:bg-teal-600 text-white font-black py-4 rounded-2xl shadow-lg shadow-teal-500/30 active:scale-95 transition-all flex items-center justify-center gap-2 text-base cursor-pointer">
                    {isSubmitting ? <Loader2 size={20} className="animate-spin" /> : <CalendarPlus size={20} />} บันทึกนัดหมาย
                </button>
             </div>
