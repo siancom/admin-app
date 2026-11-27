@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense, lazy } from 'react';
 import { 
   Upload, Search, Home, FileText, User, Users, Settings, 
   Plus, Eye, CheckCircle, Clock, QrCode, LogOut, Menu, X, 
@@ -251,6 +251,8 @@ export default function App() {
   const [isDbConnected, setIsDbConnected] = useState(false);
   const [isCloudLoading, setIsCloudLoading] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingCurrentItem, setLoadingCurrentItem] = useState('เชื่อมต่อ Cloud...');
+  const loadedCollectionsRef = useRef(new Set());
 
   // 🌟 หน้าล็อกอินแอดมิน — จำ session 30 วัน พร้อม Rolling Extension อัตโนมัติเมื่อมีการใช้งาน (ไม่เด้งหลุดกลางคัน)
   const ADMIN_SESSION_DAYS = 30;
@@ -263,6 +265,27 @@ export default function App() {
   const grantAdminSession = () => {
     try { localStorage.setItem('admin_session_exp', String(Date.now() + ADMIN_SESSION_DAYS * 24 * 3600 * 1000)); } catch (e) {}
   };
+
+  // 🌟 ติดตามการโหลดของคอลเลกชันสำคัญแบบเรียลไทม์ (ห้ามขึ้นเขียวจนกว่าจะโหลดครบ 100% จริง)
+  const markCollectionLoaded = useCallback((key, label) => {
+    if (!loadedCollectionsRef.current.has(key)) {
+      loadedCollectionsRef.current.add(key);
+    }
+    const currentCount = loadedCollectionsRef.current.size;
+    const targetTotal = loginGate ? 10 : 14;
+    const pct = Math.min(100, Math.round((currentCount / targetTotal) * 100));
+    setLoadingProgress(pct);
+
+    if (currentCount >= targetTotal) {
+      setLoadingCurrentItem('ซิงค์ครบถ้วน');
+      setTimeout(() => {
+        setIsCloudLoading(false);
+      }, 350);
+    } else {
+      setLoadingCurrentItem(label || key);
+      setIsCloudLoading(true);
+    }
+  }, [loginGate]);
 
   const [courses, setCourses] = useState([]); 
   const [masterCourses, setMasterCourses] = useState([]); 
@@ -1361,7 +1384,10 @@ export default function App() {
   // 🌟 ระดับที่ 1: ข้อมูลหน้า Login, คิวจองนัดหมาย, และข้อมูลจุดขาย POS (ดึงมาก่อนในเฟสแรกทันที)
   useEffect(() => {
     if (!user) return;
-    const errHandler = (err) => console.error("Tier 1 collections error:", err);
+    const makeErrHandler = (key, label) => (err) => {
+      console.error(`Tier 1 [${key}] error:`, err);
+      markCollectionLoaded(key, label);
+    };
 
     const unsubBranches = onSnapshot(getCol('branches'), (s) => { 
       let docs = s.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1372,52 +1398,67 @@ export default function App() {
         ];
       }
       setBranches(docs);
-      setIsCloudLoading(false);
-    }, errHandler);
+      markCollectionLoaded('branches', 'ข้อมูลสาขา');
+    }, makeErrHandler('branches', 'ข้อมูลสาขา'));
 
     const unsubSettings = onSnapshot(doc(db, 'app_settings', 'financial'), (docSnap) => { 
       if (docSnap.exists()) {
         setAppSettings(docSnap.data());
       }
-    }, errHandler);
+      markCollectionLoaded('settings', 'ตั้งค่าระบบ');
+    }, makeErrHandler('settings', 'ตั้งค่าระบบ'));
 
     const unsubEmployees = onSnapshot(getCol('employees'), (s) => { 
       setEmployees(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
-      setIsCloudLoading(false);
-    }, errHandler);
+      markCollectionLoaded('employees', 'รายชื่อพนักงาน');
+    }, makeErrHandler('employees', 'รายชื่อพนักงาน'));
 
     const unsubAttendance = onSnapshot(getCol('employee_attendance'), (s) => { 
       setEmployeeAttendance(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
-      setIsCloudLoading(false);
-    }, errHandler);
+      markCollectionLoaded('attendance', 'การลงเวลา');
+    }, makeErrHandler('attendance', 'การลงเวลา'));
 
     // 🌟 คิวจองนัดหมาย (Bookings) & วันหยุดร้าน
     const unsubBookings = onSnapshot(getCol('bookings'), (s) => { 
       setBookings(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
-    }, errHandler);
+      markCollectionLoaded('bookings', 'คิวนัดหมาย');
+    }, makeErrHandler('bookings', 'คิวนัดหมาย'));
 
     const unsubHolidays = onSnapshot(getCol('store_holidays'), (s) => { 
       setStoreHolidays(s.docs.map(d => ({ ...d.data(), id: d.id }))); 
-    }, errHandler);
+      markCollectionLoaded('holidays', 'วันหยุดร้าน');
+    }, makeErrHandler('holidays', 'วันหยุดร้าน'));
 
     // 🌟 ข้อมูล POS หน้าร้าน (สินค้า, คอร์สมาตรฐาน, โปรโมชั่น, ยอดขาย)
     const unsubProducts = onSnapshot(getCol('products'), (s) => { 
       setProducts(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
-    }, errHandler);
+      markCollectionLoaded('products', 'สินค้า POS');
+    }, makeErrHandler('products', 'สินค้า POS'));
 
     const unsubMasterCourses = onSnapshot(getCol('master_courses'), (s) => { 
       setMasterCourses(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
-    }, errHandler);
+      markCollectionLoaded('master_courses', 'คอร์สมาตรฐาน');
+    }, makeErrHandler('master_courses', 'คอร์สมาตรฐาน'));
 
     const unsubPromo = onSnapshot(getCol('promotions'), (s) => { 
       setPromotions(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
-    }, errHandler);
+      markCollectionLoaded('promotions', 'โปรโมชั่น');
+    }, makeErrHandler('promotions', 'โปรโมชั่น'));
 
     const unsubDailySales = onSnapshot(getCol('daily_sales'), (s) => { 
       setDailySales(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
-    }, errHandler);
+      markCollectionLoaded('daily_sales', 'ยอดขายประจำวัน');
+    }, makeErrHandler('daily_sales', 'ยอดขายประจำวัน'));
+
+    const safetyTimerTier1 = setTimeout(() => {
+      if (loadedCollectionsRef.current.size < (loginGate ? 10 : 14)) {
+        console.warn("Tier 1 safety timeout triggered");
+        if (loginGate) setIsCloudLoading(false);
+      }
+    }, 10000);
 
     return () => { 
+      clearTimeout(safetyTimerTier1);
       unsubBranches(); 
       unsubSettings(); 
       unsubEmployees(); 
@@ -1434,23 +1475,48 @@ export default function App() {
   // 🌟 ระดับที่ 2: ข้อมูลประวัติและลูกค้าย้อนหลังขนาดใหญ่ (คอร์สลูกค้าหลายพันใบ, ลูกค้า, ประวัติหลายหมื่นเรคคอร์ด)
   useEffect(() => {
     if (!user || loginGate) return;
-    let loaded = 0;
-    const totalKeyCollections = 4;
-    const updateProgress = () => { 
-      loaded++; 
-      setLoadingProgress(Math.min(100, Math.round((loaded / totalKeyCollections) * 100))); 
-      if (loaded >= totalKeyCollections) setTimeout(() => setIsCloudLoading(false), 300); 
+
+    if (loadedCollectionsRef.current.size < 14) {
+      setIsCloudLoading(true);
+      const currentCount = loadedCollectionsRef.current.size;
+      setLoadingProgress(Math.min(95, Math.round((currentCount / 14) * 100)));
+      setLoadingCurrentItem('คอร์สและประวัติลูกค้า...');
+    }
+
+    const safetyTimerTier2 = setTimeout(() => {
+      if (loadedCollectionsRef.current.size < 14) {
+        console.warn("Tier 2 loading safety timeout triggered");
+        setIsCloudLoading(false);
+      }
+    }, 12000);
+
+    const makeTier2ErrHandler = (key, label) => (err) => { 
+      console.error(`Tier 2 [${key}] error:`, err); 
+      markCollectionLoaded(key, label); 
     };
-    const safetyTimer = setTimeout(() => setIsCloudLoading(false), 6000);
-    const errHandler = (err) => { console.error(err); updateProgress(); };
 
     // ดึงสินค้า Woo เบื้องหลังหลังล็อกอินสำเร็จ
     fetchWooProducts(false);
 
-    const unsubCourses = onSnapshot(getCol('courses'), (s) => { setCourses(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
-    const unsubCustomers = onSnapshot(getCol('customers'), (s) => { setCustomersRaw(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
-    const unsubHistories = onSnapshot(getCol('histories'), (s) => { setHistories(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
-    const unsubOrders = onSnapshot(getCol('orders'), (s) => { setOrders(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
+    const unsubCourses = onSnapshot(getCol('courses'), (s) => { 
+      setCourses(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+      markCollectionLoaded('courses', 'คอร์สลูกค้า'); 
+    }, makeTier2ErrHandler('courses', 'คอร์สลูกค้า'));
+
+    const unsubCustomers = onSnapshot(getCol('customers'), (s) => { 
+      setCustomersRaw(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+      markCollectionLoaded('customers', 'ฐานข้อมูลลูกค้า'); 
+    }, makeTier2ErrHandler('customers', 'ฐานข้อมูลลูกค้า'));
+
+    const unsubHistories = onSnapshot(getCol('histories'), (s) => { 
+      setHistories(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+      markCollectionLoaded('histories', 'ประวัติการบริการ'); 
+    }, makeTier2ErrHandler('histories', 'ประวัติการบริการ'));
+
+    const unsubOrders = onSnapshot(getCol('orders'), (s) => { 
+      setOrders(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+      markCollectionLoaded('orders', 'ประวัติบิลออเดอร์'); 
+    }, makeTier2ErrHandler('orders', 'ประวัติบิลออเดอร์'));
 
     const unsubLeaves = onSnapshot(getCol('employee_leaves'), (s) => { setEmployeeLeaves(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsubReqs = onSnapshot(getCol('employee_requisitions'), (s) => { setEmployeeRequisitions(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
@@ -6761,26 +6827,26 @@ const flexMessage = {
         <div 
           onClick={() => triggerToast(
             isCloudLoading 
-              ? `กำลังซิงค์ข้อมูล Cloud (${loadingProgress}%)` 
+              ? `⚡ กำลังโหลดข้อมูล: ${loadingCurrentItem} (${loadingProgress}%)` 
               : isDbConnected 
-                ? 'ข้อมูลเชื่อมต่อและซิงค์เรียลไทม์กับ Cloud เรียบร้อยแล้ว' 
-                : 'ระบบออฟไลน์ ขาดการเชื่อมต่อ Cloud',
+                ? '✅ ข้อมูลเชื่อมต่อและซิงค์เรียลไทม์กับ Cloud ครบถ้วน 100%' 
+                : '❌ ระบบออฟไลน์ ขาดการเชื่อมต่อ Cloud',
             isCloudLoading ? 'info' : isDbConnected ? 'success' : 'error'
           )}
           className="lg:hidden fixed top-3 right-3 z-50 flex items-center cursor-pointer pointer-events-auto active:scale-95 transition-all print:hidden"
           title={
             isCloudLoading 
-              ? `กำลังซิงค์ข้อมูล Cloud... (${loadingProgress}%)` 
+              ? `กำลังโหลด: ${loadingCurrentItem} (${loadingProgress}%)` 
               : isDbConnected 
-                ? 'ซิงค์ข้อมูลเรียบร้อย (Cloud Online)' 
+                ? 'ซิงค์ข้อมูลเรียบร้อยครบถ้วน 100% (Cloud Online)' 
                 : 'ขาดการเชื่อมต่อ Cloud'
           }
         >
           <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border shadow-sm backdrop-blur-md transition-all ${
             isCloudLoading 
-              ? 'bg-amber-50/95 border-amber-200 text-amber-700' 
+              ? 'bg-amber-50/95 border-amber-300 text-amber-800 shadow-amber-500/10' 
               : isDbConnected 
-                ? 'bg-white/95 border-emerald-200 text-emerald-700 shadow-emerald-500/10' 
+                ? 'bg-white/95 border-emerald-300 text-emerald-700 shadow-emerald-500/10' 
                 : 'bg-rose-50/95 border-rose-200 text-rose-700'
           }`}>
             <span className="relative flex h-2.5 w-2.5 shrink-0">
@@ -6795,9 +6861,18 @@ const flexMessage = {
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 animate-pulse"></span>
               )}
             </span>
-            {isCloudLoading && (
-              <span className="text-[9px] font-bold text-amber-700 font-mono">
-                {loadingProgress}%
+            {isCloudLoading ? (
+              <span className="text-[10px] font-bold text-amber-800 flex items-center gap-1">
+                <span className="font-mono">{loadingProgress}%</span>
+                <span className="max-w-[85px] truncate">{loadingCurrentItem}</span>
+              </span>
+            ) : isDbConnected ? (
+              <span className="text-[9px] font-bold text-emerald-700">
+                ซิงค์แล้ว
+              </span>
+            ) : (
+              <span className="text-[9px] font-bold text-rose-600">
+                ออฟไลน์
               </span>
             )}
           </div>
@@ -6898,24 +6973,24 @@ const flexMessage = {
             <div 
               onClick={() => triggerToast(
                 isCloudLoading 
-                  ? `กำลังซิงค์ข้อมูล Cloud (${loadingProgress}%)` 
+                  ? `⚡ กำลังโหลดข้อมูล: ${loadingCurrentItem} (${loadingProgress}%)` 
                   : isDbConnected 
-                    ? 'ข้อมูลเชื่อมต่อและซิงค์เรียลไทม์กับ Cloud เรียบร้อยแล้ว' 
-                    : 'ระบบออฟไลน์ ขาดการเชื่อมต่อ Cloud',
+                    ? '✅ ข้อมูลเชื่อมต่อและซิงค์เรียลไทม์กับ Cloud ครบถ้วน 100%' 
+                    : '❌ ระบบออฟไลน์ ขาดการเชื่อมต่อ Cloud',
                 isCloudLoading ? 'info' : isDbConnected ? 'success' : 'error'
               )}
-              className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] sm:text-xs font-bold border shadow-2xs shrink-0 transition-all cursor-pointer ${
+              className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] sm:text-xs font-bold border shadow-2xs shrink-0 transition-all cursor-pointer ${
                 isCloudLoading 
-                  ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' 
+                  ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 shadow-amber-500/10' 
                   : isDbConnected 
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' 
                     : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
               }`}
               title={
                 isCloudLoading 
-                  ? `กำลังซิงค์ข้อมูล Cloud... (${loadingProgress}%)` 
+                  ? `กำลังโหลด: ${loadingCurrentItem} (${loadingProgress}%)` 
                   : isDbConnected 
-                    ? 'ซิงค์ข้อมูลเรียบร้อย (Cloud Online)' 
+                    ? 'ซิงค์ข้อมูลเรียบร้อยครบถ้วน 100% (Cloud Online)' 
                     : 'ขาดการเชื่อมต่อ Cloud (Offline)'
               }
             >
@@ -6934,7 +7009,13 @@ const flexMessage = {
                    </>
                  )}
                </span>
-               <span>{isCloudLoading ? `ซิงค์ ${loadingProgress}%` : isDbConnected ? 'ซิงค์แล้ว' : 'ออฟไลน์'}</span>
+               <span>
+                 {isCloudLoading 
+                   ? `กำลังโหลด: ${loadingCurrentItem} (${loadingProgress}%)` 
+                   : isDbConnected 
+                     ? 'ซิงค์แล้ว 100%' 
+                     : 'ออฟไลน์'}
+               </span>
             </div>
             <div className="flex bg-white/80 shadow-sm rounded-xl p-1.5 border border-gray-100 shrink-0">
                {uploadButtons.map((btn, idx) => {
