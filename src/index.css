@@ -1,4 +1,38 @@
 @import "tailwindcss";
+
+/* 🌟 iOS Safari / iPhone Zoom & Touch Optimization */
+html,
+body {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+button,
+input,
+select,
+textarea,
+a {
+  touch-action: manipulation;
+}
+
+/* 🌟 Prevent iOS Safari automatic auto-zoom on input focus */
+@supports (-webkit-touch-callout: none) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+@media screen and (max-width: 820px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* Custom scrollbar for textareas */
 textarea::-webkit-scrollbar {
     width: 8px;

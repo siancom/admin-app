@@ -4,6 +4,13 @@ import './index.css'
 import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 
+// Prevent iOS Safari gesture zoom (pinch-to-zoom)
+if (typeof document !== 'undefined') {
+  document.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
+  document.addEventListener('gesturechange', (e) => e.preventDefault(), { passive: false });
+  document.addEventListener('gestureend', (e) => e.preventDefault(), { passive: false });
+}
+
 window.addEventListener('vite:preloadError', () => {
   const lastReload = sessionStorage.getItem('iris_chunk_reload_ts')
   const now = Date.now()
