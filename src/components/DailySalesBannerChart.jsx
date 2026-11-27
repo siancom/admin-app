@@ -87,10 +87,11 @@ const UNPAID_ORDER_STATUSES = ['รอชำระเงิน', 'รอตร�
 // Check if order counts toward customer sales revenue (real POS & approved/paid sales)
 const isOrderCompletedForRevenue = (o) => {
   if (!o || o.isCancelled || o.source === 'POS_Parked' || o.mergedIntoPosOrderNo) return false;
-  // Exclude internal stock transfers & owner acquisitions
+  // Exclude internal stock transfers & owner acquisitions & internal clinic use
   const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
   const isPO = o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า');
-  if (isReq || isPO) return false;
+  const isStoreUse = o.transactionType === 'store_use' || (o.courseName || '').includes('[เบิกใช้');
+  if (isReq || isPO || isStoreUse) return false;
   
   const rawStatus = String(getFuzzyKey(o, ['status', 'สถานะ']) || '').trim();
   if (rawStatus && UNPAID_ORDER_STATUSES.some(s => rawStatus.toLowerCase().includes(s.toLowerCase()))) {
@@ -199,6 +200,7 @@ export default function DailySalesBannerChart({
     mtdPosDaysCount,
     mtdEodTotal,
     mtdEodDaysCount,
+    mtdDepositTotal,
     mtdDaysCount, 
     peakDay 
   } = useMemo(() => {
@@ -262,13 +264,19 @@ export default function DailySalesBannerChart({
       const manualTransfer = parseNumber(ds.manualTransfer || 0);
       const diff = parseNumber(ds.difference || 0);
       const extra = manualTransfer + diff;
+      const tSales = parseNumber(ds.totalSales);
+      const baseSales = tSales > 0 ? tSales : (parseNumber(ds.cashSales) + parseNumber(ds.transferSales) + manualTransfer);
+      const dayEod = Math.max(0, baseSales + diff);
       
       eodByDate[dateIso] = {
         isSubmitted: true,
         status: ds.status || 'ปิดยอดแล้ว',
-        totalSales: parseNumber(ds.totalSales),
+        totalSales: dayEod,
+        rawTotalSales: tSales,
+        totalDeposit: parseNumber(ds.totalDeposit || 0),
         cashSales: parseNumber(ds.cashSales),
         transferSales: parseNumber(ds.transferSales),
+        difference: diff,
         extraSales: extra
       };
     });
@@ -342,6 +350,7 @@ export default function DailySalesBannerChart({
     // 2. ยอดสะสมจากการส่งยอด (ใบส่งยอดประจำวัน EOD)
     let mtdEodSum = 0;
     let mtdEodDaysCount = 0;
+    let mtdDepositSum = 0;
     dailySales.forEach(ds => {
       if (selectedBranch && selectedBranch !== 'ทั้งหมด') {
         const dsBranch = normalizeBranchName(ds.branch || 'เฉวง');
@@ -353,9 +362,10 @@ export default function DailySalesBannerChart({
         const tSales = parseNumber(ds.totalSales);
         const manualTransfer = parseNumber(ds.manualTransfer || 0);
         const diff = parseNumber(ds.difference || 0);
-        const extra = manualTransfer + diff;
-        const dayEod = tSales > 0 ? tSales : (parseNumber(ds.cashSales) + parseNumber(ds.transferSales) + extra);
+        const baseSales = tSales > 0 ? tSales : (parseNumber(ds.cashSales) + parseNumber(ds.transferSales) + manualTransfer);
+        const dayEod = Math.max(0, baseSales + diff);
         mtdEodSum += dayEod;
+        mtdDepositSum += parseNumber(ds.totalDeposit || 0);
         if (dayEod > 0) mtdEodDaysCount++;
       }
     });
@@ -389,6 +399,7 @@ export default function DailySalesBannerChart({
       mtdPosDaysCount,
       mtdEodTotal: mtdEodSum,
       mtdEodDaysCount,
+      mtdDepositTotal: mtdDepositSum,
       mtdDaysCount: mtdCombinedCount > 0 ? mtdCombinedCount : 1,
       peakDay: peak
     };
@@ -640,8 +651,10 @@ export default function DailySalesBannerChart({
           {/* ส่วนท้าย: เปรียบเทียบส่วนต่าง และเฉลี่ยต่อวัน */}
           <div className="mt-2.5 pt-2 border-t border-slate-700/60 flex items-center justify-between text-[11px] text-slate-400 flex-wrap gap-1">
             <span className="flex items-center gap-1">
-              {mtdDiff === 0 ? (
+              {Math.abs(mtdDiff) === 0 ? (
                 <span className="text-emerald-400 font-bold">✓ ยอดตรงกัน</span>
+              ) : Math.abs(mtdDiff) < 100 ? (
+                <span className="text-emerald-400 font-bold">✓ ยอดตรงกัน (ต่าง ฿{Math.abs(mtdDiff).toLocaleString()})</span>
               ) : (
                 <span className={`font-semibold ${mtdDiff > 0 ? 'text-amber-300' : 'text-rose-400'}`}>
                   ต่างกัน: ฿{Math.abs(mtdDiff).toLocaleString()}

@@ -610,8 +610,11 @@ export default function SalesHistoryModal({
                   <div key={order.id} className={`bg-white border rounded-2xl p-4 transition-all hover:shadow-md ${isCancelled ? 'border-red-200 bg-red-50/30 opacity-75' : 'border-slate-200 shadow-sm'}`}>
                     <div className="flex flex-col sm:flex-row justify-between gap-4">
                       <div className="flex-1 space-y-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-bold text-slate-800 text-lg">#{order.orderNo}</span>
+                          {(order.transactionType === 'store_use' || order.isStoreUse || (order.courseName || '').includes('[เบิกใช้')) && (
+                            <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-xs font-bold border border-purple-200">เบิกใช้ในร้าน</span>
+                          )}
                           {isCancelled ? (
                             <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs font-bold border border-red-200">ยกเลิกแล้ว</span>
                           ) : (
@@ -658,7 +661,7 @@ export default function SalesHistoryModal({
                                onClick={() => onPrintReceipt(order)}
                                className="w-full sm:w-auto text-xs font-bold px-4 py-2 rounded-xl flex items-center justify-center gap-1 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white border border-indigo-200 hover:border-indigo-600 transition-all shadow-sm active:scale-95"
                              >
-                               <FileText size={14} /> {order.transactionType === 'owner_purchase' || order.transactionType === 'branch_requisition' || (order.courseName || '').includes('[ซื้อเข้า') || (order.courseName || '').includes('[เบิกจาก') ? 'พิมพ์ใบสั่งซื้อ/ใบเบิก' : 'พิมพ์ใบเสร็จ'}
+                               <FileText size={14} /> {order.transactionType === 'store_use' || order.isStoreUse || (order.courseName || '').includes('[เบิกใช้') ? 'พิมพ์ใบเบิกใช้ในร้าน' : (order.transactionType === 'owner_purchase' || order.transactionType === 'branch_requisition' || (order.courseName || '').includes('[ซื้อเข้า') || (order.courseName || '').includes('[เบิกจาก') ? 'พิมพ์ใบสั่งซื้อ/ใบเบิก' : 'พิมพ์ใบเสร็จ')}
                              </button>
                            )}
                            

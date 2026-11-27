@@ -99,7 +99,8 @@ const isOrderCompletedForRevenue = (o) => {
   if (!o || o.isCancelled || o.source === 'POS_Parked' || o.mergedIntoPosOrderNo) return false;
   const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
   const isPO = o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า');
-  if (isReq || isPO) return false;
+  const isStoreUse = o.transactionType === 'store_use' || (o.courseName || '').includes('[เบิกใช้');
+  if (isReq || isPO || isStoreUse) return false;
   const rawStatus = String(getFuzzyKey(o, ['status', 'สถานะ']) || '').trim();
   if (rawStatus && UNPAID_ORDER_STATUSES.some(s => rawStatus.toLowerCase().includes(s.toLowerCase()))) return false;
   if (o.source === 'POS') return true;
@@ -773,7 +774,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
       csvContent += '--- รายรับ (Sales) ---\n';
       csvContent += 'วันที่,สาขา,เลขที่บิล/อ้างอิง,ลูกค้า,ยอดขาย (บาท),ช่องทาง\n';
       filteredOrders.forEach(o => {
-         if (o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า') || o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก')) return;
+         if (o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า') || o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก') || o.transactionType === 'store_use' || (o.courseName || '').includes('[เบิกใช้')) return;
          
          const date = (toValidDate(o.createdAt || o.date || o['วันที่']) || new Date()).toLocaleString('th-TH');
          const branch = o.branch || '-';

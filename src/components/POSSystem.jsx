@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { AlertTriangle,
   Scissors, Search, Info, ShoppingCart, Package, Layers, User, Trash2, UserPlus,
   Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink, ScanBarcode, ArrowRight, Gift,
-  Flame, TrendingUp, Tag, Droplet, Zap, Target, Heart, Edit3, AlertCircle, RefreshCw, PenTool, Eye
+  Flame, TrendingUp, Tag, Droplet, Zap, Target, Heart, Edit3, AlertCircle, RefreshCw, PenTool, Eye, Store
 } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, getDocs, query, where, writeBatch, orderBy, limit, collection, arrayUnion } from 'firebase/firestore';
@@ -787,6 +787,9 @@ export default function POSSystem({
 
   const [isStockMode, setIsStockMode] = useState(false);
   const [isRequisitionMode, setIsRequisitionMode] = useState(false);
+  const [isStoreUseMode, setIsStoreUseMode] = useState(false);
+  const [storeUseReason, setStoreUseReason] = useState('ห้องทรีตเมนต์ 1');
+  const [customStoreUseReason, setCustomStoreUseReason] = useState('');
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [stockAdjustments, setStockAdjustments] = useState([]);
   const [stockInputModal, setStockInputModal] = useState({ isOpen: false, item: null, inputVal: '' });
@@ -2383,10 +2386,10 @@ export default function POSSystem({
       const status = String(getFuzzyKey(p, ["สถานะ", "status", "การใช้งาน", "state"]) || '').trim();
       if (!name) return false;
       if (status === 'ร่าง' || status === 'draft' || status === 'ปิดใช้งาน' || status === 'ปิด' || status === 'ไม่แสดง' || status === 'ซ่อน') return false;
-      // ซ่อนสินค้า Store Use เฉพาะโหมดขายปกติ (ไม่ใช่โหมดเบิกสินค้าและไม่ใช่โหมดนับสต๊อก)
-      if (p.isStoreUseOnly && !isStockMode && !isRequisitionMode) return false;
+      // ซ่อนสินค้า Store Use เฉพาะโหมดขายปกติ (ไม่ใช่โหมดเบิกสินค้า, โหมดนับสต๊อก และโหมดเบิกใช้ในร้าน)
+      if (p.isStoreUseOnly && !isStockMode && !isRequisitionMode && !isStoreUseMode) return false;
       // กรองบริการ/คอร์ส/ทรีทเม้นท์ ที่หลุดเข้ามาในตารางสินค้า (เช่น ขัดหน้าขาว 1 ครั้ง)
-      if (!isStockMode && !isRequisitionMode && isServiceOrCourseProduct(p)) return false;
+      if (!isStockMode && !isRequisitionMode && !isStoreUseMode && isServiceOrCourseProduct(p)) return false;
       const searchStr = `${String(getFuzzyKey(p, ["รหัส", "col_1"]) || '')} ${name}`.toLowerCase();
       if (searchTerm !== '' && !searchStr.includes(searchTerm.toLowerCase())) return false;
       
@@ -2445,7 +2448,7 @@ export default function POSSystem({
 
       return nameA.localeCompare(nameB, 'th');
     });
-  }, [products, searchTerm, isStockMode, isRequisitionMode, productSortMode, selectedSkincareStep, productSalesMap, globalBranch, wooImagesMap]);
+  }, [products, searchTerm, isStockMode, isRequisitionMode, isStoreUseMode, productSortMode, selectedSkincareStep, productSalesMap, globalBranch, wooImagesMap]);
 
   // แถบขั้นตอนดูแลผิวและจำนวนสินค้าในแต่ละขั้นตอน
   const skincareStepTabs = useMemo(() => {
@@ -2457,8 +2460,8 @@ export default function POSSystem({
       const status = String(getFuzzyKey(p, ["สถานะ", "status", "การใช้งาน", "state"]) || '').trim();
       if (!name) return;
       if (status === 'ร่าง' || status === 'draft' || status === 'ปิดใช้งาน' || status === 'ปิด' || status === 'ไม่แสดง' || status === 'ซ่อน') return;
-      if (p.isStoreUseOnly && !isStockMode && !isRequisitionMode) return;
-      if (!isStockMode && !isRequisitionMode && isServiceOrCourseProduct(p)) return;
+      if (p.isStoreUseOnly && !isStockMode && !isRequisitionMode && !isStoreUseMode) return;
+      if (!isStockMode && !isRequisitionMode && !isStoreUseMode && isServiceOrCourseProduct(p)) return;
       const searchStr = `${String(getFuzzyKey(p, ["รหัส", "col_1"]) || '')} ${name}`.toLowerCase();
       if (searchTerm !== '' && !searchStr.includes(searchTerm.toLowerCase())) return;
 
@@ -2477,7 +2480,7 @@ export default function POSSystem({
         icon: s.icon
       }))
     ];
-  }, [products, searchTerm, isStockMode, isRequisitionMode]);
+  }, [products, searchTerm, isStockMode, isRequisitionMode, isStoreUseMode]);
 
   // จัดกลุ่มสินค้าตามขั้นตอนดูแลผิว เพื่อแสดงหัวข้อคั่นในโหมดขั้นตอนผิว
   const groupedProductsByStep = useMemo(() => {
@@ -2989,11 +2992,13 @@ export default function POSSystem({
     const normGlobalBranch = normalizeBranchName(globalBranch);
 
     orders.forEach(o => {
-      const isOldPO = (o.courseName || '').includes('[ซื้อเข้า') || (o.courseName || '').includes('[เบิกจาก');
+      const isOldPO = (o.courseName || '').includes('[ซื้อเข้า') || (o.courseName || '').includes('[เบิกจาก') || (o.courseName || '').includes('[เบิกใช้');
       const oStatus = String(o.status || '').trim();
       if (
         o.transactionType === 'owner_purchase' ||
         o.transactionType === 'branch_requisition' ||
+        o.transactionType === 'store_use' ||
+        o.isStoreUse ||
         isOldPO ||
         o.source === 'POS_Parked' ||
         o.mergedIntoPosOrderNo ||
@@ -3190,11 +3195,13 @@ export default function POSSystem({
     const UNPAID_ORDER_STATUSES = ['รอชำระเงิน', 'รอตรวจสอบ', 'รอตรวจสอบยอดโอน', 'รอดำเนินการ', 'รอประเมินราคา', 'ยกเลิก'];
     const normGlobalBranch = normalizeBranchName(globalBranch);
     return orders.reduce((sum, o) => {
-      const isOldPO = (o.courseName || '').includes('[ซื้อเข้า') || (o.courseName || '').includes('[เบิกจาก');
+      const isOldPO = (o.courseName || '').includes('[ซื้อเข้า') || (o.courseName || '').includes('[เบิกจาก') || (o.courseName || '').includes('[เบิกใช้');
       const oStatus = String(o.status || '').trim();
       if (
         o.transactionType === 'owner_purchase' ||
         o.transactionType === 'branch_requisition' ||
+        o.transactionType === 'store_use' ||
+        o.isStoreUse ||
         isOldPO ||
         o.source === 'POS_Parked' ||
         o.mergedIntoPosOrderNo ||
@@ -3300,21 +3307,32 @@ export default function POSSystem({
           let nameStr = String(getFuzzyKey(item, ["ชื่อสินค้า", "col_2"]));
           const fullPrice = parseNumber(getFuzzyKey(item, ["ราคาขายเต็ม", "ราคา", "col_6"]));
 
-          if (actionType === 'owner_purchase') {
+          let effectiveActionType = actionType;
+          if (!effectiveActionType) {
+            if (isStoreUseMode) effectiveActionType = 'store_use';
+            else if (isRequisitionMode) effectiveActionType = 'branch_requisition';
+            else if (isStockMode && globalRole === 'owner') effectiveActionType = 'owner_purchase';
+          }
+
+          if (effectiveActionType === 'owner_purchase') {
              price = computeOwnerCostPrice(item);
              maxQty = 9999;
              nameStr = `[ซื้อเข้า-เฉวง] ${nameStr}`;
-          } else if (actionType === 'branch_requisition') {
+          } else if (effectiveActionType === 'branch_requisition') {
              price = computeOwnerCostPrice(item);
              // Branch requisitions from Chaweng, allow even if stock is 0
              maxQty = 9999;
              nameStr = `[เบิกจากเฉวง] ${nameStr}`;
+          } else if (effectiveActionType === 'store_use') {
+             price = 0;
+             maxQty = 9999;
+             nameStr = `[เบิกใช้ในร้าน] ${nameStr}`;
           } else {
              // อนุญาตให้ขายได้แม้สต๊อกเป็น 0
              maxQty = 9999;
           }
           
-          return [...prev, { id: item.id, name: nameStr, price, originalPrice: fullPrice, qty: 1, type, actionType, maxQty, originalItem: item, isManualPrice: false }];
+          return [...prev, { id: item.id, name: nameStr, price, originalPrice: fullPrice, qty: 1, type, actionType: effectiveActionType, maxQty, originalItem: item, isManualPrice: false }];
         } else if (type === 'course' || type === 'single_course') {
           let price = parseNumber(getFuzzyKey(item, ["ราคา", "ราคาขาย", "col_5"]));
           const memberCoursePrice = parseNumber(getFuzzyKey(item, ["ราคาสมาชิก", "col_10", "memberPrice"]));
@@ -4159,19 +4177,20 @@ export default function POSSystem({
       showToast('ไม่มีสินค้าในตะกร้า');
       return;
     }
+    const isStoreUseTransaction = isStoreUseMode || cart.some(i => i.actionType === 'store_use');
     const hasCourse = cart.some(i => i.type === 'course' || i.type === 'single_course');
     const hasService = cart.some(i => i.type === 'service' || i.type === 'usage' || i.type === 'claim_item');
     let effectiveStaff = paymentStaff;
-    if (hasService && !effectiveStaff) {
-      effectiveStaff = posPreselectedStaffName || activeStaff?.name || (availableStaffList.length > 0 ? availableStaffList[0].name : '');
+    if ((hasService || isStoreUseTransaction) && !effectiveStaff) {
+      effectiveStaff = posPreselectedStaffName || activeStaff?.name || user?.name || (availableStaffList.length > 0 ? availableStaffList[0].name : '');
       if (effectiveStaff) {
         setPaymentStaff(effectiveStaff);
       } else {
-        showToast('มีรายการตัดคอร์ส/เบิกสินค้าในตะกร้า โปรดเลือกพนักงานผู้ทำรายการ', 'error');
+        showToast(isStoreUseTransaction ? 'โปรดเลือกพนักงานผู้ทำรายการเบิกสินค้า' : 'มีรายการตัดคอร์ส/เบิกสินค้าในตะกร้า โปรดเลือกพนักงานผู้ทำรายการ', 'error');
         return;
       }
     }
-    if ((hasCourse || cart.some(i => i.type === 'claim_item')) && !selectedCustomer) {
+    if ((hasCourse || cart.some(i => i.type === 'claim_item')) && !selectedCustomer && !isStoreUseTransaction) {
       handleSelectWalkIn();
       if (!isOwnerDirectUsage) {
         showToast('เลือกสิทธิ์ลูกค้าทั่วไป (Walk-in) ให้อัตโนมัติแล้ว กรุณากดยืนยันชำระเงินอีกครั้ง หรือกดระบุชื่อลูกค้า', 'info');
@@ -4183,7 +4202,7 @@ export default function POSSystem({
       showToast('⚠️ ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป ฿' + appCreditPaidAmount.toLocaleString() + ' — ห้ามเลือก "ใช้เครดิต" ซ้ำ (เครดิตจะถูกหักสองครั้ง) กรุณาลดช่องเครดิตเป็น 0', 'error');
       return;
     }
-    if (totalCovered !== total && total > 0) {
+    if (totalCovered !== total && total > 0 && !isStoreUseTransaction) {
       if (isOwnerDirectUsage && totalCovered === 0) {
         // สิทธิ์เจ้าของร้าน: ตรวจเช็คเบื้องต้นโดยไม่ได้ระบุยอดเงิน ให้ผ่านเป็นตรวจเช็คฟรี (฿0) ทันที
       } else if (!isOwnerDirectUsage) {
@@ -4229,11 +4248,13 @@ export default function POSSystem({
       const isUsageBill = hasCourseUsage || cart.some(i => i.type === 'usage') || isOwnerDirectUsage;
       const isClaimBill = hasCourseClaim || cart.some(i => i.type === 'claim_item');
       const hasWarrantyClaim = cart.some(i => i.isWarrantyClaim);
-      const paymentMethodStr = paymentMethodsStrArr.join(', ') || (isOwnerZeroPay ? 'สิทธิ์เจ้าของร้าน (ตรวจเช็คฟรี)' : (isOwnerDirectUsage ? 'ใช้คอส (เช็คเบื้องต้น)' : (isUsageBill ? 'ตัดคอร์ส' : (isClaimBill ? 'เบิกของแถม' : (hasWarrantyClaim ? 'เคลมประกันจี้ซ้ำ (ฟรี)' : 'ฟรี/ส่วนลดเต็มจำนวน')))));
+      const paymentMethodStr = isStoreUseTransaction ? 'เบิกใช้ภายในร้าน' : (paymentMethodsStrArr.join(', ') || (isOwnerZeroPay ? 'สิทธิ์เจ้าของร้าน (ตรวจเช็คฟรี)' : (isOwnerDirectUsage ? 'ใช้คอส (เช็คเบื้องต้น)' : (isUsageBill ? 'ตัดคอร์ส' : (isClaimBill ? 'เบิกของแถม' : (hasWarrantyClaim ? 'เคลมประกันจี้ซ้ำ (ฟรี)' : 'ฟรี/ส่วนลดเต็มจำนวน'))))));
       const batch = writeBatch(db);
       const delayedHistoryUpdates = [];
       
-      const cName = selectedCustomer ? String(selectedCustomer.computedName || getFuzzyKey(selectedCustomer, ["ชื่อ", "ชื่อลูกค้า", "col_1", "col_2"]) || 'ลูกค้าทั่วไป') : 'ลูกค้าทั่วไป (POS)';
+      const cName = isStoreUseTransaction 
+        ? `เบิกใช้ภายในคลินิก (${effectiveStaff || paymentStaff || 'พนักงาน'})` 
+        : (selectedCustomer ? String(selectedCustomer.computedName || getFuzzyKey(selectedCustomer, ["ชื่อ", "ชื่อลูกค้า", "col_1", "col_2"]) || 'ลูกค้าทั่วไป') : 'ลูกค้าทั่วไป (POS)');
       const cPhone = selectedCustomer ? String(selectedCustomer.computedPhone || selectedCustomer.phone || getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3", "phone"]) || '') : '';
       const custCleanPhone = cPhone.replace(/\D/g, '');
 
@@ -4332,21 +4353,45 @@ export default function POSSystem({
           let historyType = "ซื้อสินค้า";
           if (item.actionType === 'owner_purchase') historyType = "สั่งซื้อสินค้าเข้าสต๊อก (PO)";
           else if (item.actionType === 'branch_requisition') historyType = "เบิกสินค้าจากศูนย์ใหญ่";
+          else if (item.actionType === 'store_use' || isStoreUseTransaction) historyType = "เบิกใช้ภายในร้าน";
+
+          const isInternalRequisition = item.actionType === 'owner_purchase' || item.actionType === 'branch_requisition' || item.actionType === 'store_use' || isStoreUseTransaction;
 
           batch.set(historyRef, {
             "วันที่": customDateObj.toLocaleDateString('th-TH'),
-            "ชื่อลูกค้า": (item.actionType === 'owner_purchase' || item.actionType === 'branch_requisition') ? 'ศูนย์ใหญ่/พาร์ทเนอร์' : cName,
-            "เบอร์โทร": (item.actionType === 'owner_purchase' || item.actionType === 'branch_requisition') ? '' : cPhone,
-            "cleanPhone": (item.actionType === 'owner_purchase' || item.actionType === 'branch_requisition') ? '' : custCleanPhone,
+            "ชื่อลูกค้า": isInternalRequisition ? `เบิกใช้ภายในร้าน (${effectiveStaff || paymentStaff || 'พนักงาน'})` : cName,
+            "เบอร์โทร": isInternalRequisition ? '' : cPhone,
+            "cleanPhone": isInternalRequisition ? '' : custCleanPhone,
             "หมายเลขคำสั่งซื้อ": orderNo,
             "ประเภท": historyType,
             "สถานะ": "เรียบร้อย",
             "สินค้า": item.name,
             "จำนวน": String(item.qty),
-            "ยอดเงิน": String(item.price * item.qty),
-            "สาขา": item.actionType === 'owner_purchase' ? 'เฉวง' : String(globalBranch || "สำนักงานใหญ่"),
-            "พนักงาน": paymentStaff
+            "ยอดเงิน": (item.actionType === 'store_use' || isStoreUseTransaction) ? "0" : String(item.price * item.qty),
+            "สาขา": item.actionType === 'owner_purchase' ? 'เฉวง' : String(globalBranch || "เฉวง"),
+            "หมายเหตุ": (item.actionType === 'store_use' || isStoreUseTransaction) ? (storeUseReason || "เบิกใช้ภายในคลินิก (POS)") : "",
+            "พนักงาน": effectiveStaff || paymentStaff || user?.name || 'พนักงาน'
           });
+
+          // 🌟 บันทึก inventory_logs เมื่อเบิกใช้ภายในร้าน เพื่อให้หน้าคลังสินค้าตรวจสอบย้อนหลังได้ครบถ้วน
+          if (item.actionType === 'store_use' || isStoreUseTransaction) {
+            const invLogRef = doc(getCol('inventory_logs'));
+            const matchedProd = item.originalItem || products.find(p => p.id === item.id);
+            const oldStockVal = matchedProd ? parseQty(getBranchStock(matchedProd, targetPosBranch)) : 0;
+            const newStockVal = Math.max(0, oldStockVal - item.qty);
+            batch.set(invLogRef, {
+              productId: item.id,
+              productName: item.name,
+              type: 'STORE_USE',
+              branch: targetPosBranch,
+              oldStock: oldStockVal,
+              newStock: newStockVal,
+              diff: -item.qty,
+              reason: storeUseReason || 'เบิกใช้ภายในคลินิก (POS)',
+              createdBy: effectiveStaff || paymentStaff || user?.name || 'พนักงาน',
+              createdAt: customDateObj.toISOString()
+            });
+          }
         } 
         else if (item.type === 'service') {
           // Record service history
@@ -4845,6 +4890,7 @@ export default function POSSystem({
       let transactionType = 'sale';
       if (cart.some(i => i.actionType === 'owner_purchase')) transactionType = 'owner_purchase';
       else if (cart.some(i => i.actionType === 'branch_requisition')) transactionType = 'branch_requisition';
+      else if (isStoreUseTransaction) transactionType = 'store_use';
 
       batch.set(orderRef, {
         orderNo,
@@ -4855,14 +4901,16 @@ export default function POSSystem({
         hasMemberCard: Boolean(selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer),
         membershipStatus: (selectedCustomer?.hasMemberCard || selectedCustomer?.isApproved || isVipCustomer) ? "บัตรสมาชิก" : "ทั่วไป",
         courseName: itemsStr.join(', '), // Summarize items
-        price: String(isOwnerZeroPay ? 0 : total),
-        discount: String(isOwnerZeroPay ? (Number(globalDiscount) + total) : globalDiscount),
+        price: String(isStoreUseTransaction ? 0 : (isOwnerZeroPay ? 0 : total)),
+        discount: String(isStoreUseTransaction ? 0 : (isOwnerZeroPay ? (Number(globalDiscount) + total) : globalDiscount)),
         promotionId: selectedPromotion || null,
         promoDiscount: String(promoDiscount),
         qty: String(effectiveCart.reduce((sum, item) => sum + item.qty, 0)),
         branch: String(globalBranch || "เฉวง"),
         status: posTrackingNo.trim() ? "กำลังจัดส่ง" : "สำเร็จ",
         paymentMethod: paymentMethodStr,
+        isStoreUse: isStoreUseTransaction,
+        storeUseReason: isStoreUseTransaction ? (storeUseReason || 'ใช้ภายในคลินิก') : null,
         transferTip: transferTip > 0 ? Number(transferTip) : 0,
         transferSlipAmount: splitPayment.transfer > 0 ? Number(splitPayment.transfer) : 0,
         netTransfer: netTransfer > 0 ? Number(netTransfer) : 0,
@@ -5193,8 +5241,8 @@ export default function POSSystem({
         customerName: cName,
         customerPhone: cPhone,
         items: effectiveCart,
-        subtotal,
-        total,
+        subtotal: isStoreUseTransaction ? 0 : subtotal,
+        total: isStoreUseTransaction ? 0 : total,
         globalDiscount,
         appliedVoucherCode,
         promotionId: selectedPromotion || null,
@@ -5203,6 +5251,9 @@ export default function POSSystem({
         promoNextTimeDiscount: selectedPromotion ? promoResult.nextTimeDiscount : null,
         totalSaved,
         paymentMethodStr,
+        transactionType,
+        isStoreUse: isStoreUseTransaction,
+        storeUseReason: isStoreUseTransaction ? (storeUseReason || 'ใช้ภายในคลินิก') : null,
         orderChannel,
         shippingAddress,
         trackingNo: posTrackingClean,
@@ -5242,6 +5293,9 @@ export default function POSSystem({
       setActiveWcOrderId(null);
       setActiveCustomerAppOrderIds([]);
       setIsOwnerDirectUsage(false);
+      setIsStoreUseMode(false);
+      setStoreUseReason('ห้องทรีตเมนต์ 1');
+      setCustomStoreUseReason('');
       setIsMobileCartOpen(false); // Close cart immediately so receipt shows properly
       setActiveTab('products'); // 🌟 ชำระเงินเสร็จให้กลับมาหน้าขายครีมทุกครั้ง
 
@@ -5253,7 +5307,7 @@ export default function POSSystem({
       }
       
       // Send LINE Flex Message Notification for POS Checkout
-      if (selectedCustomer && selectedCustomer.lineUid && !isRequisitionMode) {
+      if (selectedCustomer && selectedCustomer.lineUid && !isRequisitionMode && !isStoreUseTransaction) {
           const receiptForLine = {
              receiptNo: orderNo,
              items: cart,
@@ -5962,13 +6016,13 @@ export default function POSSystem({
               {activeTab === 'products' && (
                 <button
                   onClick={() => setIsModeMenuOpen(!isModeMenuOpen)}
-                  className={`w-10 h-10 lg:w-12 lg:h-12 flex-shrink-0 rounded-xl flex items-center justify-center transition-all ${isModeMenuOpen || isStockMode || isRequisitionMode ? 'bg-indigo-500 text-white shadow-md' : 'bg-white border border-indigo-100 text-indigo-600 shadow-sm'}`}
+                  className={`w-10 h-10 lg:w-12 lg:h-12 flex-shrink-0 rounded-xl flex items-center justify-center transition-all ${isModeMenuOpen || isStockMode || isRequisitionMode || isStoreUseMode ? 'bg-indigo-500 text-white shadow-md' : 'bg-white border border-indigo-100 text-indigo-600 shadow-sm'}`}
                   title="เปิดโหมดจัดการสินค้า"
                 >
                   <Package size={20} />
                 </button>
               )}
-              {!(isModeMenuOpen || isStockMode || isRequisitionMode) && (
+              {!(isModeMenuOpen || isStockMode || isRequisitionMode || isStoreUseMode) && (
                 <>
                   <button
                     onClick={() => setShowWebOrdersModal(true)}
@@ -6437,7 +6491,7 @@ export default function POSSystem({
 
           
           
-          {!(isModeMenuOpen || isStockMode || isRequisitionMode) && (
+          {!(isModeMenuOpen || isStockMode || isRequisitionMode || isStoreUseMode) && (
             <div className="flex gap-2 sm:gap-4 mb-2">
               <button 
                 onClick={() => setActiveTab('products')}
@@ -6539,21 +6593,28 @@ export default function POSSystem({
           </div>
 
           <div className="relative flex overflow-x-auto pb-2 -mb-2 gap-2 w-full lg:w-auto scrollbar-hide">
-          {activeTab === 'products' && (isModeMenuOpen || isStockMode || isRequisitionMode) && (
+          {activeTab === 'products' && (isModeMenuOpen || isStockMode || isRequisitionMode || isStoreUseMode) && (
             <>
             <button
-              onClick={() => { setIsStockMode(!isStockMode); setIsRequisitionMode(false); setIsModeMenuOpen(false); }}
+              onClick={() => { setIsStockMode(!isStockMode); setIsRequisitionMode(false); setIsStoreUseMode(false); setIsModeMenuOpen(false); }}
               className={`flex whitespace-nowrap items-center gap-2 rounded-xl text-sm font-bold transition-all ${isStockMode ? 'px-4 py-2 bg-rose-500 text-white shadow-lg shadow-rose-200' : 'w-10 h-10 justify-center bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               title={globalRole === 'owner' ? 'โหมดเจ้าของร้านซื้อเข้า' : 'โหมดนับสต๊อก'}
             >
               <Package size={18} /> {isStockMode && (globalRole === 'owner' ? 'ปิดโหมดซื้อเข้า' : 'ปิดโหมดนับสต๊อก')}
             </button>
             <button
-              onClick={() => { setIsRequisitionMode(!isRequisitionMode); setIsStockMode(false); setIsModeMenuOpen(false); }}
+              onClick={() => { setIsRequisitionMode(!isRequisitionMode); setIsStockMode(false); setIsStoreUseMode(false); setIsModeMenuOpen(false); }}
               className={`flex whitespace-nowrap items-center gap-2 rounded-xl text-sm font-bold transition-all ${isRequisitionMode ? 'px-4 py-2 bg-amber-500 text-white shadow-lg shadow-amber-200' : 'w-10 h-10 justify-center bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               title="โหมดเบิกสินค้าจากศูนย์ใหญ่"
             >
               <Truck size={18} /> {isRequisitionMode && 'ปิดโหมดเบิกสินค้า'}
+            </button>
+            <button
+              onClick={() => { setIsStoreUseMode(!isStoreUseMode); setIsStockMode(false); setIsRequisitionMode(false); setIsModeMenuOpen(false); }}
+              className={`flex whitespace-nowrap items-center gap-2 rounded-xl text-sm font-bold transition-all ${isStoreUseMode ? 'px-4 py-2 bg-purple-600 text-white shadow-lg shadow-purple-200' : 'w-10 h-10 justify-center bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              title="โหมดเบิกสินค้าใช้ในร้าน (Store Use)"
+            >
+              <Store size={18} /> {isStoreUseMode && 'ปิดโหมดเบิกใช้ในร้าน'}
             </button>
             <button
               onClick={async () => {
@@ -6778,6 +6839,34 @@ export default function POSSystem({
               )}
             </div>
           )}
+
+          {/* 🌟 Banner โหมดเบิกสินค้าใช้ในร้าน */}
+          {isStoreUseMode && (
+            <div className="mb-3 p-3 bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 text-white rounded-2xl shadow-md flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0 shadow-inner">
+                  <Store size={20} className="text-white" />
+                </div>
+                <div>
+                  <div className="text-xs sm:text-sm font-black flex items-center gap-1.5">
+                    <span>โหมดเบิกสินค้าใช้ในร้าน (Store Use)</span>
+                    <span className="bg-white/20 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">฿0</span>
+                  </div>
+                  <div className="text-[11px] text-purple-100 font-medium">
+                    ตัดสต๊อกสาขา {globalBranch || 'เฉวง'} ทันที • ไม่คิดยอดขาย (฿0) • แตะสินค้าเพื่อเพิ่มลงรายการเบิก
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsStoreUseMode(false)}
+                className="px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer"
+              >
+                ปิดโหมดเบิก
+              </button>
+            </div>
+          )}
+
           <div className="grid grid-cols-4 md:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-4">
             {activeTab === 'products' ? (
               (() => {
@@ -6794,6 +6883,7 @@ export default function POSSystem({
 
                   const isOwnerPurchase = isStockMode && globalRole === 'owner';
                   const isBranchReq = isRequisitionMode && globalRole !== 'owner';
+                  const isStoreUse = isStoreUseMode;
                   const isSpecialMode = isOwnerPurchase || isBranchReq;
                   
                   const costPrice = isSpecialMode ? computeOwnerCostPrice(p) : 0;
@@ -6806,16 +6896,22 @@ export default function POSSystem({
                   return (
                     <div 
                       key={p.id} 
-                      onClick={() => isOwnerPurchase ? addToCart(p, 'product', 'owner_purchase') : isBranchReq ? addToCart(p, 'product', 'branch_requisition') : isStockMode ? setStockInputModal({ isOpen: true, item: p, inputVal: '' }) : addToCart(p, 'product')}
-                      className={`bg-white p-2 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm border cursor-pointer transition-all flex flex-col h-full ${isSpecialMode ? "border-slate-100 hover:shadow-md hover:border-teal-200 active:scale-95" : isStockMode ? (stockAdjustments.some(a => a.id === p.id) ? "border-emerald-500 opacity-70" : "border-rose-400 animate-pulse shadow-[0_0_15px_rgba(251,113,133,0.3)]") : (cartQty > 0 ? "border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/10 shadow-sm" : "border-slate-100 hover:shadow-md hover:border-indigo-200 active:scale-95")}`}
+                      onClick={() => isOwnerPurchase ? addToCart(p, 'product', 'owner_purchase') : isBranchReq ? addToCart(p, 'product', 'branch_requisition') : isStoreUse ? addToCart(p, 'product', 'store_use') : isStockMode ? setStockInputModal({ isOpen: true, item: p, inputVal: '' }) : addToCart(p, 'product')}
+                      className={`bg-white p-2 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm border cursor-pointer transition-all flex flex-col h-full ${isStoreUse ? (cartQty > 0 ? "border-purple-500 ring-2 ring-purple-500/20 bg-purple-50/20 shadow-md" : "border-slate-100 hover:shadow-md hover:border-purple-300 active:scale-95") : isSpecialMode ? "border-slate-100 hover:shadow-md hover:border-teal-200 active:scale-95" : isStockMode ? (stockAdjustments.some(a => a.id === p.id) ? "border-emerald-500 opacity-70" : "border-rose-400 animate-pulse shadow-[0_0_15px_rgba(251,113,133,0.3)]") : (cartQty > 0 ? "border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/10 shadow-sm" : "border-slate-100 hover:shadow-md hover:border-indigo-200 active:scale-95")}`}
                     >
                       <div className="w-full aspect-[4/3] bg-slate-100 rounded-lg sm:rounded-xl mb-2 sm:mb-3 overflow-hidden relative group flex items-center justify-center">
-                        {salesScore > 0 && !isSpecialMode && (
+                        {salesScore > 0 && !isSpecialMode && !isStoreUse && (
                           <div className="absolute top-1.5 left-1.5 z-10 bg-gradient-to-r from-amber-500 to-rose-500 text-white p-1 rounded-md shadow-md flex items-center justify-center" title={`สินค้าขายดี (${salesScore} ชิ้น)`}>
                             <Flame size={12} className="fill-white text-white" />
                           </div>
                         )}
-                        {cartQty > 0 && !isSpecialMode && !isStockMode && (
+                        {cartQty > 0 && isStoreUse && (
+                          <div className="absolute top-1.5 right-1.5 z-10 bg-purple-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-md shadow-md flex items-center gap-1 border border-white animate-in zoom-in-75 duration-150" title={`เบิก ${cartQty} ชิ้น`}>
+                            <Store size={11} className="shrink-0" />
+                            <span>{cartQty}</span>
+                          </div>
+                        )}
+                        {cartQty > 0 && !isSpecialMode && !isStockMode && !isStoreUse && (
                           <div className="absolute top-1.5 right-1.5 z-10 bg-indigo-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-md shadow-md flex items-center gap-1 border border-white animate-in zoom-in-75 duration-150" title={`ในตะกร้า ${cartQty} ชิ้น`}>
                             <ShoppingCart size={11} className="shrink-0" />
                             <span>{cartQty}</span>
@@ -6864,7 +6960,18 @@ export default function POSSystem({
 
                       <div className="font-semibold text-slate-800 flex-1 line-clamp-2 text-xs sm:text-base leading-snug">{productName}</div>
                       <div className="mt-2 sm:mt-3 flex items-center justify-between w-full gap-2">
-                        {isSpecialMode ? (
+                        {isStoreUse ? (
+                          <div className="text-purple-700 font-bold text-xs sm:text-sm flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] text-slate-400 font-normal">ปกติ:</span>
+                              <del className="text-slate-400 text-[9px] sm:text-[10px] font-normal">฿{fullPrice.toLocaleString()}</del>
+                            </div>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span className="text-purple-600 font-black text-sm sm:text-base">฿0</span>
+                              <span className="bg-purple-100 text-purple-700 text-[8px] font-bold px-1.5 py-0.2 rounded-full border border-purple-200">เบิกใช้ในร้าน</span>
+                            </div>
+                          </div>
+                        ) : isSpecialMode ? (
                           <div className={`${isOwnerPurchase ? 'text-teal-600' : 'text-amber-600'} font-bold text-[10px] sm:text-xs flex flex-col gap-0.5`}>
                             <div className="flex items-center gap-1.5">
                               <span className="text-[9px] text-slate-400 font-normal">ปกติ:</span>
@@ -8713,7 +8820,7 @@ export default function POSSystem({
             )}
 
             <div className="flex gap-2">
-              {!isRequisitionMode && (
+              {!isRequisitionMode && !isStoreUseMode && (
                 <>
                   <button 
                     onClick={() => setShowParkBedModal(true)}
@@ -8753,7 +8860,7 @@ export default function POSSystem({
                     return;
                   }
                   const hasCourse = cart.some(i => i.type === 'course' || i.type === 'single_course');
-                  if (hasCourse && !selectedCustomer && !isRequisitionMode) {
+                  if (hasCourse && !selectedCustomer && !isRequisitionMode && !isStoreUseMode) {
                     if (globalRole === 'owner') {
                       setIsOwnerDirectUsage(true);
                       handleSelectWalkIn();
@@ -8778,13 +8885,17 @@ export default function POSSystem({
                     ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
                     : (isRequisitionMode 
                         ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' 
-                        : (total <= 0 
-                            ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-orange-200' 
-                            : 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200'))
+                        : (isStoreUseMode
+                            ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:from-purple-700 hover:to-indigo-800 text-white shadow-purple-200'
+                            : (total <= 0 
+                                ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-orange-200' 
+                                : 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-200')))
                 }`}
               >
                 {isRequisitionMode ? (
                   <><Package size={24} /> สร้างใบเบิกสินค้า (PO)</>
+                ) : isStoreUseMode ? (
+                  <><Store size={24} /> บันทึกเบิกใช้ในร้าน (฿0)</>
                 ) : cart.some(i => i.type === 'usage' || i.type === 'claim_item') ? (
                   <>{total <= 0 ? <Scissors size={24} /> : <CheckCircle size={24} />} {cart.some(i => i.type === 'usage') ? (total <= 0 ? 'ดำเนินการตัดคอส' : 'ดำเนินการตัดคอร์สและชำระเงิน') : 'ดำเนินการเบิกสินค้า'}</>
                 ) : (
@@ -8917,22 +9028,27 @@ export default function POSSystem({
                       ? 'ข้อมูลการรับบริการ' 
                       : (hasCourseClaim 
                           ? 'ข้อมูลการเบิกสินค้า / ของแถม' 
-                          : (isRequisitionMode ? 'ยืนยันการเบิกสินค้า (PO)' : 'ข้อมูลคำสั่งซื้อ & พนักงาน'))
+                          : (isRequisitionMode ? 'ยืนยันการเบิกสินค้า (PO)' : (isStoreUseMode ? '🏬 ข้อมูลการเบิกสินค้าใช้ในร้าน (Store Use)' : 'ข้อมูลคำสั่งซื้อ & พนักงาน')))
                 ) : (
                   isOwnerDirectUsage ? '👑 ช่องทางชำระเงิน (ใช้คอส/เช็คเบื้องต้น)' : 'ช่องทางการชำระเงิน'
                 )}
               </h2>
+              {isStoreUseMode && (
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-purple-100 text-purple-700 border border-purple-200 flex items-center gap-1">
+                  <Store size={12} /> เบิกใช้ในร้าน (฿0)
+                </span>
+              )}
               {isOwnerDirectUsage && (
                 <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1">
                   <Scissors size={12} /> สิทธิ์เจ้าของร้าน
                 </span>
               )}
-              {!isRequisitionMode && !isOwnerDirectUsage && total > 0 && (
+              {!isRequisitionMode && !isStoreUseMode && !isOwnerDirectUsage && total > 0 && (
                 <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold bg-pink-50 text-pink-700 border border-pink-200 flex items-center gap-1`}>
                   {hasCourseUsage ? <><Scissors size={12} /> ตัดคอร์ส + ชำระเงิน</> : `ขั้นตอน ${checkoutStep}/2`}
                 </span>
               )}
-              {!isRequisitionMode && !isOwnerDirectUsage && total <= 0 && (
+              {!isRequisitionMode && !isStoreUseMode && !isOwnerDirectUsage && total <= 0 && (
                 <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-orange-50 text-orange-700 border border-orange-200 flex items-center gap-1">
                   <Scissors size={12} /> {hasCourseClaim && !hasCourseUsage ? 'เบิกของแถม' : 'ตัดคอสบริการ'}
                 </span>
@@ -8949,6 +9065,89 @@ export default function POSSystem({
 
           {/* STEP 1: Order Details, Staff, Service/Claim & Signatures */}
           <div className={`space-y-4 ${checkoutStep === 1 ? '' : 'hidden'}`}>
+            {/* 🏬 ส่วนระบุข้อมูลเบิกใช้ในร้าน */}
+            {isStoreUseMode && (
+              <div className="p-4 bg-purple-50/90 border border-purple-200 rounded-2xl space-y-3 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-xs">
+                      <Store size={18} />
+                    </div>
+                    <div>
+                      <div className="text-xs font-black text-purple-950">ข้อมูลการเบิกสินค้าใช้ในร้าน (Store Use)</div>
+                      <div className="text-[11px] text-purple-700 font-medium">ตัดสต๊อกทันที • ไม่นับเป็นยอดขาย (฿0)</div>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-purple-700 bg-white px-2.5 py-1 rounded-lg border border-purple-200 shadow-2xs">
+                    สาขา: {globalBranch || 'เฉวง'}
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    พนักงานผู้เบิกสินค้า <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={paymentStaff}
+                    onChange={(e) => setPaymentStaff(e.target.value)}
+                    className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-purple-500 shadow-xs"
+                  >
+                    <option value="">-- เลือกพนักงานผู้ทำรายการเบิก --</option>
+                    {employees.filter(e => e.status !== 'inactive' && e.name).map(emp => (
+                      <option key={emp.id} value={emp.name}>{emp.name} {emp.nickname ? `(${emp.nickname})` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    แผนก / ห้อง / เหตุผลที่เบิก
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {['ห้องทรีตเมนต์ 1', 'ห้องทรีตเมนต์ 2', 'ห้องนวดหน้า', 'เคาน์เตอร์ / หน้าร้าน', 'ทดลองใช้ (Tester)', 'อุปกรณ์ทำความสะอาด'].map(reason => (
+                      <button
+                        key={reason}
+                        type="button"
+                        onClick={() => { setStoreUseReason(reason); setCustomStoreUseReason(''); }}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${storeUseReason === reason && !customStoreUseReason ? 'bg-purple-600 text-white shadow-xs' : 'bg-white border border-purple-200 text-purple-800 hover:bg-purple-100'}`}
+                      >
+                        {reason}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={customStoreUseReason}
+                    onChange={(e) => {
+                      setCustomStoreUseReason(e.target.value);
+                      setStoreUseReason(e.target.value);
+                    }}
+                    placeholder="หรือพิมพ์ระบุแผนก/เหตุผลการเบิกเอง..."
+                    className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none focus:ring-2 focus:ring-purple-500 shadow-xs"
+                  />
+                </div>
+
+                {/* รายการสินค้าที่จะตัดสต๊อก */}
+                <div className="pt-2 border-t border-purple-200/60 space-y-1.5">
+                  <div className="text-[11px] font-bold text-slate-600">รายการสินค้าที่จะตัดสต๊อกสาขา:</div>
+                  <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                    {cart.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-xs bg-white p-2 rounded-xl border border-purple-100">
+                        <span className="font-semibold text-slate-700 truncate max-w-[200px]">{item.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-purple-700">x{item.qty} ชิ้น</span>
+                          <span className="text-[10px] text-slate-400">฿0</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between items-center pt-1.5 font-bold text-xs text-purple-950">
+                    <span>รวมรายการเบิก:</span>
+                    <span>{cart.reduce((s, i) => s + (Number(i.qty) || 1), 0)} ชิ้น (ยอดสุทธิ ฿0)</span>
+                  </div>
+                </div>
+              </div>
+            )}
             {/* 👑 สลับโหมดชำระเงินเป็นใช้คอส (เช็คเบื้องต้น) สำหรับเจ้าของ */}
             {globalRole === 'owner' && cart.some(i => i.type === 'course' || i.type === 'single_course') && (
               <div className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between ${isOwnerDirectUsage ? 'bg-purple-50/90 border-purple-200 shadow-2xs' : 'bg-slate-50 border-slate-200'}`}>
@@ -9016,7 +9215,7 @@ export default function POSSystem({
                 </div>
               )}
 
-              {!isRequisitionMode && !hasUsageOrClaim && (
+              {!isRequisitionMode && !hasUsageOrClaim && !isStoreUseMode && (
                 <div>
                   <div className="text-sm font-semibold text-slate-700 mb-2">ช่องทางการสั่งซื้อ</div>
                   <div className="flex gap-2">
@@ -9028,7 +9227,7 @@ export default function POSSystem({
                 </div>
               )}
 
-              {!isRequisitionMode && !hasUsageOrClaim && orderChannel !== 'instore' && (
+              {!isRequisitionMode && !hasUsageOrClaim && !isStoreUseMode && orderChannel !== 'instore' && (
                 <div className="space-y-4">
                   <div>
                     <div className="text-sm font-semibold text-slate-700 mb-2 flex justify-between">
@@ -9100,7 +9299,7 @@ export default function POSSystem({
               )}
               
               {/* Staff Selection in Step 1 (for normal checkout) */}
-              {!hasUsageOrClaim && renderStaffSelection(false)}
+              {!hasUsageOrClaim && !isStoreUseMode && renderStaffSelection(false)}
 
               {/* Claimed Items Summary (For claim_item) */}
               {hasCourseClaim && (
@@ -10127,7 +10326,7 @@ export default function POSSystem({
               )}
 
               {/* Order items quick summary on Step 1 for regular checkout */}
-              {!isRequisitionMode && !hasUsageOrClaim && (
+              {!isRequisitionMode && !hasUsageOrClaim && !isStoreUseMode && (
                 <div className="p-3.5 bg-indigo-50/60 rounded-2xl border border-indigo-100 flex items-center justify-between">
                   <div className="text-xs text-indigo-900 font-bold">
                     ยอดรวมคำสั่งซื้อ ({cart.reduce((s, i) => s + (Number(i.qty) || 1), 0)} รายการ)
@@ -10140,7 +10339,7 @@ export default function POSSystem({
             </div>
 
           {/* STEP 2: Payment Screen */}
-          <div className={`space-y-3 ${checkoutStep === 2 && !isRequisitionMode ? '' : 'hidden'}`}>
+          <div className={`space-y-3 ${checkoutStep === 2 && !isRequisitionMode && !isStoreUseMode ? '' : 'hidden'}`}>
               {/* Top Summary Banner */}
               {hasUsageOrClaim && total <= 0 ? (
                 <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 text-white p-2.5 sm:p-3 rounded-2xl flex items-center justify-between shadow-xs">
@@ -10552,6 +10751,26 @@ export default function POSSystem({
                     className="flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg active:scale-95"
                   >
                     {isProcessing ? 'กำลังประมวลผล...' : <><CheckCircle size={20} /> ยืนยันการเบิกสินค้า (PO)</>}
+                  </button>
+                ) : isStoreUseMode ? (
+                  <button 
+                    onClick={() => {
+                      let staffToUse = paymentStaff;
+                      if (!staffToUse) {
+                        staffToUse = posPreselectedStaffName || activeStaff?.name || user?.name || (availableStaffList.length > 0 ? availableStaffList[0].name : '');
+                        if (staffToUse) setPaymentStaff(staffToUse);
+                      }
+                      if (!staffToUse) return showToast('กรุณาเลือกพนักงานผู้ทำรายการเบิกสินค้า', 'error');
+                      handleCheckout();
+                    }}
+                    disabled={isProcessing}
+                    className="flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:from-purple-700 hover:to-indigo-800 text-white shadow-lg shadow-purple-200 active:scale-95 cursor-pointer"
+                  >
+                    {isProcessing ? (
+                      <><span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></span> กำลังบันทึก...</>
+                    ) : (
+                      <><Store size={20} /> ยืนยันบันทึกเบิกใช้ในร้าน (฿0)</>
+                    )}
                   </button>
                 ) : total <= 0 && hasUsageOrClaim ? (
                   <button 
@@ -11188,7 +11407,11 @@ export default function POSSystem({
             <CheckCircle size={32} strokeWidth={2.5} />
           </div>
           <h2 className="text-xl font-black text-slate-800 mb-1">
-            {isRequisitionMode ? 'ทำรายการเบิกสินค้าเรียบร้อย!' : 'ชำระเงินเรียบร้อย!'}
+            {receiptData.isStoreUse || receiptData.items.some(i => i.actionType === 'store_use')
+              ? 'บันทึกเบิกสินค้าใช้ในร้านเรียบร้อย!'
+              : isRequisitionMode 
+                ? 'ทำรายการเบิกสินค้าเรียบร้อย!' 
+                : 'ชำระเงินเรียบร้อย!'}
           </h2>
           <p className="text-slate-500 text-xs mb-4 font-mono">
             เลขที่บิล: {receiptData.orderNo} • ฿{(receiptData.total || 0).toLocaleString()}
@@ -11247,7 +11470,9 @@ export default function POSSystem({
                 ? 'พิมพ์ใบสั่งซื้อ (A4)'
                 : receiptData?.items.some(i => i.actionType === 'branch_requisition')
                   ? 'พิมพ์ใบเบิกสินค้า (A4)'
-                  : 'พิมพ์ใบเสร็จ (80mm)'}
+                  : (receiptData.isStoreUse || receiptData?.items.some(i => i.actionType === 'store_use'))
+                    ? 'พิมพ์ใบเบิกใช้ในร้าน (80mm)'
+                    : 'พิมพ์ใบเสร็จ (80mm)'}
             </button>
             {receiptData.orderChannel !== 'instore' && (
               <button 
@@ -11365,7 +11590,7 @@ export default function POSSystem({
                    let receiptText = "";
                    receiptText += "         IRIS NATURES\n";
                    receiptText += `      ${globalBranch || "สำนักงานใหญ่"}\n`;
-                   receiptText += `   ${receiptData.items.some(i => i.actionType === 'owner_purchase') ? 'ใบสั่งซื้อ (Purchase Order)' : receiptData.items.some(i => i.actionType === 'branch_requisition') ? 'ใบเบิกสินค้า (Requisition)' : 'ใบเสร็จรับเงิน / Receipt'}\n`;
+                   receiptText += `   ${receiptData.items.some(i => i.actionType === 'owner_purchase') ? 'ใบสั่งซื้อ (Purchase Order)' : receiptData.items.some(i => i.actionType === 'branch_requisition') ? 'ใบเบิกสินค้า (Requisition)' : (receiptData.isStoreUse || receiptData.items.some(i => i.actionType === 'store_use')) ? 'ใบเบิกสินค้าใช้ในร้าน (Store Use)' : 'ใบเสร็จรับเงิน / Receipt'}\n`;
                    receiptText += "--------------------------------\n";
                    receiptText += `บิล: ${receiptData.orderNo}\n`;
                    receiptText += `วันที่: ${new Date(receiptData.createdAt).toLocaleString('th-TH')}\n`;
@@ -11612,7 +11837,9 @@ export default function POSSystem({
               ? 'ใบสั่งซื้อ (Purchase Order)' 
               : receiptData.items.some(i => i.actionType === 'branch_requisition')
                 ? 'ใบเบิกสินค้า (Requisition)'
-                : `ใบเสร็จรับเงิน (คิว ${receiptData.queueNo})`}
+                : (receiptData.isStoreUse || receiptData.items.some(i => i.actionType === 'store_use'))
+                  ? 'ใบเบิกสินค้าใช้ในร้าน (Store Use)'
+                  : `ใบเสร็จรับเงิน (คิว ${receiptData.queueNo})`}
           </p>
           <div className="text-left text-xs border-b border-dashed border-black pb-2 mb-2">
             <div>บิล: {receiptData.orderNo}</div>

@@ -1,10 +1,103 @@
-import React, { useState, useRef } from 'react';
-import { X, Upload, FileSpreadsheet, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import React, { useState, useRef, useMemo } from 'react';
+import { X, Upload, FileSpreadsheet, CheckCircle, AlertTriangle, Loader2, Calendar } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { writeBatch, doc, collection } from 'firebase/firestore';
 import { db, getCol } from '../config/firebase';
 import { getFuzzyKey } from '../utils/fuzzy';
 import { getBranchStock } from '../utils/parse';
+
+const THAI_MONTHS = [
+  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+];
+
+/**
+ * คำนวณวันสิ้นเดือนของแต่ละออเดอร์ Shopee โดยอัตโนมัติ
+ * 1) อ่านจากคอลัมน์วันที่สั่งซื้อ/ชำระเงินในไฟล์
+ * 2) Fallback: ดึงจากรหัสออเดอร์ Shopee ซึ่งขึ้นต้นด้วย YYMMDD (เช่น 2611015XCHT94R -> 26=2026, 11=พ.ย., 01=วันที่ 1)
+ * 3) หา วันสิ้นเดือน ของเดือนนั้นๆ (เช่น 30/11/2569 เวลา 23:59 น.)
+ */
+export function getShopeeOrderEndOfMonth(rawDateVal, orderId) {
+  let y = null;
+  let m = null; // 1-12
+
+  // 1. ลองถอดรหัสจากคอลัมน์วันที่ในไฟล์
+  if (rawDateVal !== undefined && rawDateVal !== null && rawDateVal !== '') {
+    if (typeof rawDateVal === 'number') {
+      // Excel serial date number
+      const d = new Date(Math.round((rawDateVal - 25569) * 86400 * 1000));
+      if (!isNaN(d.getTime())) {
+        y = d.getUTCFullYear();
+        m = d.getUTCMonth() + 1;
+      }
+    } else if (typeof rawDateVal === 'string') {
+      const s = rawDateVal.trim();
+      const mIso = s.match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+      if (mIso) {
+        let yr = parseInt(mIso[1], 10);
+        if (yr > 2500) yr -= 543;
+        y = yr;
+        m = parseInt(mIso[2], 10);
+      } else {
+        const mSlash = s.match(/(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})/);
+        if (mSlash) {
+          let yr = parseInt(mSlash[3], 10);
+          if (yr < 100) yr += 2000;
+          else if (yr > 2500) yr -= 543;
+          y = yr;
+          m = parseInt(mSlash[2], 10);
+        }
+      }
+    }
+  }
+
+  // 2. Fallback: ดึงจากรูปแบบรหัสคำสั่งซื้อ Shopee (YYMMDD...)
+  // ตัวอย่าง: "2611015XCHT94R" -> 26 = 2026, 11 = Nov, 01 = Day 1
+  if (!y || !m || m < 1 || m > 12) {
+    if (orderId && typeof orderId === 'string') {
+      const mId = orderId.trim().match(/^(\d{2})(\d{2})(\d{2})/);
+      if (mId) {
+        const yearPart = parseInt(mId[1], 10);
+        const monthPart = parseInt(mId[2], 10);
+        const dayPart = parseInt(mId[3], 10);
+        if (yearPart >= 20 && yearPart <= 35 && monthPart >= 1 && monthPart <= 12 && dayPart >= 1 && dayPart <= 31) {
+          y = 2000 + yearPart;
+          m = monthPart;
+        }
+      }
+    }
+  }
+
+  // 3. Fallback สุดท้าย: ใช้ปีและเดือนปัจจุบัน
+  if (!y || !m || m < 1 || m > 12) {
+    const now = new Date();
+    y = now.getFullYear();
+    m = now.getMonth() + 1;
+  }
+
+  // คำนวณวันสิ้นเดือน (วันสุดท้ายของเดือน)
+  const lastDayDate = new Date(y, m, 0);
+  const lastDay = lastDayDate.getDate();
+  const padM = String(m).padStart(2, '0');
+  const padD = String(lastDay).padStart(2, '0');
+
+  const isoDate = `${y}-${padM}-${padD}`;
+  const thaiYear = y + 543;
+  const thaiDate = `${padD}/${padM}/${thaiYear}`;
+  // กำหนดเวลาเป็น 23:59:00 น. ตามเวลาไทย (UTC+7) -> 16:59:00Z
+  const isoDateTime = `${isoDate}T16:59:00.000Z`;
+
+  return {
+    year: y,
+    month: m,
+    lastDay,
+    isoDate,
+    thaiDate,
+    thaiYear,
+    isoDateTime,
+    displayMonthLabel: `${THAI_MONTHS[m - 1] || padM} ${thaiYear}`
+  };
+}
 
 export default function ShopeeImportModal({ isOpen, onClose, products, globalBranch, showToast }) {
   const [file, setFile] = useState(null);
@@ -12,6 +105,21 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
   const fileInputRef = useRef(null);
+
+  const distinctMonths = useMemo(() => {
+    const map = new Map();
+    parsedOrders.forEach(o => {
+      if (o.endOfMonth) {
+        const key = o.endOfMonth.isoDate;
+        if (!map.has(key)) {
+          map.set(key, { ...o.endOfMonth, count: 1 });
+        } else {
+          map.get(key).count += 1;
+        }
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.isoDate.localeCompare(b.isoDate));
+  }, [parsedOrders]);
 
   if (!isOpen) return null;
 
@@ -64,6 +172,22 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
         const idxPrice = headers.findIndex(h => h === 'ราคาเสนอขาย' || h === 'ราคาขาย' || h === 'ราคาต่อชิ้น');
         const idxCustomerName = headers.findIndex(h => h.includes('ชื่อผู้ใช้ (ผู้ซื้อ)') || h.includes('ชื่อผู้ซื้อ'));
         const idxPhone = headers.findIndex(h => h === 'หมายเลขโทรศัพท์');
+        
+        // Find Date column (order date, payment time, or creation time)
+        const idxDate = headers.findIndex(h => {
+          const norm = String(h || '').trim().toLowerCase();
+          return (
+            norm.includes('เวลาที่ทำการสั่งซื้อ') ||
+            norm.includes('เวลาการชำระเงิน') ||
+            norm.includes('เวลาที่คำสั่งซื้อเสร็จ') ||
+            norm.includes('วันที่สั่งซื้อ') ||
+            norm.includes('วันที่ทำการสั่งซื้อ') ||
+            norm.includes('order creation') ||
+            norm.includes('payment time') ||
+            norm.includes('order date') ||
+            (norm.startsWith('วันที่') && !norm.includes('ส่ง') && !norm.includes('คืน'))
+          );
+        });
         
         // Identify all fee columns precisely based on user request
         const feeIndices = headers.map((h, i) => {
@@ -124,6 +248,9 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
                totalFees += Math.abs(parseFloat(rawVal) || 0);
             });
 
+            const rawDateVal = idxDate !== -1 ? row[idxDate] : null;
+            const endOfMonth = getShopeeOrderEndOfMonth(rawDateVal, orderId);
+
             ordersMap.set(orderId, {
               orderId,
               customerName,
@@ -132,11 +259,19 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
               totalPrice: 0,
               hasUnmatched: false,
               totalFees,
-              netReceived: 0
+              netReceived: 0,
+              rawDateVal: rawDateVal !== null && rawDateVal !== undefined ? String(rawDateVal) : '',
+              endOfMonth
             });
           }
 
           const order = ordersMap.get(orderId);
+          
+          // Capture rawDateVal and endOfMonth if present in subsequent row
+          if (idxDate !== -1 && (!order.rawDateVal || order.rawDateVal === '') && row[idxDate]) {
+             order.rawDateVal = String(row[idxDate]);
+             order.endOfMonth = getShopeeOrderEndOfMonth(row[idxDate], orderId);
+          }
           
           // Capture net received if present in any row
           if (idxNetReceived !== -1 && (!order.netReceived || order.netReceived === 0)) {
@@ -247,6 +382,8 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
       for (const order of parsedOrders) {
         await commitIfNeeded();
 
+        const targetDateInfo = order.endOfMonth || getShopeeOrderEndOfMonth(order.rawDateVal, order.orderId);
+
         // MATCHED FLOW
         if (order.posMatched && order.posOrderId) {
             const orderRef = doc(getCol('orders'), order.posOrderId);
@@ -254,13 +391,17 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
                 shopeeNetReceived: order.netReceived || 0,
                 shopeeFees: order.totalFees || 0,
                 shopeeMatchStatus: 'matched',
+                date: targetDateInfo.thaiDate,
+                "วันที่": targetDateInfo.thaiDate,
+                orderDateIso: targetDateInfo.isoDate,
+                createdAt: targetDateInfo.isoDateTime
             });
             opCount++;
             
             // Log history for matching
             const historyRef = doc(getCol('histories'));
             batch.set(historyRef, {
-                "วันที่": new Date().toLocaleDateString('th-TH'),
+                "วันที่": targetDateInfo.thaiDate,
                 "ชื่อลูกค้า": order.customerName,
                 "เบอร์โทร": order.phone,
                 "cleanPhone": order.phone.replace(/[^0-9]/g, ''),
@@ -311,7 +452,7 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
             : item.productName;
 
           batch.set(historyRef, {
-            "วันที่": new Date().toLocaleDateString('th-TH'),
+            "วันที่": targetDateInfo.thaiDate,
             "ชื่อลูกค้า": order.customerName,
             "เบอร์โทร": order.phone,
             "cleanPhone": order.phone.replace(/[^0-9]/g, ''),
@@ -351,7 +492,11 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
               source: "SHOPEE",
               orderChannel: "shopee",
               wcOrderId: order.orderId,
-              createdAt: new Date().toISOString(),
+              createdAt: targetDateInfo.isoDateTime,
+              date: targetDateInfo.thaiDate,
+              "วันที่": targetDateInfo.thaiDate,
+              orderDateIso: targetDateInfo.isoDate,
+              shopeeOrderDate: order.rawDateVal || '',
               totalCost: String(totalCost),
               cartItems: cartItems
            });
@@ -370,7 +515,7 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
 
       if (processedCount > 0) {
         if (opCount > 0) await batch.commit();
-        showToast(`บันทึกสำเร็จ ${processedCount} คำสั่งซื้อ!`, 'success');
+        showToast(`บันทึกสำเร็จ ${processedCount} คำสั่งซื้อ (ลงยอดเข้า POS วันสิ้นเดือนเรียบร้อย)!`, 'success');
         onClose();
       } else {
         showToast('ไม่มีรายการสินค้าที่ตรงกับระบบเลย', 'error');
@@ -468,6 +613,32 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
                  </div>
               </div>
 
+              {/* End of Month Notification Banner */}
+              <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 border border-blue-200/80 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                    <Calendar size={20} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
+                      วันบันทึกยอดเข้า POS
+                      <span className="px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-black">วันสิ้นเดือนของแต่ละเดือน</span>
+                    </div>
+                    <div className="text-xs text-blue-700 mt-0.5 font-medium">
+                      คำสั่งซื้อ Shopee แต่ละรายการจะถูกนำเข้า POS ตามวันสิ้นเดือนของเดือนนั้นๆ โดยอัตโนมัติ
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  {distinctMonths.map(m => (
+                    <span key={m.isoDate} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-blue-200 text-indigo-700 text-xs font-black rounded-xl shadow-2xs">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      สิ้นเดือน {m.displayMonthLabel}: {m.thaiDate} ({m.count} ออเดอร์)
+                    </span>
+                  ))}
+                </div>
+              </div>
+
               {error && (
                 <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm font-medium flex gap-2 items-start border border-red-100">
                   <AlertTriangle size={18} className="shrink-0 mt-0.5" />
@@ -535,6 +706,12 @@ export default function ShopeeImportModal({ isOpen, onClose, products, globalBra
                           ) : (
                             <div className="inline-flex items-center gap-1 bg-orange-100 text-orange-700 px-2 py-1 rounded-lg text-[10px] font-bold border border-orange-200">
                               จะสร้างบิลใหม่
+                            </div>
+                          )}
+                          {order.endOfMonth && (
+                            <div className="text-[11px] font-bold text-indigo-600 mt-1 flex items-center gap-1 bg-indigo-50/80 px-2 py-0.5 rounded border border-indigo-100 w-fit">
+                              <Calendar size={11} className="shrink-0 text-indigo-500" />
+                              ลงสิ้นเดือน: {order.endOfMonth.thaiDate}
                             </div>
                           )}
                         </td>

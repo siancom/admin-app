@@ -70,7 +70,8 @@ const isOrderCompletedForRevenue = (o) => {
   if (!o || o.isCancelled || o.source === 'POS_Parked' || o.mergedIntoPosOrderNo) return false;
   const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
   const isPO = o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า');
-  if (isReq || isPO) return false;
+  const isStoreUse = o.transactionType === 'store_use' || (o.courseName || '').includes('[เบิกใช้');
+  if (isReq || isPO || isStoreUse) return false;
   const rawStatus = String(getFuzzyKey(o, ['status', 'สถานะ']) || '').trim();
   if (rawStatus && UNPAID_ORDER_STATUSES.some(s => rawStatus.toLowerCase().includes(s.toLowerCase()))) return false;
   if (o.source === 'POS') return true;
