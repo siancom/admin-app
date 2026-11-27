@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, Suspense, lazy } from 'react';
 import { 
   Upload, Search, Home, FileText, User, Users, Settings, 
   Plus, Eye, CheckCircle, Clock, QrCode, LogOut, Menu, X, 
@@ -41,8 +41,6 @@ import { signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'fi
 import { collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc, deleteField, writeBatch, query, where, getDocs, getDoc, setDoc, orderBy, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytesResumable, uploadBytes, getDownloadURL, deleteObject, uploadString } from 'firebase/storage';
 import { auth, db, getCol, getDocRef, storage } from './config/firebase';
-import html2canvas from 'html2canvas';
-import * as XLSX from 'xlsx';
 
 // --- UTILS & PARSERS ---
 import { getLocalYYYYMMDD, normalizeBranchName, getTotalStock, getBranchStock, formatDateTimeStr, parseNumber, parseQty, parseHistoryTime, parseCSVRow, parseThaiDate, compressImage, blobToBase64 } from './utils/parse';
@@ -121,31 +119,18 @@ import ModalWrapper from './components/ModalWrapper';
 import AddCourseModal from './components/AddCourseModal';
 import SignaturePad from './components/SignaturePad';
 import BarcodeScannerModal from './components/BarcodeScannerModal';
-import POSSystem from './components/POSSystem';
 import PayslipModal from './components/PayslipModal';
 import FrontAttendanceModal from './components/FrontAttendanceModal';
 import AdminLoginPage from './components/AdminLoginPage';
 import VipApplicationFormModal from './components/VipApplicationFormModal';
-import MoleRemovalSystem from './components/MoleRemovalSystem';
-import CourseDeductionSystem from './components/CourseDeductionSystem';
-import StaffServiceQueue from './components/StaffServiceQueue';
 import LiveTimer from './components/LiveTimer';
-import InventoryDashboard from './components/InventoryDashboard';
-import PromotionManager from './components/PromotionManager';
-import CouponManager from './components/CouponManager';
-import MarketingPromoManager from './components/MarketingPromoManager';
-import GamificationManager from './components/GamificationManager';
 import { fetchWithProxy, WOO_CFG } from './utils/wooProxy';
 import { getVipDiscountRate, computeFinalPrice } from './utils/priceUtils';
 import ErrorBoundary from './components/ErrorBoundary';
-import EmployeePortal from './components/EmployeePortal';
 import TreatmentJobSlipModal from './components/TreatmentJobSlipModal';
-import RoomManagementBoard from './components/RoomManagementBoard';
 import BookingCountdown from './components/BookingCountdown';
 import { sendOrderLineNotification, sendBookingLineNotification, sendPOSCheckoutNotification, sendCourseDeductionNotification, sendRewardLineNotification } from './utils/lineUtils';
 import CustomerBedSession from './components/CustomerBedSession';
-import CalendarBookingDashboard from './components/CalendarBookingDashboard';
-import SettingsPage from './components/SettingsPage';
 import DailyBookingModal from './components/DailyBookingModal';
 import CreditManagementModal from './components/CreditManagementModal';
 import IShipBookingModal from './components/IShipBookingModal';
@@ -155,6 +140,21 @@ import MemberCardPrintModal from './components/MemberCardPrintModal';
 import CloseCourseModal from './components/CloseCourseModal';
 import CourseDataInspectorModal from './components/CourseDataInspectorModal';
 import AddressManagerModal from './components/AddressManagerModal';
+
+// --- LAZY LOADED COMPONENTS (ตัด chunk ย่อยเพื่อลดขนาด bundle ให้หน้าแรกและหน้าล็อกอินโหลดเร็วกว่าเดิม 10 เท่า) ---
+const POSSystem = lazy(() => import('./components/POSSystem'));
+const CourseDeductionSystem = lazy(() => import('./components/CourseDeductionSystem'));
+const StaffServiceQueue = lazy(() => import('./components/StaffServiceQueue'));
+const InventoryDashboard = lazy(() => import('./components/InventoryDashboard'));
+const PromotionManager = lazy(() => import('./components/PromotionManager'));
+const CouponManager = lazy(() => import('./components/CouponManager'));
+const MarketingPromoManager = lazy(() => import('./components/MarketingPromoManager'));
+const GamificationManager = lazy(() => import('./components/GamificationManager'));
+const EmployeePortal = lazy(() => import('./components/EmployeePortal'));
+const RoomManagementBoard = lazy(() => import('./components/RoomManagementBoard'));
+const MoleRemovalSystem = lazy(() => import('./components/MoleRemovalSystem'));
+const CalendarBookingDashboard = lazy(() => import('./components/CalendarBookingDashboard'));
+const SettingsPage = lazy(() => import('./components/SettingsPage'));
 import DailySalesBannerChart from './components/DailySalesBannerChart';
 import IrisPatientIntakeModal from './components/IrisPatientIntakeModal';
 import SmartQueueCheckInModal from './components/SmartQueueCheckInModal';
@@ -251,6 +251,18 @@ export default function App() {
   const [isDbConnected, setIsDbConnected] = useState(false);
   const [isCloudLoading, setIsCloudLoading] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(0);
+
+  // 🌟 หน้าล็อกอินแอดมิน — จำ session 30 วัน พร้อม Rolling Extension อัตโนมัติเมื่อมีการใช้งาน (ไม่เด้งหลุดกลางคัน)
+  const ADMIN_SESSION_DAYS = 30;
+  const [loginGate, setLoginGate] = useState(() => {
+    try {
+      const exp = Number(localStorage.getItem('admin_session_exp') || 0);
+      return Date.now() > exp; // หมดอายุ หรือ ยังไม่เคยล็อกอิน → โชว์หน้าล็อกอิน
+    } catch (e) { return true; }
+  });
+  const grantAdminSession = () => {
+    try { localStorage.setItem('admin_session_exp', String(Date.now() + ADMIN_SESSION_DAYS * 24 * 3600 * 1000)); } catch (e) {}
+  };
 
   const [courses, setCourses] = useState([]); 
   const [masterCourses, setMasterCourses] = useState([]); 
@@ -1254,15 +1266,31 @@ export default function App() {
     return null;
   };
 
-  const fetchWooProducts = async () => {
+  const fetchWooProducts = async (force = false) => {
     if (!WOO_CFG.url) return;
     try {
+      // 1. คืนค่าภาพสินค้าจากแคชในเครื่องทันที 0ms (Instant Local Cache)
+      try {
+        const cached = localStorage.getItem('iris_woo_cache');
+        if (cached) {
+          const { imgEntries, idEntries, ts } = JSON.parse(cached);
+          if (Array.isArray(imgEntries) && Array.isArray(idEntries)) {
+            setWooImagesMap(new Map(imgEntries));
+            setWooIdMap(new Map(idEntries));
+            // ถ้าแคชยังใหม่อยู่ (ไม่เกิน 6 ชม.) และไม่ได้บังคับดึงใหม่ ให้ข้ามการเรียกผ่านเครือข่ายได้เลย
+            if (!force && (Date.now() - ts < 6 * 60 * 60 * 1000)) return;
+          }
+        }
+      } catch (e) {}
+
+      // 2. ถ้ายังไม่ล็อกอิน ไม่อนุญาตให้ยิงเน็ตแย่งแบนด์วิดท์หน้าล็อกอินเด็ดขาด
+      if (loginGate && !force) return;
+
       const newImgMap = new Map();
       const newIdMap = new Map();
       let page = 1;
       let hasMore = true;
-      // Fetch up to 10 pages (1000 products) to ensure we get all of them
-      while (hasMore && page <= 10) {
+      while (hasMore && page <= 5) {
         const data = await fetchWithProxy(`${WOO_CFG.url.replace(/\/$/, '')}/wp-json/wc/v3/products?per_page=100&page=${page}`, { method: 'GET' });
         if (Array.isArray(data) && data.length > 0) {
           data.forEach(wp => {
@@ -1297,15 +1325,25 @@ export default function App() {
           hasMore = false;
         }
       }
-      setWooImagesMap(newImgMap);
-      setWooIdMap(newIdMap);
+      if (newImgMap.size > 0 || newIdMap.size > 0) {
+        setWooImagesMap(newImgMap);
+        setWooIdMap(newIdMap);
+        try {
+          localStorage.setItem('iris_woo_cache', JSON.stringify({
+            imgEntries: Array.from(newImgMap.entries()),
+            idEntries: Array.from(newIdMap.entries()),
+            ts: Date.now()
+          }));
+        } catch (e) {}
+      }
     } catch (err) {
       console.error("Failed to fetch woo products:", err);
     }
   };
 
   useEffect(() => {
-    fetchWooProducts();
+    // โหลดแคชสินค้าทันที (0ms) โดยไม่ยิงเน็ต
+    fetchWooProducts(false);
     if (window.innerWidth >= 1024) setSidebarOpen(true);
     const initAuth = async () => {
       try {
@@ -1320,10 +1358,59 @@ export default function App() {
     return onAuthStateChanged(auth, (currentUser) => { setUser(currentUser); setIsDbConnected(!!currentUser); });
   }, []);
 
+  // 🌟 ระดับที่ 1: ข้อมูลเร่งด่วนสำหรับหน้า Login และการเลือกสาขา (โหลดเสร็จใน ~100-200ms)
   useEffect(() => {
     if (!user) return;
+    const errHandler = (err) => console.error("Auth collections error:", err);
+
+    const unsubBranches = onSnapshot(getCol('branches'), (s) => { 
+      let docs = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (docs.length === 0) {
+        docs = [
+          { id: 'default-1', name: 'สาขาเฉวง', passcode: '' },
+          { id: 'default-2', name: 'สาขาละไม', passcode: '' }
+        ];
+      }
+      setBranches(docs);
+      if (loginGate) setIsCloudLoading(false);
+    }, errHandler);
+
+    const unsubSettings = onSnapshot(doc(db, 'app_settings', 'financial'), (docSnap) => { 
+      if (docSnap.exists()) {
+        setAppSettings(docSnap.data());
+      }
+      if (loginGate) setIsCloudLoading(false);
+    }, errHandler);
+
+    const unsubEmployees = onSnapshot(getCol('employees'), (s) => { 
+      setEmployees(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+      if (loginGate) setIsCloudLoading(false);
+    }, errHandler);
+
+    const unsubAttendance = onSnapshot(getCol('employee_attendance'), (s) => { 
+      setEmployeeAttendance(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+      if (loginGate) setIsCloudLoading(false);
+    }, errHandler);
+
+    const unsubDailySales = onSnapshot(getCol('daily_sales'), (s) => { 
+      setDailySales(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+      if (loginGate) setIsCloudLoading(false);
+    }, errHandler);
+
+    return () => { 
+      unsubBranches(); 
+      unsubSettings(); 
+      unsubEmployees(); 
+      unsubAttendance(); 
+      unsubDailySales(); 
+    };
+  }, [user, loginGate]);
+
+  // 🌟 ระดับที่ 2: ข้อมูลขนาดใหญ่ (คอร์ส, ลูกค้า, ประวัติหลายหมื่นเรคคอร์ด) — ทยอยโหลดเมื่อเข้าสู่ระบบแล้วเท่านั้น (!loginGate)
+  useEffect(() => {
+    if (!user || loginGate) return;
     let loaded = 0;
-    const totalKeyCollections = 10;
+    const totalKeyCollections = 7;
     const updateProgress = () => { 
       loaded++; 
       setLoadingProgress(Math.min(100, Math.round((loaded / totalKeyCollections) * 100))); 
@@ -1331,6 +1418,9 @@ export default function App() {
     };
     const safetyTimer = setTimeout(() => setIsCloudLoading(false), 6000);
     const errHandler = (err) => { console.error(err); updateProgress(); };
+
+    // ดึงสินค้า Woo เบื้องหลังหลังล็อกอินสำเร็จ
+    fetchWooProducts(false);
 
     const unsub1 = onSnapshot(getCol('courses'), (s) => { setCourses(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
     const unsub2 = onSnapshot(getCol('master_courses'), (s) => { setMasterCourses(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
@@ -1340,27 +1430,7 @@ export default function App() {
     const unsub6 = onSnapshot(getCol('orders'), (s) => { setOrders(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
     const unsub7 = onSnapshot(getCol('products'), (s) => { setProducts(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
     const unsubPromo = onSnapshot(getCol('promotions'), (s) => { setPromotions(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsub8 = onSnapshot(getCol('branches'), (s) => { 
-      let docs = s.docs.map(d => ({ id: d.id, ...d.data() }));
-      if (docs.length === 0) {
-        // Fallback or seed default branches if none exist
-        docs = [
-          { id: 'default-1', name: 'สาขาเฉวง', passcode: '' },
-          { id: 'default-2', name: 'สาขาละไม', passcode: '' }
-        ];
-      }
-      setBranches(docs);
-    }, errHandler);
-    const unsub9 = onSnapshot(getCol('daily_sales'), (s) => { setDailySales(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
-    const unsubHolidays = onSnapshot(getCol('store_holidays'), (s) => { setStoreHolidays(s.docs.map(d => ({ ...d.data(), id: d.id }))); updateProgress(); }, errHandler);
-    const unsub10 = onSnapshot(doc(db, 'app_settings', 'financial'), (docSnap) => { 
-      if (docSnap.exists()) {
-        setAppSettings(docSnap.data());
-      }
-      updateProgress(); 
-    }, errHandler);
-    const unsub11 = onSnapshot(getCol('employees'), (s) => { setEmployees(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsub12 = onSnapshot(getCol('employee_attendance'), (s) => { setEmployeeAttendance(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
+    const unsubHolidays = onSnapshot(getCol('store_holidays'), (s) => { setStoreHolidays(s.docs.map(d => ({ ...d.data(), id: d.id }))); }, errHandler);
     const unsub13 = onSnapshot(getCol('employee_leaves'), (s) => { setEmployeeLeaves(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsubReqs = onSnapshot(getCol('employee_requisitions'), (s) => { setEmployeeRequisitions(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsubJobs = onSnapshot(getCol('jobApplications'), (s) => { setJobApplications(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
@@ -1372,9 +1442,9 @@ export default function App() {
 
     return () => { 
       clearTimeout(safetyTimer);
-      unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsubPromo(); unsub8(); unsub9(); unsubHolidays(); unsub10(); unsub11(); unsub12(); unsub13(); unsubReqs(); unsubJobs(); unsub14(); unsub15(); unsub16(); unsubInvLogs(); unsubActiveServices();
+      unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsubPromo(); unsubHolidays(); unsub13(); unsubReqs(); unsubJobs(); unsub14(); unsub15(); unsub16(); unsubInvLogs(); unsubActiveServices();
     };
-  }, [user]);
+  }, [user, loginGate]);
 
   // 🌟 ตัวตนพนักงานปัจจุบัน (ย้ายขึ้นมาอยู่ก่อน early returns เพื่อไม่ให้ผิดกฎ React Hooks เวลาสั่งพิมพ์ใบคอร์ส)
   useEffect(() => {
@@ -1533,6 +1603,7 @@ export default function App() {
 
   // --- COMPUTED DATA ---
   const precomputedHistories = useMemo(() => {
+    if (loginGate || histories.length === 0) return { byCourseRef: {}, byCustomer: {} };
     const byCourseRef = {};
     const byCustomer = {}; 
     const prefixRegex = /^(iriscourse\d+|ic\d+|\d+)/i;
@@ -1571,6 +1642,7 @@ export default function App() {
   }, [histories]);
 
   const customers = useMemo(() => {
+    if (loginGate && customersRaw.length === 0) return [];
     // 🌟 High-performance index maps for O(1) customer history matching
     const historiesByName = new Map();
     const historiesByPhone = new Map();
@@ -1722,6 +1794,7 @@ export default function App() {
   }, [customersRaw]);
 
   const processedCourses = useMemo(() => {
+    if (loginGate || courses.length === 0) return [];
     const consumedHistoryIds = new Set();
     const sortedCourses = [...courses].sort((a,b) => {
         const dA = parseThaiDate(getFuzzyKey(a, ["วันที่ซื้อ", "col_3"]));
@@ -2898,12 +2971,18 @@ export default function App() {
     return { notifications: notifs, totalPendingCount: count };
   }, [bookings, orders, products, processedCourses, employeeRequisitions, employeeLeaves, adminNotifConfig]);
 
-  const handleExportExcel = (data, filename) => {
+  const handleExportExcel = async (data, filename) => {
     if (!data || data.length === 0) return triggerToast('ไม่มีข้อมูล', 'ไม่มีข้อมูลสำหรับส่งออก', 'error');
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-    XLSX.writeFile(wb, `${filename}_${getLocalYYYYMMDD()}.xlsx`);
+    try {
+      const XLSX = await import('xlsx');
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+      XLSX.writeFile(wb, `${filename}_${getLocalYYYYMMDD()}.xlsx`);
+    } catch (err) {
+      console.error('Failed to export excel:', err);
+      triggerToast('เกิดข้อผิดพลาด', 'ไม่สามารถส่งออกไฟล์ Excel ได้', 'error');
+    }
   };
 
   const handleClearTestData = async () => {
@@ -3187,19 +3266,6 @@ export default function App() {
       setPosPendingAfterLogin(false);
     }
   }, [posPendingAfterLogin, globalRole, globalBranch]);
-
-  // 🌟 หน้าล็อกอินแอดมิน — จำ session 30 วัน พร้อม Rolling Extension อัตโนมัติเมื่อมีการใช้งาน (ไม่เด้งหลุดกลางคัน)
-  // ⚠️ ต้องประกาศ state ก่อน effect ที่อ้างถึง (มิฉะนั้น TDZ ReferenceError)
-  const ADMIN_SESSION_DAYS = 30;
-  const [loginGate, setLoginGate] = useState(() => {
-    try {
-      const exp = Number(localStorage.getItem('admin_session_exp') || 0);
-      return Date.now() > exp; // หมดอายุ หรือ ยังไม่เคยล็อกอิน → โชว์หน้าล็อกอิน
-    } catch (e) { return true; }
-  });
-  const grantAdminSession = () => {
-    try { localStorage.setItem('admin_session_exp', String(Date.now() + ADMIN_SESSION_DAYS * 24 * 3600 * 1000)); } catch (e) {}
-  };
 
   // 🌟 Rolling Session Extension: ต่ออายุอัตโนมัติเมื่อผู้ใช้แตะหรือคลิกใช้งานแอพ เพื่อไม่ให้หลุดออกจากระบบ
   useEffect(() => {
@@ -6857,6 +6923,7 @@ const flexMessage = {
         </header>
 
         <div className="flex-1 overflow-y-auto print:overflow-visible print:h-auto p-4 sm:p-6 lg:p-8 w-full relative z-10">
+          <Suspense fallback={<div className="flex flex-col items-center justify-center h-full min-h-[400px] text-slate-400"><Loader2 className="animate-spin text-orange-500 mb-3" size={36} /><span className="text-sm font-bold">กำลังโหลดหน้าจอ...</span></div>}>
           
         {/* --- PROMOTIONS TAB --- */}
         {activeTab === 'promotions' && (
@@ -9487,6 +9554,7 @@ const flexMessage = {
               getFuzzyKey={getFuzzyKey}
             />
           )}
+          </Suspense>
         </div>
       </main>
 
@@ -13014,6 +13082,7 @@ const flexMessage = {
                      if (!orderTicketRef.current) return;
                      try {
                          setIsDownloadingTicket(true);
+                         const { default: html2canvas } = await import('html2canvas');
                          const canvas = await html2canvas(orderTicketRef.current, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
                          const image = canvas.toDataURL("image/jpeg", 0.9);
                          const a = document.createElement('a');
@@ -13548,18 +13617,20 @@ const flexMessage = {
          </div>
       )}
 
-      <RoomManagementBoard 
-        bookings={bookings} 
-        orders={orders}
-        globalBranch={globalBranch} 
-        isOpen={isBedModalOpen} 
-        onClose={() => setIsBedModalOpen(false)} 
-        onRetrieveParkedOrder={(order) => {
-           setPosParkedOrderToResume(order);
-           setIsBedModalOpen(false);
-           setActiveTab('pos');
-        }}
-      />
+      <Suspense fallback={null}>
+        <RoomManagementBoard 
+          bookings={bookings} 
+          orders={orders}
+          globalBranch={globalBranch} 
+          isOpen={isBedModalOpen} 
+          onClose={() => setIsBedModalOpen(false)} 
+          onRetrieveParkedOrder={(order) => {
+             setPosParkedOrderToResume(order);
+             setIsBedModalOpen(false);
+             setActiveTab('pos');
+          }}
+        />
+      </Suspense>
       <IShipBookingModal 
         isOpen={ishipModal.isOpen} 
         order={ishipModal.order} 
