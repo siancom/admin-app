@@ -851,6 +851,59 @@ export default function SettingsPage({
               </div>
             </div>
 
+            {/* 7. บังคับลงทะเบียนประวัติก่อนจองคิวทาง LINE */}
+            <div className="p-4 sm:p-5 rounded-2xl border border-gray-200 bg-gray-50/50">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <h4 className="text-sm font-black text-gray-800 flex items-center gap-2">
+                    <Users size={18} className="text-indigo-600" />
+                    บังคับให้ลูกค้าลงทะเบียนก่อนจองคิวทาง LINE (Require Registration)
+                  </h4>
+                  <p className="text-xs text-gray-500">
+                    เมื่อเปิดใช้งาน: ลูกค้าใหม่ที่ยังไม่เคยลงทะเบียนประวัติในระบบ จะไม่สามารถกดจองคิวแบบ Guest ได้ ระบบจะบังคับให้ลงทะเบียนประวัติลูกค้าใหม่หรือเข้าสู่ระบบสมาชิกก่อน
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBookingConfig({
+                    ...bookingConfig,
+                    requireRegistrationBeforeBooking: !bookingConfig.requireRegistrationBeforeBooking
+                  })}
+                  className="shrink-0 transition-transform active:scale-95"
+                >
+                  {bookingConfig.requireRegistrationBeforeBooking ? (
+                    <ToggleRight size={38} className="text-teal-600" />
+                  ) : (
+                    <ToggleLeft size={38} className="text-gray-400" />
+                  )}
+                </button>
+              </div>
+              <div className="mt-3 pt-3 border-t border-gray-200/80 text-[11px] text-gray-600">
+                {bookingConfig.requireRegistrationBeforeBooking ? (
+                  <span className="text-emerald-700 font-bold">
+                    🔒 บังคับลงทะเบียน: ลูกค้าต้องลงทะเบียนประวัติก่อน จึงจะสามารถกดจองคิวได้
+                  </span>
+                ) : (
+                  <span className="text-amber-700 font-bold">
+                    🔓 อนุญาตให้จองแบบ Guest: ลูกค้าใหม่สามารถกรอกชื่อและเบอร์โทรเพื่อจองคิวได้ทันทีโดยไม่ต้องลงทะเบียนประวัติ
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* ปุ่มบันทึกการตั้งค่าด้านล่าง */}
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={saveBookingConfig}
+                disabled={isSavingBookingConfig}
+                className="px-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-black text-sm rounded-2xl shadow-lg shadow-teal-600/30 active:scale-95 transition-all flex items-center gap-2"
+              >
+                {isSavingBookingConfig ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                บันทึกการตั้งค่าระบบจอง
+              </button>
+            </div>
+
           </div>
         </div>
       )}

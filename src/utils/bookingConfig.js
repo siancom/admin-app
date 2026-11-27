@@ -14,6 +14,7 @@ export const DEFAULT_BOOKING_CONFIG = {
   maxBookingDuration: 180,
   maxConcurrentBookings: 2, // 🌟 จำนวนคิวที่รับได้พร้อมกันต่อรอบเวลา (ค่าเริ่มต้น 2 คิว)
   allowCustomerMultipleBookings: true, // 🌟 ยืดหยุ่น: ลูกค้าสามารถกดจองคิวเพิ่มในวันหรือรอบเวลาเดิมได้
+  requireRegistrationBeforeBooking: false, // 🌟 บังคับให้ลงทะเบียนประวัติก่อนจองคิวผ่าน LINE
   extraSlotOverrides: {} // 🌟 พนักงานกดเปิดรับคิวเพิ่มรายวัน/รอบเวลา เช่น { "2026-11-13_เฉวง_14:00": 1 }
 };
 
