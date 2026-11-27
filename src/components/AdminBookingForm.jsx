@@ -64,18 +64,6 @@ export default function AdminBookingForm({
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    // If searchPhoneMatch matches a registered customer, auto-select and clear search input
-    useEffect(() => {
-        if (searchPhoneMatch && !selectedCustomer) {
-            const name = String(getFuzzyKey(searchPhoneMatch, ["ชื่อ", "col_1"]) || searchPhoneMatch.computedName || searchPhoneMatch.name || '');
-            const phone = String(getFuzzyKey(searchPhoneMatch, ["เบอร์โทร", "col_3", "phone"]) || searchPhoneMatch.computedPhone || searchPhoneMatch.phone || '');
-            setForm(prev => ({ ...prev, name: prev.name || name, phone: phone || prev.phone }));
-            setSelectedCustomer(searchPhoneMatch);
-            setCustomerSearch('');
-            setIsDropdownOpen(false);
-        }
-    }, [searchPhoneMatch, selectedCustomer]);
-
     // Sync newly registered or preselected customer
     useEffect(() => {
         if (preselectedCustomer) {
@@ -155,6 +143,18 @@ export default function AdminBookingForm({
     const formPhoneMatch = useMemo(() => {
         return checkCustomerByPhone(form.phone);
     }, [form.phone, customers]);
+
+    // If searchPhoneMatch matches a registered customer, auto-select and clear search input
+    useEffect(() => {
+        if (searchPhoneMatch && !selectedCustomer) {
+            const name = String(getFuzzyKey(searchPhoneMatch, ["ชื่อ", "col_1"]) || searchPhoneMatch.computedName || searchPhoneMatch.name || '');
+            const phone = String(getFuzzyKey(searchPhoneMatch, ["เบอร์โทร", "col_3", "phone"]) || searchPhoneMatch.computedPhone || searchPhoneMatch.phone || '');
+            setForm(prev => ({ ...prev, name: prev.name || name, phone: phone || prev.phone }));
+            setSelectedCustomer(searchPhoneMatch);
+            setCustomerSearch('');
+            setIsDropdownOpen(false);
+        }
+    }, [searchPhoneMatch, selectedCustomer]);
 
     // Active verified customer
     const currentCustomer = selectedCustomer || searchPhoneMatch || formPhoneMatch;
