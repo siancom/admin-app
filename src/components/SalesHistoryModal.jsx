@@ -620,9 +620,14 @@ export default function SalesHistoryModal({
                           <span className="text-xs text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded"><Clock size={12}/> {new Date(order.createdAt).toLocaleString('th-TH')}</span>
                         </div>
                         
-                        <div className="flex items-center gap-4 text-sm text-slate-600">
+                        <div className="flex items-center gap-4 text-sm text-slate-600 flex-wrap">
                            <div><span className="text-slate-400">ลูกค้า:</span> <span className="font-semibold">{order.customerName || '-'}</span></div>
                            <div><span className="text-slate-400">ช่องทาง:</span> <span className="font-semibold bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">{order.orderChannel || 'หน้าร้าน'}</span></div>
+                           {Number(order.transferTip) > 0 && (
+                             <div className="text-xs bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                               🎁 ทิปโอน: ฿{Number(order.transferTip).toLocaleString()} (สลิป ฿{(Number(order.transferSlipAmount) || (Number(order.price) + Number(order.transferTip))).toLocaleString()})
+                             </div>
+                           )}
                         </div>
                         
                         <div className="text-sm bg-slate-50 p-2 rounded-lg border border-slate-100 text-slate-600 line-clamp-2" title={order.courseName}>

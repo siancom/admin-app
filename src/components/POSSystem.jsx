@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle,
   Scissors, Search, Info, ShoppingCart, Package, Layers, User, Trash2, UserPlus,
-  Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink, ScanBarcode, ArrowRight,
+  Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink, ScanBarcode, ArrowRight, Gift,
   Flame, TrendingUp, Tag, Droplet, Zap, Target, Heart, Edit3, AlertCircle, RefreshCw, PenTool, Eye
 } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
@@ -1243,6 +1243,7 @@ export default function POSSystem({
   const [showServiceProofModal, setShowServiceProofModal] = useState(false);
   const [previewCustomerAvatarModal, setPreviewCustomerAvatarModal] = useState(null);
   const [splitPayment, setSplitPayment] = useState({ cash: 0, transfer: 0, cod: 0, credit: 0, omise_promptpay: 0 });
+  const [transferTip, setTransferTip] = useState(0);
   const [showOmiseQrModal, setShowOmiseQrModal] = useState(false);
   const [showTransferChoiceModal, setShowTransferChoiceModal] = useState(false);
   const [omiseChargeData, setOmiseChargeData] = useState(null);
@@ -2973,6 +2974,7 @@ export default function POSSystem({
     const today = posFilterDateObj.toLocaleDateString('th-TH');
     let cash = 0;
     let transfer = 0;
+    let totalTransferTip = 0;
     let cod = 0;
     let credit = 0;
     let online = 0;
@@ -3051,11 +3053,20 @@ export default function POSSystem({
              });
          }
          
+         let orderTransferTip = parseNumber(o.transferTip || 0);
+         if (!orderTransferTip && paymentStr.includes('ทิปโอน')) {
+           const tipMatch = paymentStr.match(/ทิปโอน\s*([\d.]+)/) || paymentStr.match(/ทิปโอน:\s*([\d.]+)/);
+           if (tipMatch) orderTransferTip = parseFloat(tipMatch[1]);
+         }
+         if (orderTransferTip > 0) totalTransferTip += orderTransferTip;
+
          if (tAmt > 0) {
            transferDetails.push({
              id: o.id || Math.random().toString(),
              time: new Date(o.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
              amount: tAmt,
+             tip: orderTransferTip,
+             slipAmount: o.transferSlipAmount || (tAmt + orderTransferTip),
              customer: o.customerName || getFuzzyKey(o, ["ชื่อลูกค้า", "ลูกค้า", "customer"]) || 'ลูกค้าทั่วไป',
              items: tItems.length > 0 ? tItems.map(i => `${i.name} x${i.qty || 1}`).join(', ') : 'สินค้า/บริการ'
            });
@@ -3134,7 +3145,7 @@ export default function POSSystem({
     // Sort allSalesDetails by time
     allSalesDetails.sort((a, b) => a.time.localeCompare(b.time));
 
-    return { cash, transfer, cod, credit, transferDetails, pendingDetails, allSalesDetails, productSalesAmt, courseSalesAmt, manualSalesAmt, online };
+    return { cash, transfer, totalTransferTip, cod, credit, transferDetails, pendingDetails, allSalesDetails, productSalesAmt, courseSalesAmt, manualSalesAmt, online };
   }, [orders, histories, globalBranch, posFilterDate]);
 
   // 🌟 คำนวณยอดขายรวมจริงวันนี้ และจำนวนบิลสำหรับแถบแสดงยอดขาย
@@ -3734,9 +3745,29 @@ export default function POSSystem({
   const promoDiscount = promoResult.discount;
   const total = Math.max(0, subtotal - globalDiscount - promoDiscount);
   const totalSaved = Math.max(0, (originalSubtotal - subtotal) + globalDiscount + promoDiscount);
-  const totalPaid = (splitPayment.cash || 0) + (splitPayment.transfer || 0) + (splitPayment.cod || 0) + (splitPayment.credit || 0) + (splitPayment.omise_promptpay || 0);
-  // 🌟 ยอดรวมที่ "ครอบคลุมแล้ว" = เก็บหน้าร้าน + จ่ายไปแล้วผ่านแอป (เครดิตถูกหักตอนสั่งในแอปแล้ว)
+  // 🌟 ยอดโอนเข้าร้านจริงๆ = ยอดตามสลิปโอน - ทิปโอน (หักให้พนักงาน)
+  const netTransfer = Math.max(0, (Number(splitPayment.transfer) || 0) - (Number(transferTip) || 0));
+  const totalPaid = (Number(splitPayment.cash) || 0) + netTransfer + (Number(splitPayment.cod) || 0) + (Number(splitPayment.credit) || 0) + (Number(splitPayment.omise_promptpay) || 0);
+  const totalGrossPaid = (Number(splitPayment.cash) || 0) + (Number(splitPayment.transfer) || 0) + (Number(splitPayment.cod) || 0) + (Number(splitPayment.credit) || 0) + (Number(splitPayment.omise_promptpay) || 0);
+  // 🌟 ยอดรวมที่ "ครอบคลุมแล้ว" = เก็บหน้าร้าน (หักทิปโอนออก) + จ่ายไปแล้วผ่านแอป (เครดิตถูกหักตอนสั่งในแอปแล้ว)
   const totalCovered = totalPaid + (appCreditPaidAmount || 0);
+
+  const handleTransferTipChange = (valStr) => {
+    const tipVal = Math.max(0, parseNumber(valStr));
+    const prevTip = transferTip || 0;
+    setTransferTip(tipVal);
+
+    setSplitPayment(prev => {
+      const curTransfer = Number(prev.transfer) || 0;
+      const effectiveTotal = Math.max(0, total - (appCreditPaidAmount || 0));
+      // ถ้าเดิมยอดโอนตรงกับยอดที่ต้องชำระ หรือตรงกับ (ยอดสุทธิ + ทิปเดิม) หรือยังเป็น 0
+      // ให้ปรับยอดโอน (ตามสลิป) อัตโนมัติเป็น (ยอดสุทธิ + ทิปใหม่) เพื่อให้หักลบแล้วเหลือยอดเข้าร้านตรงกับยอดสุทธิพอดี
+      if (curTransfer === effectiveTotal || curTransfer === (effectiveTotal + prevTip) || curTransfer === 0) {
+        return { ...prev, transfer: effectiveTotal + tipVal };
+      }
+      return prev;
+    });
+  };
 
   const handleRewardRedemptionScan = async (rewardId, customerIdentifier) => {
     try {
@@ -4185,7 +4216,13 @@ export default function POSSystem({
       let paymentMethodsStrArr = [];
       if (appCreditPaidAmount > 0) paymentMethodsStrArr.push(`จ่ายแล้วผ่านแอป(เครดิต): ${appCreditPaidAmount}`);
       if (splitPayment.cash > 0) paymentMethodsStrArr.push(`เงินสด: ${splitPayment.cash}`);
-      if (splitPayment.transfer > 0) paymentMethodsStrArr.push(`โอนเงิน: ${splitPayment.transfer}`);
+      if (netTransfer > 0 || splitPayment.transfer > 0) {
+        if (transferTip > 0) {
+          paymentMethodsStrArr.push(`โอนเงิน: ${netTransfer} (สลิป ${splitPayment.transfer}, ทิปโอน ${transferTip})`);
+        } else {
+          paymentMethodsStrArr.push(`โอนเงิน: ${splitPayment.transfer}`);
+        }
+      }
       if (splitPayment.cod > 0) paymentMethodsStrArr.push(`ค้าง/COD: ${splitPayment.cod}`);
       if (splitPayment.credit > 0) paymentMethodsStrArr.push(`ตัดเครดิต: ${splitPayment.credit}`);
       const isOwnerZeroPay = isOwnerDirectUsage && (totalCovered === 0 || total <= 0);
@@ -4826,6 +4863,16 @@ export default function POSSystem({
         branch: String(globalBranch || "เฉวง"),
         status: posTrackingNo.trim() ? "กำลังจัดส่ง" : "สำเร็จ",
         paymentMethod: paymentMethodStr,
+        transferTip: transferTip > 0 ? Number(transferTip) : 0,
+        transferSlipAmount: splitPayment.transfer > 0 ? Number(splitPayment.transfer) : 0,
+        netTransfer: netTransfer > 0 ? Number(netTransfer) : 0,
+        tipStaff: transferTip > 0 ? (paymentStaff || '') : '',
+        splitPayment: {
+          ...splitPayment,
+          transfer: netTransfer,
+          transferSlip: splitPayment.transfer,
+          transferTip: transferTip > 0 ? Number(transferTip) : 0
+        },
         source: "POS",
         orderChannel,
         shippingAddress,
@@ -4897,6 +4944,49 @@ export default function POSSystem({
               createdAt: customDateObj.toISOString()
             });
           });
+        });
+      }
+
+      // 🌟 บันทึกประวัติทิปโอนสำหรับพนักงาน
+      if (transferTip > 0) {
+        const staffList = paymentStaff ? paymentStaff.split('/').map(s => s.trim()).filter(Boolean) : [];
+        const targetStaff = staffList.length > 0 
+          ? staffList.map(sName => employees.find(e => e.name === sName)).filter(Boolean)
+          : (activeStaff ? [activeStaff] : []);
+
+        if (targetStaff.length > 0) {
+          const perStaffTip = Math.round(Number(transferTip) / targetStaff.length);
+          targetStaff.forEach(emp => {
+            const tipLogRef = doc(getCol('service_logs'));
+            batch.set(tipLogRef, {
+              date: getLocalYYYYMMDD(customDateObj),
+              type: 'ทิปโอน (ลูกค้าให้)',
+              amount: perStaffTip,
+              quantity: 1,
+              note: `ทิปโอนจากบิล POS: ${orderNo}`,
+              employeeId: emp.id,
+              employeeName: emp.name,
+              branch: String(globalBranch || "เฉวง"),
+              createdAt: customDateObj.toISOString(),
+              isTip: true
+            });
+          });
+        }
+
+        const tipHistRef = doc(getCol('histories'));
+        batch.set(tipHistRef, {
+          "วันที่": customDateObj.toLocaleDateString('th-TH'),
+          "เวลา": customDateObj.toLocaleTimeString('th-TH', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+          "ชื่อลูกค้า": cName,
+          "เบอร์โทร": cPhone || '-',
+          "cleanPhone": custCleanPhone,
+          "หมายเลขคำสั่งซื้อ": orderNo,
+          "ประเภท": "ทิปโอน",
+          "สถานะ": "เรียบร้อย",
+          "ยอดเงิน": String(transferTip),
+          "สาขา": String(globalBranch || "เฉวง"),
+          "พนักงาน": paymentStaff || '-',
+          "รายละเอียด": `ทิปโอนให้พนักงาน ${paymentStaff || '-'} (สลิป ฿${splitPayment.transfer}, ยอดร้าน ฿${netTransfer})`
         });
       }
 
@@ -5116,7 +5206,14 @@ export default function POSSystem({
         orderChannel,
         shippingAddress,
         trackingNo: posTrackingClean,
-        splitPayment: {...splitPayment},
+        transferTip: transferTip > 0 ? Number(transferTip) : 0,
+        netTransfer: netTransfer > 0 ? Number(netTransfer) : 0,
+        splitPayment: {
+          ...splitPayment,
+          transfer: netTransfer,
+          transferSlip: splitPayment.transfer,
+          transferTip: transferTip > 0 ? Number(transferTip) : 0
+        },
         createdAt: customDateObj,
         customerSignature: custSignatureUrl,
         staffSignature: staffSignatureUrl,
@@ -5133,6 +5230,7 @@ export default function POSSystem({
       setShowOmiseQrModal(false);
       setPosTrackingNo('');
       setShippingAddress('');
+      setTransferTip(0);
       setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0, omise_promptpay: 0 });
       setCheckoutStep(1);
       setAppCreditPaidAmount(0);
@@ -8841,11 +8939,6 @@ export default function POSSystem({
               )}
             </div>
             <button onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-full transition-colors"><X size={20} /></button>
-          </div>
-
-          {/* STEP 1: Order Details, Staff, Service/Claim & Signatures */}
-          <div className={`space-y-4 ${checkoutStep === 1 ? '' : 'hidden'}`}>
-            {/* 👑 สลับโหมดชำระเงินเป็นใช้คอส (เช็คเบื้องต้น) สำหรับเจ้าของ */}
             {globalRole === 'owner' && cart.some(i => i.type === 'course' || i.type === 'single_course') && (
               <div className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between ${isOwnerDirectUsage ? 'bg-purple-50/90 border-purple-200 shadow-2xs' : 'bg-slate-50 border-slate-200'}`}>
                 <div className="flex items-center gap-2.5">
@@ -10175,6 +10268,7 @@ export default function POSSystem({
                     <span className="text-slate-700">ระบุยอดเงิน:</span>
                     {total - totalCovered > 0 && <span className="text-red-500 text-xs font-bold">ขาด ฿{(total - totalCovered).toLocaleString()}</span>}
                     {totalPaid - (total - appCreditPaidAmount) > 0 && <span className="text-orange-500 text-xs font-bold">เกิน ฿{(totalPaid - (total - appCreditPaidAmount)).toLocaleString()}</span>}
+                    {transferTip > 0 && <span className="text-amber-700 text-xs font-extrabold bg-amber-100/90 border border-amber-300 px-2 py-0.5 rounded-full flex items-center gap-1"><Gift size={12}/> ทิป ฿{transferTip.toLocaleString()} (เข้าร้าน ฿{netTransfer.toLocaleString()})</span>}
                     {appCreditPaidAmount > 0 && <span className="text-emerald-600 text-xs font-bold">✓ จ่ายแล้วผ่านแอป ฿{appCreditPaidAmount.toLocaleString()}</span>}
                   </div>
 
@@ -10242,74 +10336,157 @@ export default function POSSystem({
                     { key: 'cod', label: 'ค้าง/COD', icon: Clock },
                     ...(customerCreditBalance > 0 || splitPayment.credit > 0 ? [{ key: 'credit', label: 'ใช้เครดิต', icon: CreditCard }] : [])
                   ].map((method) => (
-                    <div key={method.key} className={`flex items-center gap-2 ${method.key === 'credit' && appCreditPaidAmount > 0 ? 'opacity-40 pointer-events-none' : ''}`}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          // 🌟 ล็อกช่องเครดิตเมื่อลูกค้าจ่ายผ่านแอปแล้ว
-                          if (method.key === 'credit' && appCreditPaidAmount > 0) {
-                            showToast('ห้ามใช้เครดิตซ้ำ — ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป', 'error');
-                            return;
-                          }
-                          // ยอดที่ต้องเก็บจริง = ยอดสุทธิ − ที่จ่ายไปแล้วผ่านแอป
-                          const effectiveTotal = Math.max(0, total - (appCreditPaidAmount || 0));
-                          const currentOthersTotal = totalPaid - (splitPayment[method.key] || 0);
-                          if (currentOthersTotal >= effectiveTotal && effectiveTotal > 0) {
-                             const newAmt = effectiveTotal;
-                             setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0, [method.key]: newAmt });
-                          } else {
-                             let fillAmt = Math.max(0, effectiveTotal - currentOthersTotal);
-                             if (method.key === 'credit' && fillAmt > customerCreditBalance) fillAmt = customerCreditBalance;
-                             setSplitPayment(prev => ({ ...prev, [method.key]: fillAmt }));
-                          }
-                        }}
-                        className="flex-1 flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl hover:bg-indigo-50 transition-colors text-slate-600 focus:outline-none"
-                        title="คลิกเพื่อเติมยอดที่เหลือ หรือเปลี่ยนช่องทางชำระ"
-                      >
-                        <method.icon size={18} className="text-indigo-500" />
-                        <span className="text-sm font-medium">{method.label}</span>
-                        {method.key === 'credit' && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-md ml-auto">เหลือ ฿{customerCreditBalance.toLocaleString()}</span>}
-                      </button>
-                      <div className="flex items-center gap-1">
-                        <span className="text-sm text-slate-400">฿</span>
-                        <input 
-                          type="number" 
-                          value={splitPayment[method.key] || ''}
-                          onChange={(e) => {
-                            // 🌟 ห้ามกรอกเครดิตเมื่อลูกค้าจ่ายเครดิตผ่านแอปไปแล้ว
-                            if (method.key === 'credit' && appCreditPaidAmount > 0) return;
-                            let val = parseNumber(e.target.value);
-                            if (method.key === 'credit' && val > customerCreditBalance) val = customerCreditBalance;
-
-                            setSplitPayment(prev => {
-                               const nextState = { ...prev, [method.key]: val };
-                               // ยอดที่ต้องเก็บจริง = ยอดสุทธิ − จ่ายแล้วผ่านแอป
-                               const effectiveTotal = Math.max(0, total - (appCreditPaidAmount || 0));
-                               let sum = (nextState.cash || 0) + (nextState.transfer || 0) + (nextState.cod || 0) + (nextState.credit || 0) + (nextState.omise_promptpay || 0);
-
-                               if (sum > effectiveTotal) {
-                                   let excess = sum - effectiveTotal;
-                                   const otherKeys = ['cash', 'transfer', 'cod', 'credit']
-                                       .filter(k => k !== method.key)
-                                       .sort((a, b) => (nextState[b] || 0) - (nextState[a] || 0));
-                                       
-                                   for (let key of otherKeys) {
-                                       if (excess <= 0) break;
-                                       let currentVal = nextState[key] || 0;
-                                       if (currentVal > 0) {
-                                           let deduct = Math.min(currentVal, excess);
-                                           nextState[key] = currentVal - deduct;
-                                           excess -= deduct;
-                                       }
-                                   }
-                               }
-                               return nextState;
-                            });
+                    <div key={method.key} className="space-y-1.5">
+                      <div className={`flex items-center gap-2 ${method.key === 'credit' && appCreditPaidAmount > 0 ? 'opacity-40 pointer-events-none' : ''}`}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // 🌟 ล็อกช่องเครดิตเมื่อลูกค้าจ่ายผ่านแอปแล้ว
+                            if (method.key === 'credit' && appCreditPaidAmount > 0) {
+                              showToast('ห้ามใช้เครดิตซ้ำ — ออเดอร์นี้ลูกค้าจ่ายเครดิตไปแล้วในแอป', 'error');
+                              return;
+                            }
+                            // ยอดที่ต้องเก็บจริง = ยอดสุทธิ − ที่จ่ายไปแล้วผ่านแอป
+                            const effectiveTotal = Math.max(0, total - (appCreditPaidAmount || 0));
+                            const currentOthersTotal = totalPaid - (method.key === 'transfer' ? netTransfer : (splitPayment[method.key] || 0));
+                            if (currentOthersTotal >= effectiveTotal && effectiveTotal > 0) {
+                               const newAmt = method.key === 'transfer' ? effectiveTotal + (transferTip || 0) : effectiveTotal;
+                               setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0, [method.key]: newAmt });
+                            } else {
+                               let fillAmt = Math.max(0, effectiveTotal - currentOthersTotal);
+                               if (method.key === 'transfer') fillAmt += (transferTip || 0);
+                               if (method.key === 'credit' && fillAmt > customerCreditBalance) fillAmt = customerCreditBalance;
+                               setSplitPayment(prev => ({ ...prev, [method.key]: fillAmt }));
+                            }
                           }}
-                          placeholder="0"
-                          className={`w-28 text-right bg-slate-50 border rounded-xl px-3 py-2 text-base font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 ${splitPayment[method.key] > 0 ? 'border-indigo-300 text-indigo-700 bg-indigo-50/30' : 'border-slate-200 text-slate-800'}`}
-                        />
+                          className="flex-1 flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl hover:bg-indigo-50 transition-colors text-slate-600 focus:outline-none"
+                          title="คลิกเพื่อเติมยอดที่เหลือ หรือเปลี่ยนช่องทางชำระ"
+                        >
+                          <method.icon size={18} className="text-indigo-500" />
+                          <span className="text-sm font-medium">{method.label}</span>
+                          {method.key === 'transfer' && (
+                            <span className="text-[10px] text-slate-400 font-normal ml-auto">(ยอดตามสลิป)</span>
+                          )}
+                          {method.key === 'credit' && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-md ml-auto">เหลือ ฿{customerCreditBalance.toLocaleString()}</span>}
+                        </button>
+                        <div className="flex items-center gap-1">
+                          <span className="text-sm text-slate-400">฿</span>
+                          <input 
+                            type="number" 
+                            value={splitPayment[method.key] || ''}
+                            onChange={(e) => {
+                              // 🌟 ห้ามกรอกเครดิตเมื่อลูกค้าจ่ายเครดิตผ่านแอปไปแล้ว
+                              if (method.key === 'credit' && appCreditPaidAmount > 0) return;
+                              let val = parseNumber(e.target.value);
+                              if (method.key === 'credit' && val > customerCreditBalance) val = customerCreditBalance;
+
+                              setSplitPayment(prev => {
+                                 const nextState = { ...prev, [method.key]: val };
+                                 // ยอดที่ต้องเก็บจริง = ยอดสุทธิ − จ่ายแล้วผ่านแอป
+                                 const effectiveTotal = Math.max(0, total - (appCreditPaidAmount || 0));
+                                 const curNetTransfer = Math.max(0, (nextState.transfer || 0) - (transferTip || 0));
+                                 let sum = (nextState.cash || 0) + curNetTransfer + (nextState.cod || 0) + (nextState.credit || 0) + (nextState.omise_promptpay || 0);
+
+                                 if (sum > effectiveTotal) {
+                                     let excess = sum - effectiveTotal;
+                                     const otherKeys = ['cash', 'transfer', 'cod', 'credit']
+                                         .filter(k => k !== method.key)
+                                         .sort((a, b) => (nextState[b] || 0) - (nextState[a] || 0));
+                                         
+                                     for (let key of otherKeys) {
+                                         if (excess <= 0) break;
+                                         let currentVal = nextState[key] || 0;
+                                         if (currentVal > 0) {
+                                             let deduct = Math.min(currentVal, excess);
+                                             nextState[key] = currentVal - deduct;
+                                             excess -= deduct;
+                                         }
+                                     }
+                                 }
+                                 return nextState;
+                              });
+                            }}
+                            placeholder="0"
+                            className={`w-28 text-right bg-slate-50 border rounded-xl px-3 py-2 text-base font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 ${splitPayment[method.key] > 0 ? 'border-indigo-300 text-indigo-700 bg-indigo-50/30' : 'border-slate-200 text-slate-800'}`}
+                          />
+                        </div>
                       </div>
+
+                      {/* 🎁 กล่องกรอกทิปโอน (หักลบเหลือแค่ยอดโอนเข้าร้านจริงๆ) */}
+                      {method.key === 'transfer' && (
+                        <div className={`p-2.5 rounded-xl border transition-all ${
+                          transferTip > 0 
+                            ? 'bg-gradient-to-r from-amber-50 to-orange-50/80 border-amber-300 shadow-2xs' 
+                            : 'bg-slate-50 border-slate-200/90'
+                        }`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                                <Gift size={13} />
+                              </div>
+                              <div>
+                                <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                                  ทิปโอน (หักให้พนักงาน)
+                                </span>
+                                <p className="text-[10px] text-slate-500 font-medium leading-none mt-0.5">
+                                  กรณีลูกค้าโอนรวมทิปมาในสลิปเดียว
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className="text-xs text-slate-400 font-bold">฿</span>
+                              <input 
+                                type="number"
+                                min="0"
+                                value={transferTip || ''}
+                                onChange={(e) => handleTransferTipChange(e.target.value)}
+                                placeholder="0"
+                                className="w-24 text-right bg-white border border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 rounded-lg px-2.5 py-1 text-sm font-black text-amber-900 outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Quick Tip Chips */}
+                          <div className="flex items-center gap-1 mt-2 flex-wrap">
+                            <span className="text-[10px] text-slate-400 font-semibold mr-1">เลือกเร็ว:</span>
+                            {[20, 50, 100, 200].map(tipPreset => (
+                              <button
+                                key={tipPreset}
+                                type="button"
+                                onClick={() => handleTransferTipChange(transferTip === tipPreset ? 0 : tipPreset)}
+                                className={`px-2 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                                  transferTip === tipPreset 
+                                    ? 'bg-amber-500 text-white shadow-2xs' 
+                                    : 'bg-white hover:bg-amber-100 text-slate-700 border border-slate-200'
+                                }`}
+                              >
+                                +{tipPreset}
+                              </button>
+                            ))}
+                            {transferTip > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleTransferTipChange(0)}
+                                className="px-2 py-0.5 rounded-md text-[11px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 transition-colors ml-auto cursor-pointer"
+                              >
+                                ล้างทิป
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Live Calculation Display */}
+                          {transferTip > 0 && (
+                            <div className="mt-2 pt-2 border-t border-amber-200/80 flex items-center justify-between text-[11px] font-medium text-amber-950">
+                              <span className="text-slate-600">
+                                สลิป ฿{(Number(splitPayment.transfer) || 0).toLocaleString()} − ทิป ฿{transferTip.toLocaleString()}
+                              </span>
+                              <span className="font-black text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                ✓ โอนเข้าร้านจริง: ฿{netTransfer.toLocaleString()}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -11496,9 +11673,23 @@ export default function POSSystem({
             </div>
           )}
           {receiptData.splitPayment?.transfer > 0 && (
-            <div className="flex justify-between">
-              <span>โอนเงิน:</span>
-              <span>{receiptData.splitPayment.transfer.toLocaleString()}</span>
+            <div className="space-y-0.5">
+              <div className="flex justify-between">
+                <span>โอนเงิน (เข้าร้าน):</span>
+                <span>{receiptData.splitPayment.transfer.toLocaleString()}</span>
+              </div>
+              {receiptData.transferTip > 0 && (
+                <>
+                  <div className="flex justify-between text-slate-600 print:text-black">
+                    <span>ทิปโอน (ให้พนักงาน):</span>
+                    <span>+{receiptData.transferTip.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-slate-500 print:text-black text-[11px]">
+                    <span>ยอดโอนตามสลิป:</span>
+                    <span>{(receiptData.splitPayment.transferSlip || (receiptData.splitPayment.transfer + receiptData.transferTip)).toLocaleString()}</span>
+                  </div>
+                </>
+              )}
             </div>
           )}
           {receiptData.splitPayment?.cod > 0 && (
