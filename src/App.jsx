@@ -336,6 +336,7 @@ export default function App() {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerModalTab, setCustomerModalTab] = useState('courses'); 
   const [posPreselectedCustomer, setPosPreselectedCustomer] = useState(null);
+  const [posPreselectedItems, setPosPreselectedItems] = useState([]);
   const [posPreselectedUsageCourses, setPosPreselectedUsageCourses] = useState([]);
   const [posReturnToStaffAfterCheckout, setPosReturnToStaffAfterCheckout] = useState(false);
   const [posPreselectedBeforePhotos, setPosPreselectedBeforePhotos] = useState([]);
@@ -6930,6 +6931,8 @@ const flexMessage = {
               }}
               posPreselectedCustomer={posPreselectedCustomer}
               clearPosPreselectedCustomer={() => setPosPreselectedCustomer(null)}
+              posPreselectedItems={posPreselectedItems}
+              clearPosPreselectedItems={() => setPosPreselectedItems([])}
               posPreselectedUsageCourses={posPreselectedUsageCourses}
               clearPosPreselectedUsageCourses={() => setPosPreselectedUsageCourses([])}
               posPreselectedBeforePhotos={posPreselectedBeforePhotos}
@@ -8915,11 +8918,14 @@ const flexMessage = {
                   histories={histories}
                   globalBranch={globalBranch}
                   triggerToast={showToast}
-                  onNavigateToPos={(item) => {
-                      // Note: passing selected info into POS could be done via a global state or simple activeTab switch.
+                  onNavigateToPos={(data) => {
+                      if (data?.items) {
+                          setPosPreselectedItems(data.items);
+                      }
+                      if (data?.customer) {
+                          setPosPreselectedCustomer(data.customer);
+                      }
                       setActiveTab('pos');
-                      // If we wanted to add it to cart directly we would need to pass setCart or similar, 
-                      // but for now navigating to POS is sufficient as they usually enter it there.
                   }}
                   onAddCustomer={() => setIsAddCustomerOpen(true)}
               />

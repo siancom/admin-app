@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle,
   Scissors, Search, Info, ShoppingCart, Package, Layers, User, Trash2, UserPlus,
-  Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink, ScanBarcode,
+  Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink, ScanBarcode, ArrowRight,
   Flame, TrendingUp, Tag, Droplet, Zap, Target, Heart, Edit3, AlertCircle, RefreshCw, PenTool, Eye
 } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
@@ -31,6 +31,7 @@ import ShopeeImportModal from './ShopeeImportModal';
 import SalesHistoryModal from './SalesHistoryModal';
 import ClearMonthlyPosSalesModal from './ClearMonthlyPosSalesModal';
 import BarcodeScannerModal from './BarcodeScannerModal';
+import MoleRemovalSystem from './MoleRemovalSystem';
 import { MACHINE_TREATMENT_ADDONS, STANDARD_FACIAL_SERVICES } from '../data/machineAddons';
 import { analyzeSkinIssue } from '../utils/skinAiUtils';
 
@@ -604,7 +605,9 @@ export default function POSSystem({
   posActiveBookingId = null,
   posReturnToAppointmentsAfterCheckout = false,
   onReturnToAppointments = () => {},
-  onViewCourseDetails = () => {}
+  onViewCourseDetails = () => {},
+  posPreselectedItems = [],
+  clearPosPreselectedItems = () => {}
 }) {
   // 🌟 โหมดส่งยอดด่วน — เปิดหน้า EOD ทันที (ไม่เด้ง SOD) และแจ้ง parent เมื่อปิดหน้าต่าง
   const quickEodActiveRef = useRef(!!autoOpenEod);
@@ -615,6 +618,7 @@ export default function POSSystem({
   const [singleCourseTab, setSingleCourseTab] = useState('machine');
   const [multiCourseTab, setMultiCourseTab] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isMoleRemovalModalOpen, setIsMoleRemovalModalOpen] = useState(false);
   
   // Start of Day (SOD) State
   const [showSodModal, setShowSodModal] = useState(false);
@@ -630,6 +634,28 @@ export default function POSSystem({
       setActiveBookingId(posActiveBookingId);
     }
   }, [posActiveBookingId]);
+
+  // รับรายการประเมินราคามาจากระบบจี้ไฝ หรือจากภายนอก
+  useEffect(() => {
+    if (posPreselectedItems && posPreselectedItems.length > 0) {
+      setCart(prev => {
+        const newCart = [...prev];
+        posPreselectedItems.forEach(item => {
+          const existIdx = newCart.findIndex(c => c.id === item.id && c.name === item.name && c.price === item.price);
+          if (existIdx > -1) {
+            newCart[existIdx] = { ...newCart[existIdx], qty: newCart[existIdx].qty + (item.qty || 1) };
+          } else {
+            newCart.push({ ...item });
+          }
+        });
+        return newCart;
+      });
+      showToast(`เพิ่มรายการประเมินราคา ${posPreselectedItems.length} รายการลงตะกร้าแล้ว`, 'success');
+      if (clearPosPreselectedItems) {
+        clearPosPreselectedItems();
+      }
+    }
+  }, [posPreselectedItems]);
 
   // 🎁 State สำหรับการเลือกสินค้าตัดสต็อกของแถม
   const [selectingGiftItem, setSelectingGiftItem] = useState(null);
@@ -6926,6 +6952,44 @@ export default function POSSystem({
                   })}
 
                   {/* Manual Single-Session / Walk-in Items */}
+                  {multiCourseTab === 'single_session' && (
+                    <div 
+                      onClick={() => setIsMoleRemovalModalOpen(true)}
+                      className="col-span-full relative overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-700 via-purple-700 to-pink-600 p-3.5 sm:p-4 shadow-lg shadow-purple-500/20 border border-white/20 cursor-pointer group hover:scale-[1.008] transition-all mb-3 text-left"
+                    >
+                      <div className="absolute -right-6 -bottom-6 w-28 h-28 bg-white/10 rounded-full blur-xl pointer-events-none"></div>
+                      <div className="absolute top-0 right-0 w-full h-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-amber-400/20 via-transparent to-transparent pointer-events-none"></div>
+
+                      <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="w-12 h-12 rounded-2xl bg-white/15 backdrop-blur-md border border-white/30 flex items-center justify-center shrink-0 shadow-inner group-hover:scale-105 transition-transform text-white">
+                            <Sparkles size={24} className="text-amber-300 drop-shadow-sm" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-400/25 text-amber-200 tracking-wide border border-amber-300/30">
+                                ✨ ระบบจัดการจี้ไฝ
+                              </span>
+                              <span className="text-[10px] font-bold text-teal-200">
+                                Mole Removal
+                              </span>
+                            </div>
+                            <h3 className="text-base font-black text-white leading-tight mt-1 truncate drop-shadow-xs">
+                              ระบบจี้ไฝ (Mole Removal)
+                            </h3>
+                            <p className="text-xs text-indigo-100/90 font-medium truncate mt-0.5">
+                              ค้นหาลูกค้าเพื่อตรวจสอบประวัติ หรือประเมินราคาหัตถการส่งกลับมายัง POS
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center justify-center gap-1.5 bg-white text-indigo-800 font-black text-xs px-4 py-2.5 rounded-xl shadow-md transition-all group-hover:bg-amber-50 group-hover:translate-x-0.5">
+                          <span>เปิดระบบจี้ไฝ</span>
+                          <ArrowRight size={14} className="text-indigo-600" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {(multiCourseTab === 'all' || multiCourseTab === 'single_session' || multiCourseTab === 'walkin') && (
                     <div 
                       key="srv_mole_walkin"
@@ -6983,13 +7047,27 @@ export default function POSSystem({
                           ))}
                         </div>
                         
-                        <button
-                          type="button"
-                          onClick={() => setQuickPriceModalItem({ id: 'srv_mole', name: 'จี้ไฝ / กระ / ติ่งเนื้อ', price: 0, type: 'service' })}
-                          className="w-full py-1.5 text-center text-[11px] font-bold text-orange-600 hover:text-orange-700 bg-orange-100/70 hover:bg-orange-100 rounded-lg transition-colors border border-orange-200/80 cursor-pointer"
-                        >
-                          + ระบุราคาอื่น / กรอกจำนวนเอง...
-                        </button>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setQuickPriceModalItem({ id: 'srv_mole', name: 'จี้ไฝ / กระ / ติ่งเนื้อ', price: 0, type: 'service' })}
+                            className="w-full py-1.5 text-center text-[11px] font-bold text-orange-600 hover:text-orange-700 bg-orange-100/70 hover:bg-orange-100 rounded-lg transition-colors border border-orange-200/80 cursor-pointer"
+                          >
+                            + ระบุราคาอื่น...
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setIsMoleRemovalModalOpen(true);
+                            }}
+                            className="w-full py-1.5 px-2 flex items-center justify-center gap-1 rounded-lg bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:to-pink-700 text-white font-bold text-[11px] shadow-xs active:scale-95 transition-all cursor-pointer"
+                          >
+                            <Sparkles size={12} className="text-amber-300 shrink-0" />
+                            <span>ประเมินในระบบจี้ไฝ &rarr;</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -6997,6 +7075,45 @@ export default function POSSystem({
               </div>
             ) : (activeTab === 'services' || activeTab === 'mole') ? (
               <div className="col-span-full">
+                {/* 🌟 Banner ลิงก์ไปยังระบบจี้ไฝ (Mole Removal) เพื่อประเมินราคาส่งกลับมายัง POS 🌟 */}
+                <div 
+                  onClick={() => setIsMoleRemovalModalOpen(true)}
+                  className="w-full relative overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-700 via-purple-700 to-pink-600 p-3.5 sm:p-4 shadow-lg shadow-purple-500/20 border border-white/20 cursor-pointer group hover:scale-[1.008] transition-all mb-4 text-left"
+                >
+                  {/* Ambient background decoration */}
+                  <div className="absolute -right-6 -bottom-6 w-28 h-28 bg-white/10 rounded-full blur-xl pointer-events-none"></div>
+                  <div className="absolute top-0 right-0 w-full h-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-amber-400/20 via-transparent to-transparent pointer-events-none"></div>
+
+                  <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <div className="w-12 h-12 rounded-2xl bg-white/15 backdrop-blur-md border border-white/30 flex items-center justify-center shrink-0 shadow-inner group-hover:scale-105 transition-transform text-white">
+                        <Sparkles size={24} className="text-amber-300 drop-shadow-sm" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-400/25 text-amber-200 tracking-wide border border-amber-300/30">
+                            ✨ ระบบจัดการจี้ไฝ
+                          </span>
+                          <span className="text-[10px] font-bold text-teal-200">
+                            Mole Removal
+                          </span>
+                        </div>
+                        <h3 className="text-base font-black text-white leading-tight mt-1 truncate drop-shadow-xs">
+                          ระบบจี้ไฝ (Mole Removal)
+                        </h3>
+                        <p className="text-xs text-indigo-100/90 font-medium truncate mt-0.5">
+                          ค้นหาลูกค้าเพื่อตรวจสอบประวัติ หรือประเมินราคาหัตถการส่งกลับมายัง POS
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 flex items-center justify-center gap-1.5 bg-white text-indigo-800 font-black text-xs px-4 py-2.5 rounded-xl shadow-md transition-all group-hover:bg-amber-50 group-hover:translate-x-0.5">
+                      <span>เปิดระบบจี้ไฝ</span>
+                      <ArrowRight size={14} className="text-indigo-600" />
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   <div 
                     className="p-4 rounded-2xl shadow-sm hover:shadow-md transition-all flex flex-col justify-between h-full bg-gradient-to-br from-amber-50/80 via-orange-50/70 to-white border-2 border-orange-200/90 relative overflow-hidden group"
@@ -7044,13 +7161,27 @@ export default function POSSystem({
                       ))}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => setQuickPriceModalItem({ id: 'srv_mole', name: 'จี้ไฝ / กระ / ติ่งเนื้อ', price: 0, type: 'service' })}
-                      className="w-full py-2 text-center text-xs font-bold text-orange-600 hover:text-orange-700 bg-orange-100/70 hover:bg-orange-100 rounded-xl transition-colors border border-orange-200/80 cursor-pointer"
-                    >
-                      + ระบุราคาอื่น / กรอกจำนวนเอง...
-                    </button>
+                    <div className="space-y-1.5 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => setQuickPriceModalItem({ id: 'srv_mole', name: 'จี้ไฝ / กระ / ติ่งเนื้อ', price: 0, type: 'service' })}
+                        className="w-full py-2 text-center text-xs font-bold text-orange-600 hover:text-orange-700 bg-orange-100/70 hover:bg-orange-100 rounded-xl transition-colors border border-orange-200/80 cursor-pointer"
+                      >
+                        + ระบุราคาอื่น / กรอกจำนวนเอง...
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsMoleRemovalModalOpen(true);
+                        }}
+                        className="w-full py-2 px-3 flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:to-pink-700 text-white font-bold text-xs shadow-xs active:scale-95 transition-all cursor-pointer"
+                      >
+                        <Sparkles size={14} className="text-amber-300 shrink-0" />
+                        <span>ประเมินราคาในระบบจี้ไฝ (Mole Removal) &rarr;</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div 
@@ -13991,6 +14122,21 @@ export default function POSSystem({
                 />
               </div>
             </div>
+            {quickPriceModalItem.id === 'srv_mole' && (
+              <div className="pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuickPriceModalItem(null);
+                    setIsMoleRemovalModalOpen(true);
+                  }}
+                  className="w-full py-2.5 px-3 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:to-pink-700 text-white font-bold text-xs shadow-md shadow-purple-500/20 active:scale-95 transition-all cursor-pointer"
+                >
+                  <Sparkles size={15} className="text-amber-300" />
+                  <span>เปิดประเมินราคาตามจุด/ขนาด ในระบบจี้ไฝ &rarr;</span>
+                </button>
+              </div>
+            )}
             <div className="flex gap-3 pt-2">
               <button
                 type="button"
@@ -14025,6 +14171,46 @@ export default function POSSystem({
               </button>
             </div>
           </div>
+        </div>
+      </div>
+    )}
+
+    {/* 🌟 Mole Removal System Modal from POS 🌟 */}
+    {isMoleRemovalModalOpen && (
+      <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
+        <div className="relative w-full max-w-5xl h-[92vh] max-h-[850px] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-white/20">
+          <MoleRemovalSystem
+            customersRaw={customers}
+            histories={histories}
+            globalBranch={globalBranch}
+            triggerToast={showToast}
+            initialCustomer={selectedCustomer}
+            initialTab={selectedCustomer ? 'evaluate' : 'history'}
+            isModal={true}
+            onClose={() => setIsMoleRemovalModalOpen(false)}
+            onNavigateToPos={(data) => {
+              if (data?.customer) {
+                setSelectedCustomer(data.customer);
+              }
+              if (data?.items && data.items.length > 0) {
+                setCart(prev => {
+                  const newCart = [...prev];
+                  data.items.forEach(item => {
+                    const existIdx = newCart.findIndex(c => c.id === item.id && c.name === item.name && c.price === item.price);
+                    if (existIdx > -1) {
+                      newCart[existIdx] = { ...newCart[existIdx], qty: newCart[existIdx].qty + (item.qty || 1) };
+                    } else {
+                      newCart.push({ ...item });
+                    }
+                  });
+                  return newCart;
+                });
+                showToast(`เพิ่มรายการประเมินราคา ${data.items.length} รายการลงตะกร้าแล้ว`, 'success');
+              }
+              setIsMoleRemovalModalOpen(false);
+            }}
+            onAddCustomer={onAddCustomer}
+          />
         </div>
       </div>
     )}

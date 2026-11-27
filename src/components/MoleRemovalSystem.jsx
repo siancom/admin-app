@@ -1,14 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Search, Users, History, AlertTriangle, ShieldCheck, 
   ShieldAlert, Camera, Sparkles, CheckCircle, Clock,
-  ArrowRight, Plus
+  ArrowRight, Plus, X, FileText
 } from 'lucide-react';
 import { getFuzzyKey } from '../utils/fuzzy';
 import { parseThaiDate, parseNumber } from '../utils/parse';
 import { getProfilePicData, handleProfileImgError } from '../utils/imageUtils';
 import MoleConsultationForm from './MoleConsultationForm';
-import { FileText } from 'lucide-react';
 
 export default function MoleRemovalSystem({ 
   customersRaw = [], 
@@ -16,12 +15,28 @@ export default function MoleRemovalSystem({
   globalBranch, 
   triggerToast,
   onNavigateToPos,
-  onAddCustomer 
+  onAddCustomer,
+  initialCustomer = null,
+  initialTab = null,
+  isModal = false,
+  onClose = null
 }) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [viewTab, setViewTab] = useState('history'); // 'history' | 'evaluate' | 'consult'
+  const [selectedCustomer, setSelectedCustomer] = useState(initialCustomer);
+  const [viewTab, setViewTab] = useState(initialTab || (initialCustomer ? 'evaluate' : 'history'));
   const custSearchRef = useRef(null);
+
+  useEffect(() => {
+    if (initialCustomer) {
+      setSelectedCustomer(initialCustomer);
+    }
+  }, [initialCustomer]);
+
+  useEffect(() => {
+    if (initialTab) {
+      setViewTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Close search suggestions and clear query on outside click
   useEffect(() => {
@@ -182,33 +197,32 @@ export default function MoleRemovalSystem({
   const totalEvalPrice = evalItems.reduce((sum, item) => sum + item.price, 0);
 
   const handleSendToPos = () => {
-      if (!selectedCustomer) {
-          triggerToast('กรุณาเลือกลูกค้าก่อนครับ', '', 'alert');
-          return;
-      }
-      
+      let payload = null;
+
       if (evalItems.length === 0) {
           // If they didn't add it to the list, just add the current one
           const price = customPrice !== '' ? parseNumber(customPrice) : calculateSuggestedPrice();
           const singleItem = {
-              id: 'srv_mole',
+              id: 'srv_mole_' + Date.now(),
               name: `จี้ไฝ (${moleSize === 'unlimited' ? 'เหมาทั่วหน้า' : moleCount + ' จุด'})`,
               price: price,
+              originalPrice: price,
               qty: 1,
               type: 'service',
+              isService: true,
+              noCourseCommission: true,
+              isManualPrice: true,
               note: evalNote || '',
               evalNote: evalNote || '',
               photoUrl: photoUrl || null
           };
-          window.dispatchEvent(new CustomEvent('add-to-pos-cart', {
-              detail: {
-                  items: [singleItem],
-                  customer: selectedCustomer,
-                  photoUrl: photoUrl || null,
-                  evalNote: evalNote || ''
-              }
-          }));
-          triggerToast(`ส่งประเมินราคา ฿${price} ไปยัง POS แล้ว!`, '', 'success');
+          payload = {
+              items: [singleItem],
+              customer: selectedCustomer || null,
+              photoUrl: photoUrl || null,
+              evalNote: evalNote || ''
+          };
+          triggerToast(`ส่งประเมินราคา ฿${price.toLocaleString()} ไปยัง POS แล้ว!`, '', 'success');
       } else {
           // Send all eval items
           const combinedNotes = [
@@ -220,43 +234,62 @@ export default function MoleRemovalSystem({
               id: 'srv_mole_' + item.id,
               name: item.name,
               price: item.price,
+              originalPrice: item.price,
               qty: 1,
               type: 'service',
+              isService: true,
+              noCourseCommission: true,
+              isManualPrice: true,
               note: item.note || '',
               evalNote: item.evalNote || item.note || '',
               photoUrl: item.photoUrl || photoUrl || null
           }));
-          window.dispatchEvent(new CustomEvent('add-to-pos-cart', {
-              detail: {
-                  items: posItems,
-                  customer: selectedCustomer,
-                  photoUrl: resolvedPhoto,
-                  evalNote: combinedNotes
-              }
-          }));
-          triggerToast(`ส่งประเมินราคา ${posItems.length} รายการ (รวม ฿${totalEvalPrice}) ไปยัง POS แล้ว!`, '', 'success');
+          payload = {
+              items: posItems,
+              customer: selectedCustomer || null,
+              photoUrl: resolvedPhoto,
+              evalNote: combinedNotes
+          };
+          triggerToast(`ส่งประเมินราคา ${posItems.length} รายการ (รวม ฿${totalEvalPrice.toLocaleString()}) ไปยัง POS แล้ว!`, '', 'success');
       }
       
+      window.dispatchEvent(new CustomEvent('add-to-pos-cart', {
+          detail: payload
+      }));
+
       if (onNavigateToPos) {
-          onNavigateToPos();
+          onNavigateToPos(payload);
       }
   };
 
   return (
-    <div className="h-full flex flex-col bg-slate-50 animate-fade-in pb-20 lg:pb-0">
-      <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-6 sm:p-8 shrink-0 relative shadow-xl rounded-b-3xl z-20">
+    <div className={`h-full flex flex-col bg-slate-50 animate-fade-in ${isModal ? 'pb-4 overflow-y-auto' : 'pb-20 lg:pb-0'}`}>
+      <div className="bg-gradient-to-r from-slate-900 to-slate-800 p-5 sm:p-7 shrink-0 relative shadow-xl rounded-b-3xl z-20">
         <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-b-3xl">
             <div className="absolute top-0 right-0 p-8 opacity-10 transform translate-x-4 -translate-y-4">
                 <Sparkles size={120} className="text-white" />
             </div>
         </div>
         
-        <h2 className="text-2xl sm:text-3xl font-black text-white flex items-center mb-6 relative z-10">
-          <div className="bg-white/20 p-2 sm:p-3 rounded-2xl mr-3 sm:mr-4 backdrop-blur-md border border-white/10 shadow-inner">
-            <Sparkles size={28} className="text-pink-300 drop-shadow-md" />
-          </div>
-          ระบบจี้ไฝ (Mole Removal)
-        </h2>
+        <div className="flex items-center justify-between mb-5 relative z-10">
+          <h2 className="text-2xl sm:text-3xl font-black text-white flex items-center">
+            <div className="bg-white/20 p-2 sm:p-2.5 rounded-2xl mr-3 sm:mr-4 backdrop-blur-md border border-white/10 shadow-inner">
+              <Sparkles size={26} className="text-pink-300 drop-shadow-md" />
+            </div>
+            ระบบจี้ไฝ (Mole Removal)
+          </h2>
+          {onClose && (
+            <button 
+              type="button"
+              onClick={onClose} 
+              className="bg-white/15 hover:bg-white/30 text-white px-3 py-2 rounded-xl backdrop-blur-md border border-white/20 shadow-md transition-all active:scale-95 cursor-pointer flex items-center gap-1.5"
+              title="ปิดหน้าต่าง"
+            >
+              <X size={18} />
+              <span className="text-xs font-bold">ปิด</span>
+            </button>
+          )}
+        </div>
 
         {!selectedCustomer ? (
             <div className="relative z-10 max-w-xl">
