@@ -1392,17 +1392,11 @@ export default function App() {
       if (loginGate) setIsCloudLoading(false);
     }, errHandler);
 
-    const unsubDailySales = onSnapshot(getCol('daily_sales'), (s) => { 
-      setDailySales(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
-      if (loginGate) setIsCloudLoading(false);
-    }, errHandler);
-
     return () => { 
       unsubBranches(); 
       unsubSettings(); 
       unsubEmployees(); 
       unsubAttendance(); 
-      unsubDailySales(); 
     };
   }, [user, loginGate]);
 
@@ -1429,6 +1423,7 @@ export default function App() {
     const unsub5 = onSnapshot(getCol('bookings'), (s) => { setBookings(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
     const unsub6 = onSnapshot(getCol('orders'), (s) => { setOrders(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
     const unsub7 = onSnapshot(getCol('products'), (s) => { setProducts(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
+    const unsubDailySales = onSnapshot(getCol('daily_sales'), (s) => { setDailySales(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsubPromo = onSnapshot(getCol('promotions'), (s) => { setPromotions(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsubHolidays = onSnapshot(getCol('store_holidays'), (s) => { setStoreHolidays(s.docs.map(d => ({ ...d.data(), id: d.id }))); }, errHandler);
     const unsub13 = onSnapshot(getCol('employee_leaves'), (s) => { setEmployeeLeaves(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
@@ -1442,7 +1437,7 @@ export default function App() {
 
     return () => { 
       clearTimeout(safetyTimer);
-      unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsubPromo(); unsubHolidays(); unsub13(); unsubReqs(); unsubJobs(); unsub14(); unsub15(); unsub16(); unsubInvLogs(); unsubActiveServices();
+      unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsubDailySales(); unsubPromo(); unsubHolidays(); unsub13(); unsubReqs(); unsubJobs(); unsub14(); unsub15(); unsub16(); unsubInvLogs(); unsubActiveServices();
     };
   }, [user, loginGate]);
 
@@ -6706,11 +6701,7 @@ const flexMessage = {
           }}
           onStaffEnter={handleStaffLoginGate}
           onOwnerEnter={handleOwnerLoginGate}
-          dailySales={dailySales}
-          onQuickEod={handleQuickEodLoginGate}
-          onOpenMoleService={handleOpenMoleFromLogin}
           onStaffLoginSuccess={handleStaffDirectLogin}
-          flashMessage={loginFlash}
         />
       )}
       {/* Notifications */}
