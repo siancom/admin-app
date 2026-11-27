@@ -1490,6 +1490,7 @@ export default function App() {
       }
     }, 12000);
 
+    const errHandler = (err) => console.error("Tier 2 collection error:", err);
     const makeTier2ErrHandler = (key, label) => (err) => { 
       console.error(`Tier 2 [${key}] error:`, err); 
       markCollectionLoaded(key, label); 
@@ -1528,7 +1529,7 @@ export default function App() {
     const unsubActiveServices = onSnapshot(getCol('active_services'), (s) => { setActiveServices(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
 
     return () => { 
-      clearTimeout(safetyTimer);
+      clearTimeout(safetyTimerTier2);
       unsubCourses(); 
       unsubCustomers(); 
       unsubHistories(); 
