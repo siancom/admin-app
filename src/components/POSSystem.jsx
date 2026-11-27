@@ -8903,13 +8903,13 @@ export default function POSSystem({
       const hasUsageOrClaim = hasCourseUsage || hasCourseClaim;
 
       return (
-      <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm print:hidden">
-        <div className={`bg-white rounded-3xl p-6 w-full ${checkoutStep === 1 && hasUsageOrClaim ? 'max-w-3xl' : 'max-w-lg'} shadow-2xl flex flex-col max-h-[95vh] overflow-y-auto`}>
+      <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-sm print:hidden">
+        <div className={`bg-white rounded-3xl p-4 sm:p-6 w-full ${checkoutStep === 1 && hasUsageOrClaim ? 'max-w-3xl' : 'max-w-lg'} shadow-2xl flex flex-col max-h-[95vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200`}>
           
           {/* Header */}
           <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-4">
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-slate-800">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-800">
                 {checkoutStep === 1 ? (
                   isOwnerDirectUsage
                     ? '👑 ชำระเงินเป็นใช้คอส (เช็คเบื้องต้น)'
@@ -8938,7 +8938,18 @@ export default function POSSystem({
                 </span>
               )}
             </div>
-            <button onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-full transition-colors"><X size={20} /></button>
+            <button 
+              type="button"
+              onClick={() => setShowPaymentModal(false)} 
+              className="text-slate-400 hover:text-slate-600 bg-slate-100 hover:bg-slate-200 p-2 rounded-full transition-colors shrink-0 cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          {/* STEP 1: Order Details, Staff, Service/Claim & Signatures */}
+          <div className={`space-y-4 ${checkoutStep === 1 ? '' : 'hidden'}`}>
+            {/* 👑 สลับโหมดชำระเงินเป็นใช้คอส (เช็คเบื้องต้น) สำหรับเจ้าของ */}
             {globalRole === 'owner' && cart.some(i => i.type === 'course' || i.type === 'single_course') && (
               <div className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between ${isOwnerDirectUsage ? 'bg-purple-50/90 border-purple-200 shadow-2xs' : 'bg-slate-50 border-slate-200'}`}>
                 <div className="flex items-center gap-2.5">
