@@ -3989,7 +3989,8 @@ export default function POSSystem({
       const isOwnerZeroPay = isOwnerDirectUsage && (totalCovered === 0 || total <= 0);
       const isUsageBill = hasCourseUsage || cart.some(i => i.type === 'usage') || isOwnerDirectUsage;
       const isClaimBill = hasCourseClaim || cart.some(i => i.type === 'claim_item');
-      const paymentMethodStr = paymentMethodsStrArr.join(', ') || (isOwnerZeroPay ? 'สิทธิ์เจ้าของร้าน (ตรวจเช็คฟรี)' : (isOwnerDirectUsage ? 'ใช้คอส (เช็คเบื้องต้น)' : (isUsageBill ? 'ตัดคอร์ส' : (isClaimBill ? 'เบิกของแถม' : 'ฟรี/ส่วนลดเต็มจำนวน'))));
+      const hasWarrantyClaim = cart.some(i => i.isWarrantyClaim);
+      const paymentMethodStr = paymentMethodsStrArr.join(', ') || (isOwnerZeroPay ? 'สิทธิ์เจ้าของร้าน (ตรวจเช็คฟรี)' : (isOwnerDirectUsage ? 'ใช้คอส (เช็คเบื้องต้น)' : (isUsageBill ? 'ตัดคอร์ส' : (isClaimBill ? 'เบิกของแถม' : (hasWarrantyClaim ? 'เคลมประกันจี้ซ้ำ (ฟรี)' : 'ฟรี/ส่วนลดเต็มจำนวน')))));
       const batch = writeBatch(db);
       const delayedHistoryUpdates = [];
       
