@@ -1570,9 +1570,10 @@ export default function POSSystem({
   const [posFilterDate, setPosFilterDate] = useState(getLocalYYYYMMDD());
 
   const [autoPrint, setAutoPrint] = useState(() => {
+    const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) return false;
     const saved = localStorage.getItem('posAutoPrint');
-    // Default to TRUE if never set before
-    return saved === null ? true : saved === 'true';
+    return saved === 'true';
   });
 
   useEffect(() => {
@@ -1580,7 +1581,8 @@ export default function POSSystem({
   }, [autoPrint]);
 
   useEffect(() => {
-    if (showPreviewModal && autoPrint) {
+    const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (showPreviewModal && autoPrint && !isMobile) {
       // Reduced from 500ms → 50ms: just enough for DOM to render
       const timer = setTimeout(() => {
         window.print();
@@ -4804,20 +4806,15 @@ export default function POSSystem({
       }
       
       if (appliedVoucherId) {
-        try {
-          await updateDoc(doc(db, 'coupons', appliedVoucherId), { isUsed: true, usedAt: new Date().toISOString() });
-        } catch(e) { console.error("Failed to mark voucher used", e); }
+        updateDoc(doc(db, 'coupons', appliedVoucherId), { isUsed: true, usedAt: new Date().toISOString() })
+          .catch(e => console.error("Failed to mark voucher used", e));
       }
 
       // 🌟 สิทธิพิเศษ CRM: มอบคูปอง CRM20 & BOOK10 ให้ลูกค้าในระบบอัตโนมัติ เพื่อดึงกลับมาซื้อซ้ำ/จองออนไลน์ 🌟
       if (selectedCustomer?.id && !selectedCustomer.isWalkIn && !selectedCustomer.id.startsWith('walkin-')) {
-        try {
-          await updateDoc(doc(db, 'customers', selectedCustomer.id), {
-            collectedCoupons: arrayUnion('CRM20', 'BOOK10')
-          });
-        } catch (e) {
-          console.error("Failed to auto-grant CRM coupons:", e);
-        }
+        updateDoc(doc(db, 'customers', selectedCustomer.id), {
+          collectedCoupons: arrayUnion('CRM20', 'BOOK10')
+        }).catch(e => console.error("Failed to auto-grant CRM coupons:", e));
       }
 
       if (isOwnerDirectUsage) {
@@ -4947,8 +4944,9 @@ export default function POSSystem({
       setIsMobileCartOpen(false); // Close cart immediately so receipt shows properly
       setActiveTab('products'); // 🌟 ชำระเงินเสร็จให้กลับมาหน้าขายครีมทุกครั้ง
 
-      // If autoPrint is enabled — open preview immediately so print fires without user action
-      if (autoPrint) {
+      // If autoPrint is enabled — open preview immediately so print fires without user action (desktop only, no mobile freezing)
+      const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      if (autoPrint && !isMobile) {
         setPrintMode('receipt');
         setShowPreviewModal(true);
       }
@@ -4971,6 +4969,29 @@ export default function POSSystem({
       showToast(`เกิดข้อผิดพลาด: ${error.message}`, 'error');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // 🌟 เริ่มต้นขายบิลใหม่ทันที (ปุ๊ปปั๊ป ไม่ต้องรอ ล้างข้อมูลเพื่อพร้อมรับลูกค้าคนต่อไปทันที)
+  const handleQuickNewSale = () => {
+    setReceiptData(null);
+    setCart([]);
+    setAppCreditPaidAmount(0);
+    setActiveCustomerAppOrderIds([]);
+    setSelectedCustomer(null);
+    setCustomerSearch('');
+    setGlobalDiscount(0);
+    setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0, omise_promptpay: 0 });
+    setShippingAddress('');
+    setPosTrackingNo('');
+    setOrderChannel('instore');
+    setActiveWcOrderId(null);
+    setIsMobileCartOpen(false);
+    setActiveTab('products');
+    if (posReturnToStaffAfterCheckout && onReturnToStaffDashboard) {
+      onReturnToStaffDashboard();
+    } else if (posReturnToAppointmentsAfterCheckout && onReturnToAppointments) {
+      onReturnToAppointments();
     }
   };
 
@@ -10199,11 +10220,7 @@ export default function POSSystem({
                       if (isOwnerDirectUsage && totalCovered === 0 && total > 0) {
                           setGlobalDiscount(subtotal - promoDiscount);
                       }
-                      if (splitPayment.transfer > 0 && !omiseChargeData) {
-                          setShowTransferChoiceModal(true);
-                      } else {
-                          handleCheckout();
-                      }
+                      handleCheckout();
                   }}
                   disabled={isProcessing || (!isRequisitionMode && !isOwnerDirectUsage && total > 0 && totalCovered !== total)}
                   className={`flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg active:scale-95 ${
@@ -10730,15 +10747,32 @@ export default function POSSystem({
 
     {/* Receipt & Success Modal */}
     {receiptData && (
-      <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm print:hidden">
-        <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col items-center">
-          <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4">
+      <div 
+        onClick={(e) => {
+          if (e.target === e.currentTarget) handleQuickNewSale();
+        }}
+        className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm print:hidden animate-in fade-in duration-150"
+      >
+        <div className="relative bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col items-center">
+          {/* ปุ่มปิด X มุมขวาบน สำหรับกดปิดเพื่อขายต่อทันที */}
+          <button 
+            type="button"
+            onClick={handleQuickNewSale}
+            className="absolute top-4 right-4 p-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+            title="ปิด / ขายบิลถัดไปทันที"
+          >
+            <X size={18} />
+          </button>
+
+          <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-3">
             <CheckCircle size={32} strokeWidth={2.5} />
           </div>
-          <h2 className="text-xl font-bold text-slate-800 mb-1">
+          <h2 className="text-xl font-black text-slate-800 mb-1">
             {isRequisitionMode ? 'ทำรายการเบิกสินค้าเรียบร้อย!' : 'ชำระเงินเรียบร้อย!'}
           </h2>
-          <p className="text-slate-500 text-sm mb-4">เลขที่บิล: {receiptData.orderNo}</p>
+          <p className="text-slate-500 text-xs mb-4 font-mono">
+            เลขที่บิล: {receiptData.orderNo} • ฿{(receiptData.total || 0).toLocaleString()}
+          </p>
           
           {/* WooCommerce Sync Status */}
           {wooSyncStatus.length > 0 && (
@@ -10765,8 +10799,19 @@ export default function POSSystem({
             </div>
           )}
           
-          <div className="w-full space-y-3">
+          <div className="w-full space-y-2.5">
+            {/* 🌟 ปุ่มอันดับ 1 ใหญ่สุดเด่นสุด: พร้อมขายบิลใหม่ทันที (ปุ๊ปปั๊ป ไม่ต้องรอ) */}
+            <button
+               type="button"
+               onClick={handleQuickNewSale}
+               className="w-full py-4 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 active:scale-[0.98] text-white rounded-2xl font-black text-base shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+               <Zap size={20} className="text-amber-300" />
+               <span>พร้อมขายบิลใหม่ทันที ⚡</span>
+            </button>
+
             <button 
+              type="button"
               onClick={() => {
                 setPrintMode('receipt');
                 // Skip preview — print directly after one frame for portal to render
@@ -10776,7 +10821,7 @@ export default function POSSystem({
                   });
                 });
               }}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md shadow-indigo-200 transition-colors flex items-center justify-center gap-2"
+              className="w-full py-3 bg-indigo-50 hover:bg-indigo-100 active:scale-[0.98] text-indigo-700 border border-indigo-200/80 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               🖨️ {receiptData?.items.some(i => i.actionType === 'owner_purchase')
                 ? 'พิมพ์ใบสั่งซื้อ (A4)'
@@ -10786,93 +10831,34 @@ export default function POSSystem({
             </button>
             {receiptData.orderChannel !== 'instore' && (
               <button 
+                type="button"
                 onClick={() => {
                   setPrintMode('label');
                   setShowPreviewModal(true);
                 }}
-                className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold shadow-md shadow-orange-200 transition-colors flex items-center justify-center gap-2"
+                className="w-full py-2.5 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
-                พิมพ์ใบแปะหน้า (4x6 นิ้ว)
+                🏷️ พิมพ์ใบแปะหน้า (4x6 นิ้ว)
               </button>
             )}
             {posReturnToStaffAfterCheckout && (
               <button 
                 type="button"
-                onClick={() => {
-                  setReceiptData(null);
-                  setCart([]);
-                  setAppCreditPaidAmount(0);
-                  setActiveCustomerAppOrderIds([]);
-                  setSelectedCustomer(null);
-                  setCustomerSearch('');
-                  setGlobalDiscount(0);
-                  setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0 });
-                  setShippingAddress('');
-                  setPosTrackingNo('');
-                  setOrderChannel('instore');
-                  setActiveWcOrderId(null);
-                  setIsMobileCartOpen(false);
-                  setActiveTab('products');
-                  if (onReturnToStaffDashboard) onReturnToStaffDashboard();
-                }}
-                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-700 hover:to-indigo-700 text-white rounded-xl font-black shadow-lg shadow-teal-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                onClick={handleQuickNewSale}
+                className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
-                <CheckCircle size={18} />
-                <span>ตัดยอด & ชำระเงินเรียบร้อย • กลับสู่หน้าหลักพนักงาน</span>
+                <span>กลับสู่หน้าหลักพนักงาน</span>
               </button>
             )}
             {posReturnToAppointmentsAfterCheckout && (
               <button 
                 type="button"
-                onClick={() => {
-                  setReceiptData(null);
-                  setCart([]);
-                  setAppCreditPaidAmount(0);
-                  setActiveCustomerAppOrderIds([]);
-                  setSelectedCustomer(null);
-                  setCustomerSearch('');
-                  setGlobalDiscount(0);
-                  setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0 });
-                  setShippingAddress('');
-                  setPosTrackingNo('');
-                  setOrderChannel('instore');
-                  setActiveWcOrderId(null);
-                  setIsMobileCartOpen(false);
-                  setActiveTab('products');
-                  if (onReturnToAppointments) onReturnToAppointments();
-                }}
-                className="w-full py-3.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-xl font-black shadow-lg shadow-indigo-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                onClick={handleQuickNewSale}
+                className="w-full py-3 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
-                <CheckCircle size={18} />
-                <span>ตัดยอด & ปรับสถานะเรียบร้อย • กลับสู่หน้าจองคิวทันที</span>
+                <span>กลับสู่หน้าจองคิว</span>
               </button>
             )}
-            <button 
-              onClick={() => {
-                setReceiptData(null);
-                setCart([]);
-                setAppCreditPaidAmount(0);
-                setActiveCustomerAppOrderIds([]);
-                setSelectedCustomer(null);
-                setCustomerSearch('');
-                setGlobalDiscount(0);
-                setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0 });
-                setShippingAddress('');
-                setPosTrackingNo('');
-                setOrderChannel('instore');
-                setActiveWcOrderId(null);
-                setIsMobileCartOpen(false);
-                setActiveTab('products'); // 🌟 กลับหน้าขายครีมทุกครั้ง
-                if (posReturnToStaffAfterCheckout && onReturnToStaffDashboard) {
-                  onReturnToStaffDashboard();
-                } else if (posReturnToAppointmentsAfterCheckout && onReturnToAppointments) {
-                  onReturnToAppointments();
-                }
-              }}
-              className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors"
-            >
-              {posReturnToStaffAfterCheckout ? 'กลับสู่หน้าหลักพนักงาน' : posReturnToAppointmentsAfterCheckout ? 'กลับสู่หน้าจองคิว' : 'ทำรายการใหม่'}
-            </button>
           </div>
         </div>
       </div>
