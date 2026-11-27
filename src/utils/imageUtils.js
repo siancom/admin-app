@@ -67,10 +67,21 @@ export function getProfilePicData(b, customersList) {
   let picData = extract(b);
   if (picData) return picData;
 
-  // Fallback: search customers list by phone
-  if (b.customerPhone && customersList) {
-    const cust = customersList.find(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_3"])) === String(b.customerPhone));
-    if (cust) return extract(cust);
+  // Fallback: search customers list by phone (optimized with fast key lookup)
+  if (b?.customerPhone && customersList) {
+    const rawTarget = String(b.customerPhone).replace(/\D/g, '');
+    if (rawTarget.length >= 8) {
+      if (customersList instanceof Map) {
+        const cust = customersList.get(rawTarget) || customersList.get(b.customerPhone);
+        if (cust) return extract(cust);
+      } else if (Array.isArray(customersList)) {
+        const cust = customersList.find(c => {
+          const cPhone = c.computedPhone || c.phone || getFuzzyKey(c, ["เบอร์โทร", "col_3"]);
+          return cPhone && String(cPhone).replace(/\D/g, '') === rawTarget;
+        });
+        if (cust) return extract(cust);
+      }
+    }
   }
   return null;
 }

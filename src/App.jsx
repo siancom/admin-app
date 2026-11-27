@@ -1452,10 +1452,13 @@ export default function App() {
     return () => unsub();
   }, [selectedCustomer]);
 
+  const bookingsRef = useRef(bookings);
+  bookingsRef.current = bookings;
+
   useEffect(() => {
     const timer = setInterval(() => {
       const now = new Date();
-      bookings.forEach(b => {
+      (bookingsRef.current || []).forEach(b => {
         const st = b.status || b["สถานะ"] || "รอการยืนยัน";
         const safeDt = getSafeDateTime(b);
         if (st === 'กำลังใช้บริการ' && b.serviceStartTime) {
@@ -1505,7 +1508,7 @@ export default function App() {
       });
     }, 60000);
     return () => clearInterval(timer);
-  }, [bookings]);
+  }, []);
 
   useEffect(() => {
     const handleAfterPrint = () => { 
@@ -1518,19 +1521,40 @@ export default function App() {
     return () => window.removeEventListener('afterprint', handleAfterPrint);
   }, []);
 
+  // 🌟 Fast ID generator for history records without expensive JSON.stringify
+  const getHistoryId = (h) => h?.id || h?._fastKey || (h ? (h._fastKey = `${h.date || ''}_${h.time || ''}_${h.customerName || ''}_${h.type || ''}_${h.amount || ''}_${h.courseId || ''}`) : '');
+
   // --- COMPUTED DATA ---
   const precomputedHistories = useMemo(() => {
     const byCourseRef = {};
     const byCustomer = {}; 
+    const prefixRegex = /^(iriscourse\d+|ic\d+|\d+)/i;
     
     histories.forEach(h => {
         if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '') === 'ยกเลิก') return;
 
-        const hRef = String(getFuzzyKey(h, ["เลขที่ใบคอส", "รหัสใบคอส", "อ้างอิง", "col_6"]) || '').replace(new RegExp('\\s', 'g'), '').toLowerCase();
-        if (hRef) { if (!byCourseRef[hRef]) byCourseRef[hRef] = []; byCourseRef[hRef].push(h); }
-        if (h.courseId) { if (!byCourseRef[h.courseId]) byCourseRef[h.courseId] = []; byCourseRef[h.courseId].push(h); }
+        const rawRef = String(getFuzzyKey(h, ["เลขที่ใบคอส", "รหัสใบคอส", "อ้างอิง", "col_6"]) || '').trim();
+        const hRef = rawRef.replace(/\s+/g, '').toLowerCase();
         
-        const hCust = String(getFuzzyKey(h, ["ชื่อลูกค้า", "col_2"]) || '').replace(new RegExp('\\s', 'g'), '').toLowerCase();
+        if (hRef) { 
+            if (!byCourseRef[hRef]) byCourseRef[hRef] = []; 
+            byCourseRef[hRef].push(h); 
+
+            // 🌟 Extract pure course prefix (e.g. "iriscourse1404" from "iriscourse1404ผงพอก...") for instant O(1) matching
+            const m = prefixRegex.exec(hRef);
+            if (m && m[1] && m[1].toLowerCase() !== hRef) {
+                const pk = m[1].toLowerCase();
+                if (!byCourseRef[pk]) byCourseRef[pk] = [];
+                byCourseRef[pk].push(h);
+            }
+        }
+        if (h.courseId) { 
+            const cId = String(h.courseId).replace(/\s+/g, '').toLowerCase();
+            if (!byCourseRef[cId]) byCourseRef[cId] = []; 
+            byCourseRef[cId].push(h); 
+        }
+        
+        const hCust = String(getFuzzyKey(h, ["ชื่อลูกค้า", "col_2"]) || '').replace(/\s+/g, '').toLowerCase();
         if (hCust) {
             if (!byCustomer[hCust]) byCustomer[hCust] = [];
             byCustomer[hCust].push(h);
@@ -1579,15 +1603,15 @@ export default function App() {
       const normDisplayName = displayName.replace(/\s+/g, '').toLowerCase();
 
       if (normPosName && historiesByName.has(normPosName)) {
-        historiesByName.get(normPosName).forEach(h => myHistoriesMap.set(h.id || JSON.stringify(h), h));
+        historiesByName.get(normPosName).forEach(h => myHistoriesMap.set(getHistoryId(h), h));
       }
       if (normDisplayName && normDisplayName !== normPosName && historiesByName.has(normDisplayName)) {
-        historiesByName.get(normDisplayName).forEach(h => myHistoriesMap.set(h.id || JSON.stringify(h), h));
+        historiesByName.get(normDisplayName).forEach(h => myHistoriesMap.set(getHistoryId(h), h));
       }
       
       const cleanPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone", "computedPhone", "cleanPhone"]) || '').replace(/\D/g, '');
       if (cleanPhone && cleanPhone.length >= 9 && historiesByPhone.has(cleanPhone)) {
-        historiesByPhone.get(cleanPhone).forEach(h => myHistoriesMap.set(h.id || JSON.stringify(h), h));
+        historiesByPhone.get(cleanPhone).forEach(h => myHistoriesMap.set(getHistoryId(h), h));
       }
 
       const myHistories = Array.from(myHistoriesMap.values());
@@ -1707,7 +1731,7 @@ export default function App() {
       const addHistories = (hList) => {
           if (!hList) return;
           hList.forEach(h => {
-              const id = h.id || JSON.stringify(h);
+              const id = getHistoryId(h);
               if (!existingIds.has(id)) {
                   existingIds.add(id);
                   myHistories.push(h);
@@ -1717,31 +1741,18 @@ export default function App() {
 
       if (course.id) addHistories(precomputedHistories.byCourseRef[course.id]);
 
-      // Match by course ref number: exact match + startsWith scan
-      // Legacy histories often store เลขที่ใบคอส concatenated with ชื่อคอส (e.g. "IrisCourse152โปรนาโนไวท์...")
-      // The course ref number always appears FIRST in the concatenated string.
+      // 🌟 Match by course ref number (both exact and prefix matches already indexed in O(1))
       if (cleanCourseNo && cleanCourseNo.length > 2) {
-          // Try exact match first (modern histories with clean ref only)
           addHistories(precomputedHistories.byCourseRef[cleanCourseNo]);
-          
-          // Scan for concatenated legacy refs where key starts with this course number
-          // Min length > 4 to avoid false matches on short numbers
-          if (cleanCourseNo.length > 4) {
-              Object.keys(precomputedHistories.byCourseRef).forEach(key => {
-                  if (key.startsWith(cleanCourseNo) && key !== cleanCourseNo) {
-                      addHistories(precomputedHistories.byCourseRef[key]);
-                  }
-              });
-          }
       }
       const isPosCourse = courseNo.toUpperCase().startsWith('IC');
       
       if (!isPosCourse) {
           const custHistories = precomputedHistories.byCustomer[cleanCustomerName] || [];
           custHistories.forEach(h => {
-              const hItem = String(getFuzzyKey(h, ["สินค้า", "ชื่อคอส", "รายการ", "col_18", "col_16", "col_23"]) || '').replace(new RegExp('\\s', 'g'), '').toLowerCase();
+              const hItem = String(getFuzzyKey(h, ["สินค้า", "ชื่อคอส", "รายการ", "col_18", "col_16", "col_23"]) || '').replace(/\s+/g, '').toLowerCase();
               if (cleanCourseName && hItem && (cleanCourseName.includes(hItem) || hItem.includes(cleanCourseName))) {
-                  const id = h.id || JSON.stringify(h);
+                  const id = getHistoryId(h);
                   if (!consumedHistoryIds.has(id)) {
                       addHistories([h]);
                   }
@@ -1749,7 +1760,7 @@ export default function App() {
           });
       }
       
-      myHistories.forEach(h => consumedHistoryIds.add(h.id || JSON.stringify(h)));
+      myHistories.forEach(h => consumedHistoryIds.add(getHistoryId(h)));
 
       myHistories.sort((a, b) => {
          const d1 = parseThaiDate(getFuzzyKey(a, ["วันที่", "col_1"]));
@@ -3122,9 +3133,9 @@ export default function App() {
     }
   }, [posPendingAfterLogin, globalRole, globalBranch]);
 
-  // 🌟 หน้าล็อกอินแอดมิน — บังคับทุกครั้งที่เปิดหน้าใหม่ (จำ session 8 ชม. หลังล็อกอินสำเร็จ)
+  // 🌟 หน้าล็อกอินแอดมิน — จำ session 30 วัน พร้อม Rolling Extension อัตโนมัติเมื่อมีการใช้งาน (ไม่เด้งหลุดกลางคัน)
   // ⚠️ ต้องประกาศ state ก่อน effect ที่อ้างถึง (มิฉะนั้น TDZ ReferenceError)
-  const ADMIN_SESSION_HOURS = 8;
+  const ADMIN_SESSION_DAYS = 30;
   const [loginGate, setLoginGate] = useState(() => {
     try {
       const exp = Number(localStorage.getItem('admin_session_exp') || 0);
@@ -3132,8 +3143,36 @@ export default function App() {
     } catch (e) { return true; }
   });
   const grantAdminSession = () => {
-    try { localStorage.setItem('admin_session_exp', String(Date.now() + ADMIN_SESSION_HOURS * 3600 * 1000)); } catch (e) {}
+    try { localStorage.setItem('admin_session_exp', String(Date.now() + ADMIN_SESSION_DAYS * 24 * 3600 * 1000)); } catch (e) {}
   };
+
+  // 🌟 Rolling Session Extension: ต่ออายุอัตโนมัติเมื่อผู้ใช้แตะหรือคลิกใช้งานแอพ เพื่อไม่ให้หลุดออกจากระบบ
+  useEffect(() => {
+    const renewSession = () => {
+      try {
+        const exp = Number(localStorage.getItem('admin_session_exp') || 0);
+        // ถ้า session ยังไม่หมดอายุ ให้เลื่อนเวลาหมดอายุออกไปอีก 30 วัน
+        if (exp > Date.now()) {
+          localStorage.setItem('admin_session_exp', String(Date.now() + ADMIN_SESSION_DAYS * 24 * 3600 * 1000));
+        }
+      } catch (e) {}
+    };
+
+    // ตรวจสอบและต่ออายุทุก 15 นาที
+    const timer = setInterval(renewSession, 15 * 60 * 1000);
+    // ต่ออายุเมื่อมีการกดใช้งานหน้าจอ (throttled passive listeners)
+    window.addEventListener('click', renewSession, { passive: true });
+    window.addEventListener('touchstart', renewSession, { passive: true });
+    window.addEventListener('keydown', renewSession, { passive: true });
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('click', renewSession);
+      window.removeEventListener('touchstart', renewSession);
+      window.removeEventListener('keydown', renewSession);
+    };
+  }, []);
+
   const handleStaffLoginGate = (branch) => {
     localStorage.setItem('selectedBranch', branch);
     setGlobalBranch(branch);
@@ -3187,7 +3226,7 @@ export default function App() {
     showToast(`ยินดีต้อนรับ ${emp?.name || ''} ✨`, 'success');
   };
 
-  // 🌟 ส่งยอดด่วนจากหน้าล็อกอิน — เปิด POS เฉพาะหน้า EOD (ไม่ออก session 8 ชม.) เสร็จแล้วกลับหน้าล็อกอิน
+  // 🌟 ส่งยอดด่วนจากหน้าล็อกอิน — เปิด POS เฉพาะหน้า EOD เสร็จแล้วกลับหน้าล็อกอิน
   const [posAutoOpenEod, setPosAutoOpenEod] = useState(null);
   const [loginFlash, setLoginFlash] = useState(null);
   const handleQuickEodLoginGate = (branch, emp) => {
@@ -3202,8 +3241,11 @@ export default function App() {
   const handleQuickEodFinished = (submitted) => {
     setPosAutoOpenEod(null);
     setActiveTab('dashboard');
-    try { localStorage.removeItem('admin_session_exp'); } catch (e) {}
-    setLoginGate(true);
+    // 🌟 ตรวจสอบว่าก่อนหน้านี้มี session ล็อกอินอยู่แล้วหรือไม่ ถ้ามีอยู่แล้ว ไม่ต้องลบ session ให้พนักงานทำงานต่อได้เลย
+    const exp = Number(localStorage.getItem('admin_session_exp') || 0);
+    if (Date.now() > exp) {
+      setLoginGate(true);
+    }
     setLoginFlash(submitted
       ? { type: 'success', text: 'ส่งยอดประจำวันเรียบร้อยแล้ว ✅' }
       : { type: 'info', text: 'ยกเลิกการส่งยอด — ยังไม่ได้บันทึกข้อมูล' });

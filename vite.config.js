@@ -20,6 +20,9 @@ export default defineConfig({ build: { sourcemap: true },
           if (id.includes('node_modules/firebase')) {
             return 'firebase';
           }
+          if (id.includes('node_modules/xlsx') || id.includes('node_modules/html2canvas') || id.includes('node_modules/browser-image-compression')) {
+            return 'heavy-tools';
+          }
           if (id.includes('node_modules')) {
             return 'vendor';
           }
