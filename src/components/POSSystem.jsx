@@ -1023,6 +1023,26 @@ export default function POSSystem({
   };
   const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
+  const topCustomerSearchRef = useRef(null);
+  const cartCustomerSearchRef = useRef(null);
+  const desktopSearchInputRef = useRef(null);
+  const mobileSearchInputRef = useRef(null);
+
+  // Close customer dropdown and clear search on outside click
+  useEffect(() => {
+    const handleCustomerClickOutside = (e) => {
+      const inTop = topCustomerSearchRef.current && topCustomerSearchRef.current.contains(e.target);
+      const inCart = cartCustomerSearchRef.current && cartCustomerSearchRef.current.contains(e.target);
+      if (!inTop && !inCart) {
+        if (isCustomerDropdownOpen || customerSearch) {
+          setIsCustomerDropdownOpen(false);
+          setCustomerSearch('');
+        }
+      }
+    };
+    document.addEventListener('mousedown', handleCustomerClickOutside);
+    return () => document.removeEventListener('mousedown', handleCustomerClickOutside);
+  }, [isCustomerDropdownOpen, customerSearch]);
 
   // Listen for items from MoleRemovalSystem or Orders tab
   React.useEffect(() => {
@@ -2969,6 +2989,11 @@ export default function POSSystem({
   };
 
   const addToCart = (item, type, actionType = null, promoOption = null) => {
+    // ล้างข้อความค้นหาเมื่อเจอและเลือกสินค้า/คอร์สลงตะกร้าแล้ว
+    if (searchTerm) setSearchTerm('');
+    if (modalCourseSearch) setModalCourseSearch('');
+    if (modalProductSearch) setModalProductSearch('');
+
     // If course with promo options is added without choosing an option, prompt modal
     if (type === 'course' && !promoOption && Array.isArray(item.promoOptions) && item.promoOptions.length > 0) {
       setSelectedCourseForPromoModal(item);
@@ -5850,7 +5875,7 @@ export default function POSSystem({
               </>
            ) : (
               <div className="flex gap-2">
-                 <div className="relative flex-1">
+                 <div className="relative flex-1" ref={topCustomerSearchRef}>
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                     <input 
                       type="text" 
@@ -5859,6 +5884,16 @@ export default function POSSystem({
                       value={customerSearch}
                       onChange={(e) => { setCustomerSearch(e.target.value); setIsCustomerDropdownOpen(true); }}
                       onFocus={() => setIsCustomerDropdownOpen(true)}
+                      onBlur={() => {
+                        setTimeout(() => {
+                          const inTop = topCustomerSearchRef.current && topCustomerSearchRef.current.contains(document.activeElement);
+                          const inCart = cartCustomerSearchRef.current && cartCustomerSearchRef.current.contains(document.activeElement);
+                          if (!inTop && !inCart) {
+                            setIsCustomerDropdownOpen(false);
+                            setCustomerSearch('');
+                          }
+                        }, 200);
+                      }}
                     />
                     <button 
                       onClick={() => setScannerTarget('customerSearch')}
@@ -6047,7 +6082,7 @@ export default function POSSystem({
           )}
           <div className="block lg:hidden mb-2 flex items-center gap-2">
             <div className="flex-1 relative flex items-center gap-2">
-              <div className="relative flex-1">
+              <div className="relative flex-1" ref={mobileSearchInputRef}>
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input 
                   type="text"
@@ -6056,6 +6091,15 @@ export default function POSSystem({
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   onKeyDown={handleSearchEnter}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      const inDesktop = desktopSearchInputRef.current && desktopSearchInputRef.current.contains(document.activeElement);
+                      const inMobile = mobileSearchInputRef.current && mobileSearchInputRef.current.contains(document.activeElement);
+                      if (!inDesktop && !inMobile) {
+                        setSearchTerm('');
+                      }
+                    }, 200);
+                  }}
                 />
               </div>
               <button 
@@ -6178,7 +6222,7 @@ export default function POSSystem({
             </>
           )}
             <div className="hidden lg:flex flex-1 relative items-center gap-2">
-              <div className="relative flex-1">
+              <div className="relative flex-1" ref={desktopSearchInputRef}>
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
                 <input 
                   type="text"
@@ -6187,6 +6231,15 @@ export default function POSSystem({
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   onKeyDown={handleSearchEnter}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      const inDesktop = desktopSearchInputRef.current && desktopSearchInputRef.current.contains(document.activeElement);
+                      const inMobile = mobileSearchInputRef.current && mobileSearchInputRef.current.contains(document.activeElement);
+                      if (!inDesktop && !inMobile) {
+                        setSearchTerm('');
+                      }
+                    }, 200);
+                  }}
                 />
               </div>
               <button 
@@ -7591,7 +7644,7 @@ export default function POSSystem({
               </>
             ) : (
               <div className="flex gap-2">
-                <div className="relative flex-1">
+                <div className="relative flex-1" ref={cartCustomerSearchRef}>
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                   <input 
                     type="text"
@@ -7603,6 +7656,16 @@ export default function POSSystem({
                       setIsCustomerDropdownOpen(true);
                     }}
                     onFocus={() => setIsCustomerDropdownOpen(true)}
+                    onBlur={() => {
+                      setTimeout(() => {
+                        const inTop = topCustomerSearchRef.current && topCustomerSearchRef.current.contains(document.activeElement);
+                        const inCart = cartCustomerSearchRef.current && cartCustomerSearchRef.current.contains(document.activeElement);
+                        if (!inTop && !inCart) {
+                          setIsCustomerDropdownOpen(false);
+                          setCustomerSearch('');
+                        }
+                      }, 200);
+                    }}
                   />
                   <button 
                     onClick={() => setScannerTarget('customerSearch')}

@@ -32,6 +32,18 @@ export default function StaffServiceQueue({
   const [custSearchQuery, setCustSearchQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [selectedCourseIds, setSelectedCourseIds] = useState([]);
+  const custSearchRef = useRef(null);
+
+  // Close search suggestions and clear query on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (custSearchRef.current && !custSearchRef.current.contains(e.target)) {
+        setCustSearchQuery('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Check-In Modal state (ถ่ายรูปก่อนทำ แล้วกดเช็คอิน)
   const [checkInModal, setCheckInModal] = useState({
@@ -749,13 +761,20 @@ export default function StaffServiceQueue({
         </div>
 
         {/* Customer Search Bar */}
-        <div className="relative">
+        <div className="relative" ref={custSearchRef}>
           <div className="relative flex items-center">
             <Search className="absolute left-3.5 text-slate-400 pointer-events-none" size={18} />
             <input 
               type="text"
               value={custSearchQuery}
               onChange={(e) => setCustSearchQuery(e.target.value)}
+              onBlur={() => {
+                setTimeout(() => {
+                  if (custSearchRef.current && !custSearchRef.current.contains(document.activeElement)) {
+                    setCustSearchQuery('');
+                  }
+                }, 200);
+              }}
               placeholder="🔍 ค้นหาชื่อลูกค้า หรือ เบอร์โทรศัพท์ เพื่อเริ่มให้บริการคอร์ส..."
               className="w-full pl-10 pr-10 py-3 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-indigo-500 rounded-2xl text-sm font-medium focus:outline-none transition-all shadow-2xs"
             />

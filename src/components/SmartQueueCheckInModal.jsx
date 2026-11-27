@@ -33,6 +33,18 @@ export default function SmartQueueCheckInModal({
 
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
+  const searchContainerRef = useRef(null);
+
+  // Close search suggestions and clear query on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
+        setSearchQuery('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Sync preselected booking
   useEffect(() => {
@@ -437,7 +449,7 @@ export default function SmartQueueCheckInModal({
           )}
           
           {/* 🌟 Universal Customer & Booking Search / Scan Bar */}
-          <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl space-y-2">
+          <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl space-y-2" ref={searchContainerRef}>
             <div className="flex items-center justify-between">
               <label className="block text-xs font-black text-slate-800 flex items-center gap-1.5">
                 <Search size={14} className="text-teal-600" />
@@ -457,6 +469,13 @@ export default function SmartQueueCheckInModal({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      if (searchContainerRef.current && !searchContainerRef.current.contains(document.activeElement)) {
+                        setSearchQuery('');
+                      }
+                    }, 200);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();

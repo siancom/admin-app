@@ -21,6 +21,18 @@ export default function MoleRemovalSystem({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [viewTab, setViewTab] = useState('history'); // 'history' | 'evaluate' | 'consult'
+  const custSearchRef = useRef(null);
+
+  // Close search suggestions and clear query on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (custSearchRef.current && !custSearchRef.current.contains(e.target)) {
+        setSearchTerm('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   
   // Evaluation state
   const [evalItems, setEvalItems] = useState([]);
@@ -256,12 +268,19 @@ export default function MoleRemovalSystem({
                         </button>
                     )}
                 </div>
-                <div className="relative">
+                <div className="relative" ref={custSearchRef}>
                     <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
                     <input 
                         type="text" 
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
+                        onBlur={() => {
+                            setTimeout(() => {
+                                if (custSearchRef.current && !custSearchRef.current.contains(document.activeElement)) {
+                                    setSearchTerm('');
+                                }
+                            }, 200);
+                        }}
                         placeholder="พิมพ์ชื่อ หรือ เบอร์โทรลูกค้า..." 
                         className="w-full pl-10 pr-4 py-3 rounded-2xl bg-white/10 border border-white/20 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-pink-500/50 focus:bg-white/20 transition-all shadow-inner backdrop-blur-sm text-sm"
                     />

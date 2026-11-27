@@ -34,6 +34,18 @@ export default function CourseDeductionSystem({
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const searchContainerRef = useRef(null);
+
+  // Close search suggestions and clear query on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
+        setSearchTerm('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [modalSignatureData, setModalSignatureData] = useState(null);
   
@@ -460,13 +472,20 @@ export default function CourseDeductionSystem({
       </div>
 
       <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
-        <div className="relative max-w-xl mx-auto mb-8">
+        <div className="relative max-w-xl mx-auto mb-8" ref={searchContainerRef}>
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={24} />
           <input
             type="text"
             placeholder="ค้นหาชื่อ, เบอร์โทร, HN หรือสแกน/พิมพ์เลขที่ใบคอร์ส..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
+            onBlur={() => {
+              setTimeout(() => {
+                if (searchContainerRef.current && !searchContainerRef.current.contains(document.activeElement)) {
+                  setSearchTerm('');
+                }
+              }, 200);
+            }}
             onKeyDown={e => {
               if (e.key === 'Enter') {
                 const cust = findCustomerByCourseRef(searchTerm);

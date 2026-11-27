@@ -36,6 +36,7 @@ const SearchableSelector = ({ icon: Icon, label, items, selectedItems, onAdd, on
     function handleClickOutside(event) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
         setIsOpen(false);
+        setSearch('');
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -80,6 +81,14 @@ const SearchableSelector = ({ icon: Icon, label, items, selectedItems, onAdd, on
           value={search}
           onChange={(e) => { setSearch(e.target.value); setIsOpen(true); }}
           onFocus={() => setIsOpen(true)}
+          onBlur={() => {
+            setTimeout(() => {
+              if (wrapperRef.current && !wrapperRef.current.contains(document.activeElement)) {
+                setIsOpen(false);
+                setSearch('');
+              }
+            }, 200);
+          }}
           placeholder={placeholder}
           className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm text-slate-800 outline-none focus:border-pink-500 focus:ring-2 focus:ring-pink-500/20 transition-all"
         />

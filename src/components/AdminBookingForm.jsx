@@ -52,16 +52,29 @@ export default function AdminBookingForm({
     const [selectedCustomer, setSelectedCustomer] = useState(null);
     const dropdownRef = useRef(null);
 
-    // Close dropdown on outside click
+    // Close dropdown on outside click and clear search input so it doesn't linger
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
                 setIsDropdownOpen(false);
+                setCustomerSearch('');
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+
+    // If searchPhoneMatch matches a registered customer, auto-select and clear search input
+    useEffect(() => {
+        if (searchPhoneMatch && !selectedCustomer) {
+            const name = String(getFuzzyKey(searchPhoneMatch, ["ชื่อ", "col_1"]) || searchPhoneMatch.computedName || searchPhoneMatch.name || '');
+            const phone = String(getFuzzyKey(searchPhoneMatch, ["เบอร์โทร", "col_3", "phone"]) || searchPhoneMatch.computedPhone || searchPhoneMatch.phone || '');
+            setForm(prev => ({ ...prev, name: prev.name || name, phone: phone || prev.phone }));
+            setSelectedCustomer(searchPhoneMatch);
+            setCustomerSearch('');
+            setIsDropdownOpen(false);
+        }
+    }, [searchPhoneMatch, selectedCustomer]);
 
     // Sync newly registered or preselected customer
     useEffect(() => {
@@ -392,6 +405,14 @@ export default function AdminBookingForm({
                                 }
                             }}
                             onFocus={() => setIsDropdownOpen(true)}
+                            onBlur={() => {
+                                setTimeout(() => {
+                                    if (dropdownRef.current && !dropdownRef.current.contains(document.activeElement)) {
+                                        setIsDropdownOpen(false);
+                                        setCustomerSearch('');
+                                    }
+                                }, 200);
+                            }}
                             className="w-full pl-9 pr-28 py-3 border-2 border-white bg-white rounded-2xl outline-none focus:border-teal-400 focus:ring-4 focus:ring-teal-400/10 transition-all font-medium text-gray-800 text-sm shadow-xs" 
                         />
 
@@ -401,7 +422,11 @@ export default function AdminBookingForm({
                             {(isSearchNotFound || (isSearchPhoneEntered && !searchPhoneMatch)) && (
                                 <button
                                     type="button"
-                                    onClick={() => handleTriggerRegister(customerSearch || form.phone)}
+                                    onClick={() => {
+                                        handleTriggerRegister(customerSearch || form.phone);
+                                        setCustomerSearch('');
+                                        setIsDropdownOpen(false);
+                                    }}
                                     className="px-2.5 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-xs font-black shadow-sm active:scale-95 transition-all flex items-center gap-1 animate-pulse cursor-pointer"
                                     title="ไม่พบประวัติ - กดเพื่อลงทะเบียนลูกค้าใหม่ทันที"
                                 >
@@ -445,6 +470,7 @@ export default function AdminBookingForm({
                                                         name: prev.name || `ลูกค้า (${formatPhone(searchDigits)})` 
                                                     }));
                                                     setIsDropdownOpen(false);
+                                                    setCustomerSearch('');
                                                 }}
                                                 className="w-full py-2.5 px-4 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black shadow-md active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
                                             >
@@ -463,7 +489,11 @@ export default function AdminBookingForm({
 
                                         <button
                                             type="button"
-                                            onClick={() => handleTriggerRegister(customerSearch)}
+                                            onClick={() => {
+                                                handleTriggerRegister(customerSearch);
+                                                setCustomerSearch('');
+                                                setIsDropdownOpen(false);
+                                            }}
                                             className="w-full py-2 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                                         >
                                             <UserPlus size={14} />

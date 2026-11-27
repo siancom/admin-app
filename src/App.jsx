@@ -289,6 +289,12 @@ export default function App() {
   
   const [searchTerm, setSearchTerm] = useState('');
   const [searchInput, setSearchInput] = useState('');
+
+  // Clear search terms when switching main tabs so search text doesn't linger
+  useEffect(() => {
+    setSearchTerm('');
+    setSearchInput('');
+  }, [activeTab]);
   const [posParkedOrderToResume, setPosParkedOrderToResume] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [courseFilterType, setCourseFilterType] = useState('all');
