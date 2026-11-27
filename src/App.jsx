@@ -158,7 +158,7 @@ import AddressManagerModal from './components/AddressManagerModal';
 import DailySalesBannerChart from './components/DailySalesBannerChart';
 import IrisPatientIntakeModal from './components/IrisPatientIntakeModal';
 import SmartQueueCheckInModal from './components/SmartQueueCheckInModal';
-import MonthlyBookingOverviewBanner, { matchBookingServiceCategory, checkIsLineBooking } from './components/MonthlyBookingOverviewBanner';
+import MonthlyBookingOverviewBanner, { matchBookingServiceCategory, checkIsLineBooking, isBookingNewCustomer } from './components/MonthlyBookingOverviewBanner';
 import { fetch17Track } from './utils/wooProxy';
 // 📦 17TRACK — แปลงสถานะพัสดุเป็นไทย (ใช้ร่วมทุกหน้าที่แสดง trackingInfo)
 export const TRACK17_PHASE_TH = {
@@ -1671,6 +1671,16 @@ export default function App() {
     });
   }, [customersRaw, histories]);
 
+  // 🌟 Clean customer phone set for O(1) fast new vs returning customer lookup
+  const customerPhoneSet = useMemo(() => {
+    const s = new Set();
+    customersRaw.forEach(cu => {
+      const p = String(getFuzzyKey(cu, ["เบอร์โทร", "col_3", "phone", "cleanPhone"]) || cu.phone || cu.tel || '').replace(/\D/g, '');
+      if (p && p.length >= 9) s.add(p);
+    });
+    return s;
+  }, [customersRaw]);
+
   const processedCourses = useMemo(() => {
     const consumedHistoryIds = new Set();
     const sortedCourses = [...courses].sort((a,b) => {
@@ -2275,9 +2285,13 @@ export default function App() {
             } else if (activeBannerFilter.type === 'status') {
                 matchBanner = st === activeBannerFilter.value;
             } else if (activeBannerFilter.type === 'service') {
-                matchBanner = matchBookingServiceCategory(b.courseName, activeBannerFilter.value);
+                matchBanner = matchBookingServiceCategory(b, activeBannerFilter.value);
             } else if (activeBannerFilter.type === 'date') {
                 matchBanner = dt ? dt.startsWith(activeBannerFilter.value) : String(b.date || '').startsWith(activeBannerFilter.value);
+            } else if (activeBannerFilter.type === 'customer_type') {
+                const isNew = isBookingNewCustomer(b, customerPhoneSet);
+                if (activeBannerFilter.value === 'new') matchBanner = isNew;
+                else if (activeBannerFilter.value === 'existing') matchBanner = !isNew;
             }
         }
 
@@ -2287,7 +2301,7 @@ export default function App() {
         const db = getSafeDateTime(b) ? new Date(getSafeDateTime(b)) : new Date(0);
         return da - db;
     });
-  }, [bookings, searchTerm, filterBookingStatus, filterBookingBranch, activeBannerFilter]);
+  }, [bookings, searchTerm, filterBookingStatus, filterBookingBranch, activeBannerFilter, customerPhoneSet]);
 
   const bookingBranchStats = useMemo(() => {
       const stats = {};
@@ -7291,6 +7305,8 @@ const flexMessage = {
                 {/* 🌟 แบนเนอร์การ์ดกรองสรุปรายการจองประจำเดือน & ความเคลื่อนไหวของร้าน (Iris Intelligence) */}
                 <MonthlyBookingOverviewBanner
                   bookings={bookings}
+                  customers={customersRaw}
+                  customerPhoneSet={customerPhoneSet}
                   selectedMonth={bookingOverviewMonth}
                   onMonthChange={(m) => setBookingOverviewMonth(m)}
                   activeBannerFilter={activeBannerFilter}
@@ -7406,12 +7422,34 @@ const flexMessage = {
                                 const dayBookings = sortedBookings.filter(b => { const dt = getSafeDateTime(b); return dt && dt.startsWith(dStr); });
                                 const isToday = dStr === getLocalYYYYMMDD();
                                 const isHoliday = storeHolidays.some(h => h.id === dStr);
+                                let dayNewCount = 0;
+                                let dayOldCount = 0;
+                                if (dayBookings.length > 0) {
+                                    dayBookings.forEach(b => {
+                                        if (isBookingNewCustomer(b, customerPhoneSet)) dayNewCount++;
+                                        else dayOldCount++;
+                                    });
+                                }
                                 
                                 return (
                                     <div key={i} onClick={() => { setSelectedHolidayDate(d); setIsHolidayModalOpen(true); }} className={`h-24 sm:h-32 border ${isToday ? 'border-blue-400 bg-blue-50/30 shadow-inner' : isHoliday ? 'border-rose-300 bg-rose-50/50' : 'border-gray-100 bg-white hover:bg-gray-50 cursor-pointer'} rounded-xl p-1.5 sm:p-2 overflow-y-auto hide-scrollbar flex flex-col relative group transition-colors`}>
-                                        <div className="flex justify-between items-start mb-1.5 shrink-0">
-                                            <span className={`text-[10px] sm:text-xs font-bold ${isToday ? 'text-blue-600 bg-blue-100 w-6 h-6 rounded-full flex items-center justify-center' : isHoliday ? 'text-rose-600' : 'text-gray-600 ml-1'}`}>{d.getDate()}</span>
-                                            {isHoliday && <span className="text-[9px] font-bold text-rose-600 bg-rose-100 px-1.5 rounded-full border border-rose-200">วันหยุดร้าน</span>}
+                                        <div className="flex justify-between items-center mb-1.5 shrink-0 flex-wrap gap-1">
+                                            <div className="flex items-center gap-1">
+                                                <span className={`text-[10px] sm:text-xs font-bold ${isToday ? 'text-blue-600 bg-blue-100 w-6 h-6 rounded-full flex items-center justify-center' : isHoliday ? 'text-rose-600' : 'text-gray-600 ml-1'}`}>{d.getDate()}</span>
+                                                {dayBookings.length > 0 && (
+                                                    <span className="text-[9px] font-black text-slate-500">
+                                                        ({dayBookings.length})
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {isHoliday ? (
+                                                <span className="text-[9px] font-bold text-rose-600 bg-rose-100 px-1.5 rounded-full border border-rose-200">วันหยุดร้าน</span>
+                                            ) : dayBookings.length > 0 ? (
+                                                <div className="flex items-center gap-0.5 text-[8px] font-black" title={`ลูกค้าใหม่: ${dayNewCount} ท่าน • ลูกค้าเก่า: ${dayOldCount} ท่าน`}>
+                                                    <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-1 py-0.2 rounded">🌱{dayNewCount}</span>
+                                                    <span className="bg-blue-50 text-blue-700 border border-blue-200 px-1 py-0.2 rounded">💎{dayOldCount}</span>
+                                                </div>
+                                            ) : null}
                                         </div>
                                         <div className="space-y-1 flex-1">
                                             {dayBookings.map((b, bi) => {
@@ -11881,6 +11919,8 @@ const flexMessage = {
           onClose={() => { setIsHolidayModalOpen(false); setSelectedHolidayDate(null); }}
           selectedDate={selectedHolidayDate}
           dayBookings={selectedHolidayDate ? sortedBookings.filter(b => { const dt = getSafeDateTime(b); return dt && dt.startsWith(selectedHolidayDate.getFullYear() + '-' + String(selectedHolidayDate.getMonth() + 1).padStart(2, '0') + '-' + String(selectedHolidayDate.getDate()).padStart(2, '0')); }) : []}
+          customers={customersRaw}
+          customerPhoneSet={customerPhoneSet}
           storeHolidays={storeHolidays}
           showToast={showToast}
           getBookingStatus={getBookingStatus}

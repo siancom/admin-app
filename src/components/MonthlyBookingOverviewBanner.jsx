@@ -2,43 +2,113 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Calendar, ChevronLeft, ChevronRight, Sparkles, Droplet, Zap, 
   Target, Syringe, Pill, Activity, TrendingUp, Clock, Users, 
-  MessageSquare, CheckCircle2, Filter, X, ChevronDown, ChevronUp, 
-  BarChart3, Sun, Sunset, Moon, Eye, EyeOff, Award, Flame
+  MessageSquare, MessageCircle, CheckCircle2, Filter, X, ChevronDown, ChevronUp, 
+  BarChart3, Sun, Sunset, Moon, Eye, EyeOff, Award, Flame,
+  Package, UserPlus, UserCheck
 } from 'lucide-react';
 import { getSafeDateTime, getBookingStatus } from '../utils/dateUtils';
 import { getLocalYYYYMMDD } from '../utils/parse';
 
-// Match service category
-export const matchBookingServiceCategory = (courseName, categoryId) => {
-  if (!courseName) return categoryId === 'other';
-  const nameLower = String(courseName).toLowerCase();
-  
-  if (categoryId === 'acne') {
-    return nameLower.includes('สิว') || nameLower.includes('มาร์ค') || nameLower.includes('มาส์ก') || nameLower.includes('acne');
-  }
+// Match service category (ตรงตามปุ่มบริการในระบบจองเป๊ะๆ: ทำหน้า, กดสิว, IPLรักแร้, จี้ไฝ, ปรึกษา, ใช้คอส)
+export const matchBookingServiceCategory = (bookingOrName, categoryId) => {
+  const b = typeof bookingOrName === 'object' && bookingOrName !== null ? bookingOrName : { courseName: bookingOrName };
+  const courseName = b?.courseName || b?.service || '';
+  if (!courseName && !b?.isCourseUsage && b?.type !== 'usage') return categoryId === 'other';
+  const nameLower = String(courseName).toLowerCase().trim();
+
+  // 1. ทำหน้า (Facial / ทรีตเมนต์ / นวดหน้า / บำรุง)
   if (categoryId === 'facial') {
-    return nameLower.includes('หน้า') || nameLower.includes('ทรีท') || nameLower.includes('นวด') || nameLower.includes('facial') || nameLower.includes('บำรุง') || nameLower.includes('ลงเครื่อง');
+    return nameLower.includes('ทำหน้า') || 
+           nameLower.includes('ทรีท') || 
+           nameLower.includes('ทรีต') || 
+           nameLower.includes('นวด') || 
+           nameLower.includes('facial') || 
+           nameLower.includes('บำรุง') || 
+           nameLower.includes('ลงเครื่อง') ||
+           nameLower.includes('หน้าใส') ||
+           nameLower.includes('ผลัดเซลล์') ||
+           nameLower.includes('มาร์คหน้า') ||
+           nameLower.includes('มาส์กหน้า');
   }
-  if (categoryId === 'laser') {
-    return nameLower.includes('ipl') || nameLower.includes('เลเซอร์') || nameLower.includes('laser') || nameLower.includes('กำจัดขน') || nameLower.includes('รักแร้');
+
+  // 2. กดสิว (Acne / เคลียร์สิว / มาร์คสิว)
+  if (categoryId === 'acne') {
+    return nameLower.includes('กดสิว') || 
+           nameLower.includes('เคลียร์สิว') || 
+           nameLower.includes('สิว') || 
+           nameLower.includes('acne') || 
+           nameLower.includes('ผงพอก') ||
+           nameLower.includes('มาร์คสิว');
   }
+
+  // 3. IPLรักแร้ (IPL / เลเซอร์ / กำจัดขน)
+  if (categoryId === 'ipl' || categoryId === 'laser') {
+    return nameLower.includes('ipl') || 
+           nameLower.includes('รักแร้') || 
+           nameLower.includes('เลเซอร์') || 
+           nameLower.includes('laser') || 
+           nameLower.includes('กำจัดขน');
+  }
+
+  // 4. จี้ไฝ (ไฝ / ติ่งเนื้อ / ขี้แมลงวัน / กระเนื้อ)
   if (categoryId === 'mole') {
-    return nameLower.includes('ไฝ') || nameLower.includes('ขี้แมลงวัน') || nameLower.includes('ติ่งเนื้อ');
+    return nameLower.includes('จี้ไฝ') || 
+           nameLower.includes('ไฝ') || 
+           nameLower.includes('ขี้แมลงวัน') || 
+           nameLower.includes('ติ่งเนื้อ') ||
+           nameLower.includes('กระเนื้อ') ||
+           nameLower.includes('หูด');
   }
-  if (categoryId === 'injection') {
-    return nameLower.includes('ฉีด') || nameLower.includes('botox') || nameLower.includes('โบท็อก') || nameLower.includes('ฟิลเลอร์') || nameLower.includes('filler') || nameLower.includes('แฟต') || nameLower.includes('fat') || nameLower.includes('meso') || nameLower.includes('เมโส');
+
+  // 5. ปรึกษา (Consultation / ตรวจผิว / ประเมิน)
+  if (categoryId === 'consult') {
+    return nameLower.includes('ปรึกษา') || 
+           nameLower.includes('ตรวจสภาพผิว') || 
+           nameLower.includes('ตรวจผิว') || 
+           nameLower.includes('consult') || 
+           nameLower.includes('ประเมิน') || 
+           nameLower.includes('แนะนำ');
   }
-  if (categoryId === 'vitamin') {
-    return nameLower.includes('ดริป') || nameLower.includes('วิตามิน') || nameLower.includes('vitamin') || nameLower.includes('drip') || nameLower.includes('ผิวขาว');
+
+  // 6. ใช้คอส (Course usage / ตัดคอร์สเดิม)
+  if (categoryId === 'use_course') {
+    return Boolean(b?.isCourseUsage) || 
+           b?.type === 'usage' ||
+           nameLower.includes('ใช้คอส') || 
+           nameLower.includes('ใช้คอร์ส') || 
+           nameLower.includes('ตัดคอส') || 
+           nameLower.includes('ตัดคอร์ส') ||
+           nameLower.includes('คอร์สเดิม') ||
+           nameLower.includes('ใบคอส');
   }
+
+  // 7. บริการอื่นๆ (Other: ฉีด, ดริปวิตามิน, หรืออื่นๆ)
   if (categoryId === 'other') {
-    return !matchBookingServiceCategory(courseName, 'acne') &&
-           !matchBookingServiceCategory(courseName, 'facial') &&
-           !matchBookingServiceCategory(courseName, 'laser') &&
-           !matchBookingServiceCategory(courseName, 'mole') &&
-           !matchBookingServiceCategory(courseName, 'injection') &&
-           !matchBookingServiceCategory(courseName, 'vitamin');
+    return !matchBookingServiceCategory(b, 'facial') &&
+           !matchBookingServiceCategory(b, 'acne') &&
+           !matchBookingServiceCategory(b, 'ipl') &&
+           !matchBookingServiceCategory(b, 'mole') &&
+           !matchBookingServiceCategory(b, 'consult') &&
+           !matchBookingServiceCategory(b, 'use_course');
   }
+  return false;
+};
+
+// 🌟 ฟังก์ชันตรวจสอบว่าการจองเป็น "ลูกค้าใหม่" หรือ "ลูกค้าเก่า"
+export const isBookingNewCustomer = (b, customerPhoneSet) => {
+  if (b?.isNewCustomer === true) return true;
+  if (b?.isNewCustomer === false || b?.isExistingCustomer === true) return false;
+  if (b?.customerType === 'new') return true;
+  if (b?.customerType === 'existing') return false;
+
+  const rawPhone = String(b?.customerPhone || b?.phone || '').replace(/\D/g, '');
+  if (rawPhone && rawPhone.length >= 9) {
+    if (customerPhoneSet) {
+      return !customerPhoneSet.has(rawPhone);
+    }
+  }
+
+  if (b?.isWalkIn) return true;
   return false;
 };
 
@@ -58,18 +128,21 @@ export const checkIsLineBooking = (b) => {
 const THAI_DAYS_SHORT = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
 const THAI_MONTHS_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
-const SERVICE_CATEGORIES = [
-  { id: 'acne', label: 'เคลียร์สิว / กดสิว / มาร์ค', icon: Droplet, color: 'text-cyan-400', barColor: 'bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]', glow: 'text-cyan-400' },
-  { id: 'facial', label: 'ทำหน้า / ทรีตเมนต์ / นวด', icon: Sparkles, color: 'text-amber-400', barColor: 'bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.5)]', glow: 'text-amber-400' },
-  { id: 'laser', label: 'IPL / เลเซอร์กำจัดขน', icon: Zap, color: 'text-purple-400', barColor: 'bg-purple-400 shadow-[0_0_10px_rgba(192,132,252,0.5)]', glow: 'text-purple-400' },
-  { id: 'mole', label: 'จี้ไฝ / ขี้แมลงวัน / ติ่งเนื้อ', icon: Target, color: 'text-rose-400', barColor: 'bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.5)]', glow: 'text-rose-400' },
-  { id: 'injection', label: 'ฉีด / โบท็อกซ์ / ฟิลเลอร์', icon: Syringe, color: 'text-pink-400', barColor: 'bg-pink-400 shadow-[0_0_10px_rgba(244,114,182,0.5)]', glow: 'text-pink-400' },
-  { id: 'vitamin', label: 'ดริปวิตามินผิว / ผิวขาว', icon: Pill, color: 'text-emerald-400', barColor: 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]', glow: 'text-emerald-400' },
-  { id: 'other', label: 'บริการทั่วไป / ปรึกษาผิว', icon: Activity, color: 'text-teal-400', barColor: 'bg-teal-400 shadow-[0_0_10px_rgba(45,212,191,0.5)]', glow: 'text-teal-400' }
+// 🌟 หมวดหมู่บริการตรงตามหน้าการจอง (รูปที่ 2: ทำหน้า, กดสิว, IPLรักแร้, จี้ไฝ, ปรึกษา, ใช้คอส + บริการอื่นๆ)
+export const SERVICE_CATEGORIES = [
+  { id: 'facial', label: 'ทำหน้า', icon: Sparkles, color: 'text-amber-400', barColor: 'bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.5)]', glow: 'text-amber-400' },
+  { id: 'acne', label: 'กดสิว', icon: Droplet, color: 'text-cyan-400', barColor: 'bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]', glow: 'text-cyan-400' },
+  { id: 'ipl', label: 'IPLรักแร้', icon: Zap, color: 'text-purple-400', barColor: 'bg-purple-400 shadow-[0_0_10px_rgba(192,132,252,0.5)]', glow: 'text-purple-400' },
+  { id: 'mole', label: 'จี้ไฝ', icon: Target, color: 'text-rose-400', barColor: 'bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.5)]', glow: 'text-rose-400' },
+  { id: 'consult', label: 'ปรึกษา', icon: MessageCircle, color: 'text-blue-400', barColor: 'bg-blue-400 shadow-[0_0_10px_rgba(96,165,250,0.5)]', glow: 'text-blue-400' },
+  { id: 'use_course', label: 'ใช้คอส', icon: Package, color: 'text-emerald-400', barColor: 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]', glow: 'text-emerald-400' },
+  { id: 'other', label: 'บริการอื่นๆ', icon: Activity, color: 'text-slate-400', barColor: 'bg-slate-400 shadow-[0_0_10px_rgba(148,163,184,0.5)]', glow: 'text-slate-400' }
 ];
 
 export default function MonthlyBookingOverviewBanner({
   bookings = [],
+  customers = [],
+  customerPhoneSet = null,
   selectedMonth = '', // YYYY-MM
   onMonthChange = () => {},
   activeBannerFilter = null,
@@ -136,6 +209,19 @@ export default function MonthlyBookingOverviewBanner({
     onMonthChange(thisMonthIso);
   };
 
+  // Set of clean customer phones for fast O(1) new vs returning customer lookup
+  const effectivePhoneSet = useMemo(() => {
+    if (customerPhoneSet && customerPhoneSet.size > 0) return customerPhoneSet;
+    const set = new Set();
+    if (Array.isArray(customers)) {
+      customers.forEach(c => {
+        const p = String(c?.phone || c?.tel || '').replace(/\D/g, '');
+        if (p && p.length >= 9) set.add(p);
+      });
+    }
+    return set;
+  }, [customerPhoneSet, customers]);
+
   // Filter bookings for this month & branch
   const monthlyBookings = useMemo(() => {
     const targetMonth = selectedMonth || thisMonthIso;
@@ -160,6 +246,8 @@ export default function MonthlyBookingOverviewBanner({
     let lineCount = 0;
     let walkInCount = 0;
     let adminCount = 0;
+    let newCustCount = 0;
+    let oldCustCount = 0;
 
     let inProgressCount = 0;
     let completedCount = 0;
@@ -170,13 +258,14 @@ export default function MonthlyBookingOverviewBanner({
     let afternoonCount = 0; // 13:00 - 16:59
     let eveningCount = 0;   // 17:00+
 
+    // 🌟 6 หมวดหมู่บริการตามระบบ + บริการอื่นๆ (ตรงตามรูปที่ 2 เป๊ะๆ)
     const serviceCounts = {
-      acne: 0,
       facial: 0,
-      laser: 0,
+      acne: 0,
+      ipl: 0,
       mole: 0,
-      injection: 0,
-      vitamin: 0,
+      consult: 0,
+      use_course: 0,
       other: 0
     };
 
@@ -188,9 +277,13 @@ export default function MonthlyBookingOverviewBanner({
         line: 0,
         walkin: 0,
         completed: 0,
+        newCust: 0,
+        oldCust: 0,
         dayOfWeek: new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth(), d).getDay()
       };
     }
+
+    const categoryKeys = ['facial', 'acne', 'ipl', 'mole', 'consult', 'use_course'];
 
     monthlyBookings.forEach(b => {
       const guests = Number(b.guestsCount || b.pax || 1);
@@ -203,6 +296,14 @@ export default function MonthlyBookingOverviewBanner({
         walkInCount++;
       } else {
         adminCount++;
+      }
+
+      // ตรวจสอบลูกค้าใหม่ / ลูกค้าเก่า
+      const isNew = isBookingNewCustomer(b, effectivePhoneSet);
+      if (isNew) {
+        newCustCount++;
+      } else {
+        oldCustCount++;
       }
 
       const st = getBookingStatus(b);
@@ -225,17 +326,20 @@ export default function MonthlyBookingOverviewBanner({
           if (isLine) dailyMap[dayNum].line++;
           else dailyMap[dayNum].walkin++;
           if (st === 'เสร็จสิ้น') dailyMap[dayNum].completed++;
+          if (isNew) dailyMap[dayNum].newCust++;
+          else dailyMap[dayNum].oldCust++;
         }
       }
 
-      const cName = b.courseName || '';
+      // นับหมวดหมู่บริการ (ตรงตามรูป 2: ทำหน้า, กดสิว, IPLรักแร้, จี้ไฝ, ปรึกษา, ใช้คอส)
       let matchedAny = false;
-      ['acne', 'facial', 'laser', 'mole', 'injection', 'vitamin'].forEach(catId => {
-        if (matchBookingServiceCategory(cName, catId)) {
+      for (const catId of categoryKeys) {
+        if (matchBookingServiceCategory(b, catId)) {
           serviceCounts[catId]++;
           matchedAny = true;
+          break;
         }
-      });
+      }
       if (!matchedAny) {
         serviceCounts.other++;
       }
@@ -260,12 +364,15 @@ export default function MonthlyBookingOverviewBanner({
         topCatId = cId;
       }
     });
-    const topCatObj = SERVICE_CATEGORIES.find(c => c.id === topCatId) || SERVICE_CATEGORIES[1];
+    const topCatObj = SERVICE_CATEGORIES.find(c => c.id === topCatId) || SERVICE_CATEGORIES[0];
 
     // Compute average bookings per day
     const todayNum = new Date().getDate();
     const effectiveDays = isCurrentMonth ? Math.max(1, todayNum) : daysInMonth;
     const avgPerDay = (total / effectiveDays).toFixed(1);
+
+    const newCustPct = total > 0 ? Math.round((newCustCount / total) * 100) : 0;
+    const oldCustPct = total > 0 ? (100 - newCustPct) : 0;
 
     return {
       total,
@@ -273,6 +380,10 @@ export default function MonthlyBookingOverviewBanner({
       lineCount,
       walkInCount,
       adminCount,
+      newCustCount,
+      oldCustCount,
+      newCustPct,
+      oldCustPct,
       inProgressCount,
       completedCount,
       pendingCount,
@@ -289,7 +400,7 @@ export default function MonthlyBookingOverviewBanner({
       topCatCount,
       avgPerDay
     };
-  }, [monthlyBookings, currentMonthDate, isCurrentMonth]);
+  }, [monthlyBookings, currentMonthDate, isCurrentMonth, effectivePhoneSet]);
 
   const toggleFilter = (type, value, label) => {
     if (activeBannerFilter?.type === type && activeBannerFilter?.value === value) {
@@ -337,7 +448,7 @@ export default function MonthlyBookingOverviewBanner({
               </span>
             </div>
             <p className="text-[11px] text-slate-400 font-medium truncate mt-0.5">
-              ยอดจอง <span className="text-white font-bold">{stats.total} คิว</span> • LINE <span className="text-emerald-400 font-bold">{stats.lineCount} คิว</span> ({stats.total > 0 ? Math.round((stats.lineCount / stats.total) * 100) : 0}%) • คอร์สยอดฮิต: <span className="text-amber-300 font-bold">{stats.topCatObj?.label?.split('/')[0]} ({stats.topCatCount} คิว)</span>
+              ยอดจอง <span className="text-white font-bold">{stats.total} คิว</span> • 🌱 ใหม่ <span className="text-emerald-400 font-bold">{stats.newCustCount}</span> | 💎 เก่า <span className="text-cyan-400 font-bold">{stats.oldCustCount}</span> • LINE <span className="text-emerald-400 font-bold">{stats.lineCount} คิว</span> ({stats.total > 0 ? Math.round((stats.lineCount / stats.total) * 100) : 0}%) • คอร์สยอดฮิต: <span className="text-amber-300 font-bold">{stats.topCatObj?.label?.split('/')[0]} ({stats.topCatCount} คิว)</span>
             </p>
           </div>
         </div>
@@ -494,9 +605,34 @@ export default function MonthlyBookingOverviewBanner({
             <span className="text-2xl sm:text-3xl font-black text-white">{stats.total}</span>
             <span className="text-xs font-bold text-slate-400">คิว</span>
           </div>
-          <div className="text-[11px] font-bold text-teal-400 mt-2 flex items-center justify-between">
+          <div className="text-[11px] font-bold text-teal-400 mt-1 flex items-center justify-between">
             <span>↑ 👥 {stats.totalGuests} ท่าน (เฉลี่ย {stats.avgPerDay} /วัน)</span>
             <span className="text-[9px] text-slate-500 group-hover:text-slate-300">กรอง ↗</span>
+          </div>
+          {/* New vs Returning customer pills */}
+          <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-bold">
+            <button 
+              type="button"
+              onClick={(e) => { e.stopPropagation(); toggleFilter('customer_type', 'new', 'ลูกค้าใหม่ (New)'); }}
+              className={`px-1.5 py-0.5 rounded transition-all cursor-pointer flex items-center gap-1 ${
+                activeBannerFilter?.type === 'customer_type' && activeBannerFilter?.value === 'new'
+                  ? 'bg-emerald-500/30 text-emerald-300 ring-1 ring-emerald-400'
+                  : 'text-emerald-400 hover:bg-emerald-500/10'
+              }`}
+            >
+              🌱 ใหม่ {stats.newCustCount} ({stats.newCustPct}%)
+            </button>
+            <button 
+              type="button"
+              onClick={(e) => { e.stopPropagation(); toggleFilter('customer_type', 'existing', 'ลูกค้าเก่า (Existing)'); }}
+              className={`px-1.5 py-0.5 rounded transition-all cursor-pointer flex items-center gap-1 ${
+                activeBannerFilter?.type === 'customer_type' && activeBannerFilter?.value === 'existing'
+                  ? 'bg-cyan-500/30 text-cyan-300 ring-1 ring-cyan-400'
+                  : 'text-cyan-400 hover:bg-cyan-500/10'
+              }`}
+            >
+              💎 เก่า {stats.oldCustCount} ({stats.oldCustPct}%)
+            </button>
           </div>
         </div>
 
@@ -671,27 +807,34 @@ export default function MonthlyBookingOverviewBanner({
       <div className="mt-5 pt-4 border-t border-slate-800 space-y-4">
         
         {/* Detail Header Bar for Selected/Hovered Day */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-900/80 border border-slate-800 rounded-2xl px-4 py-2.5">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
             <span className="text-xs font-bold text-slate-300">
               รายละเอียดวันที่เลือก: <strong className="text-white font-black">{selectedDayDow} {activeHoverOrToday} {monthShortThai} {currentMonthDate.getFullYear() + 543}</strong>
               {isCurrentMonth && activeHoverOrToday === todayDateNum && (
-                <span className="ml-1.5 text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.2 rounded-md font-bold">
+                <span className="ml-1.5 text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded-md font-bold">
                   🔥 (วันนี้)
                 </span>
               )}
             </span>
           </div>
 
-          <div className="flex items-center gap-3 text-xs font-bold">
+          <div className="flex items-center gap-2 sm:gap-3 text-xs font-bold flex-wrap">
             <span className="text-teal-400 font-black">ยอดจอง: {selectedDayInfo.total} คิว</span>
-            <span className="text-slate-500">•</span>
+            <span className="text-slate-600 hidden sm:inline">•</span>
+            <span className="text-emerald-300 font-bold bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-lg flex items-center gap-1">
+              🌱 ลูกค้าใหม่: <span className="font-black text-white">{selectedDayInfo.newCust || 0}</span> ท่าน
+            </span>
+            <span className="text-cyan-300 font-bold bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 rounded-lg flex items-center gap-1">
+              💎 ลูกค้าเก่า: <span className="font-black text-white">{selectedDayInfo.oldCust || 0}</span> ท่าน
+            </span>
+            <span className="text-slate-600 hidden sm:inline">•</span>
             <span className="text-emerald-400">LINE: {selectedDayInfo.line}</span>
-            <span className="text-slate-500">•</span>
+            <span className="text-slate-600 hidden sm:inline">•</span>
             <span className="text-amber-400">หน้าร้าน: {selectedDayInfo.walkin}</span>
-            <span className="text-slate-500">•</span>
-            <span className="text-purple-400">เสร็จสิ้น: {selectedDayInfo.completed}</span>
+            <span className="text-slate-600 hidden sm:inline">•</span>
+            <span className="text-purple-400">เสร็จ: {selectedDayInfo.completed}</span>
           </div>
         </div>
 
@@ -731,15 +874,23 @@ export default function MonthlyBookingOverviewBanner({
                   key={day}
                   onMouseEnter={() => setHoveredDayNum(dayNum)}
                   onClick={() => toggleFilter('date', targetDayStr, `วันที่ ${dayNum} ${monthLabelThai}`)}
+                  title={`วันที่ ${dayNum} ${monthLabelThai}: รวม ${val.total} คิว (🌱 ลูกค้าใหม่ ${val.newCust || 0} ท่าน • 💎 ลูกค้าเก่า ${val.oldCust || 0} ท่าน)`}
                   className="flex-1 min-w-[16px] sm:min-w-[18px] flex flex-col items-center justify-end h-full group cursor-pointer relative z-20"
                 >
                   {/* Tooltip on hover */}
                   {val.total > 0 && (
-                    <span className={`text-[8.5px] font-black mb-1 transition-all ${
-                      isHovered ? 'text-cyan-300 scale-110 opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                    <div className={`mb-1 transition-all text-center flex flex-col items-center pointer-events-none ${
+                      isHovered ? 'scale-105 opacity-100 z-30' : 'opacity-0 group-hover:opacity-100'
                     }`}>
-                      {val.total}
-                    </span>
+                      <span className="text-[8.5px] font-black text-cyan-300 leading-none">
+                        {val.total}
+                      </span>
+                      {isHovered && (
+                        <span className="text-[7.5px] font-bold text-slate-200 whitespace-nowrap bg-slate-900/95 border border-slate-700 px-1 py-0.2 rounded mt-0.5 shadow-lg">
+                          🌱{val.newCust || 0} 💎{val.oldCust || 0}
+                        </span>
+                      )}
+                    </div>
                   )}
 
                   {/* The Bar */}
@@ -774,7 +925,7 @@ export default function MonthlyBookingOverviewBanner({
             })}
           </div>
 
-          {/* Chart Legend (เหมือนรูปที่ 2 เป๊ะๆ) */}
+          {/* Chart Legend (เหมือนรูปที่ 2 เป๊ะๆ + เสริมข้อมูลลูกค้าใหม่/เก่า) */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-3 mt-2 border-t border-slate-800/80 text-[11px] text-slate-400">
             <div className="flex items-center gap-3 flex-wrap font-bold">
               <span className="flex items-center gap-1.5">
@@ -789,12 +940,17 @@ export default function MonthlyBookingOverviewBanner({
               <span className="flex items-center gap-1.5 text-amber-300">
                 <span className="w-3 border-b border-dashed border-amber-300"></span> เส้นเฉลี่ย
               </span>
+              <span className="flex items-center gap-1 text-emerald-300 font-bold ml-1">
+                🌱 ลูกค้าใหม่
+              </span>
+              <span className="flex items-center gap-1 text-cyan-300 font-bold">
+                💎 ลูกค้าเก่า
+              </span>
             </div>
             <div className="text-[10px] text-slate-500 font-medium">
-              แตะหรือชี้ที่แท่งกราฟเพื่อดูรายละเอียดการจองแต่ละวัน
+              แตะหรือชี้ที่แท่งกราฟเพื่อดูรายละเอียดลูกค้าใหม่/เก่าแต่ละวัน
             </div>
           </div>
-
         </div>
 
         {/* Peak Hours Breakdown Cards */}

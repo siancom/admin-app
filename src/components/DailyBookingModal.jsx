@@ -1,15 +1,18 @@
-import React, { useState } from 'react';
-import { Calendar, Trash2, X, Plus, CalendarOff, Search } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Calendar, Trash2, X, Plus, CalendarOff, Search, UserPlus, UserCheck } from 'lucide-react';
 import ModalWrapper from './ModalWrapper';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../config/firebase'; // Ensure correct path
+import { isBookingNewCustomer } from './MonthlyBookingOverviewBanner';
 
 export default function DailyBookingModal({
     isOpen,
     onClose,
     selectedDate, // Date object
-    dayBookings,
-    storeHolidays, // array of holiday objects { id: 'YYYY-MM-DD', reason: '...' }
+    dayBookings = [],
+    customers = [],
+    customerPhoneSet = null,
+    storeHolidays = [], // array of holiday objects { id: 'YYYY-MM-DD', reason: '...' }
     showToast,
     getBookingStatus,
     setBookingViewMode,
@@ -18,6 +21,28 @@ export default function DailyBookingModal({
 }) {
     const [reason, setReason] = useState('');
     const [selectedHolidayBranch, setSelectedHolidayBranch] = useState('all');
+
+    const effectivePhoneSet = useMemo(() => {
+        if (customerPhoneSet && customerPhoneSet.size > 0) return customerPhoneSet;
+        const set = new Set();
+        if (Array.isArray(customers)) {
+            customers.forEach(c => {
+                const p = String(c?.phone || c?.tel || '').replace(/\D/g, '');
+                if (p && p.length >= 9) set.add(p);
+            });
+        }
+        return set;
+    }, [customerPhoneSet, customers]);
+
+    const { newCount, oldCount } = useMemo(() => {
+        let n = 0;
+        let o = 0;
+        dayBookings.forEach(b => {
+            if (isBookingNewCustomer(b, effectivePhoneSet)) n++;
+            else o++;
+        });
+        return { newCount: n, oldCount: o };
+    }, [dayBookings, effectivePhoneSet]);
     
     if (!selectedDate || !isOpen) return null;
 
@@ -100,8 +125,20 @@ export default function DailyBookingModal({
 
                 {/* Daily Bookings List */}
                 <div>
-                    <div className="flex justify-between items-center mb-2">
-                        <h3 className="font-bold text-sm text-slate-800">รายการจองคิว ({dayBookings.length} คิว)</h3>
+                    <div className="flex justify-between items-center mb-2 flex-wrap gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-bold text-sm text-slate-800">รายการจองคิว ({dayBookings.length} คิว)</h3>
+                            {dayBookings.length > 0 && (
+                                <div className="flex items-center gap-1.5 text-xs font-bold">
+                                    <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1">
+                                        🌱 ใหม่ {newCount} ท่าน
+                                    </span>
+                                    <span className="bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1">
+                                        💎 เก่า {oldCount} ท่าน
+                                    </span>
+                                </div>
+                            )}
+                        </div>
                         {dayBookings.length > 0 && (
                             <button 
                                 onClick={async () => {
@@ -142,14 +179,26 @@ export default function DailyBookingModal({
                         <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                             {dayBookings.map((b, i) => {
                                 const st = getBookingStatus(b);
+                                const isNew = isBookingNewCustomer(b, effectivePhoneSet);
                                 const timeStr = b.time ? b.time.substring(0,5) : (b.dateTime ? b.dateTime.split('T')[1]?.substring(0,5) : '');
                                 return (
                                     <div key={b.id || i} onClick={() => { onClose(); setBookingViewMode('cards'); }} className="flex justify-between items-center p-3 bg-white border border-slate-100 rounded-xl shadow-sm hover:border-blue-300 cursor-pointer transition-colors">
                                         <div className="flex items-center gap-3">
                                             <div className="font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-md text-xs">{timeStr || '-'}</div>
                                             <div>
-                                                <div className="font-bold text-sm text-slate-800">{b.customerName || 'ไม่ระบุชื่อ'}</div>
-                                                <div className="text-[10px] text-slate-500">{b.courseName || 'บริการทั่วไป'} • {b.branch || '-'}</div>
+                                                <div className="font-bold text-sm text-slate-800 flex items-center gap-1.5 flex-wrap">
+                                                    <span>{b.customerName || 'ไม่ระบุชื่อ'}</span>
+                                                    {isNew ? (
+                                                        <span className="text-[9px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded-md">
+                                                            🌱 ลูกค้าใหม่
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[9px] font-bold bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded-md">
+                                                            💎 ลูกค้าเดิม
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="text-[10px] text-slate-500">{b.courseName || b.service || 'บริการทั่วไป'} • {b.branch || '-'}</div>
                                             </div>
                                         </div>
                                         <span className={`text-[10px] font-bold px-2 py-1 rounded ${st === 'รอการยืนยัน' ? 'bg-amber-50 text-amber-700' : st === 'ยืนยันแล้ว' ? 'bg-blue-50 text-blue-700' : st === 'กำลังใช้บริการ' ? 'bg-purple-50 text-purple-700' : st === 'เสร็จสิ้น' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500'}`}>
