@@ -1578,7 +1578,11 @@ export default function App() {
       if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '') === 'ยกเลิก') return;
       
       const rawName = String(getFuzzyKey(h, ["ชื่อลูกค้า", "col_2", "ผู้ใช้คอส", "col_17"]) || '').trim();
-      if (rawName) {
+      const lowerRawName = rawName.toLowerCase();
+      // 🌟 ลูกค้าวอคอิน (Walk-in) แต่ละคนถือเป็นคนละคน ไม่นำยอดมาสะสมรวมกันเป็นคนเดียว
+      const isWalkInName = lowerRawName.includes('walk-in') || lowerRawName.includes('วอคอิน') || lowerRawName.includes('ลูกค้าทั่วไป');
+
+      if (rawName && !isWalkInName) {
         const normName = rawName.replace(/\s+/g, '').toLowerCase();
         if (!historiesByName.has(normName)) historiesByName.set(normName, []);
         historiesByName.get(normName).push(h);
@@ -1587,7 +1591,7 @@ export default function App() {
       }
 
       const rawPhone = String(getFuzzyKey(h, ["cleanPhone", "เบอร์โทร", "เบอร์โทรลูกค้า", "col_3", "phone"]) || '').replace(/\D/g, '');
-      if (rawPhone && rawPhone.length >= 9) {
+      if (rawPhone && rawPhone.length >= 9 && rawPhone !== '0000000000') {
         if (!historiesByPhone.has(rawPhone)) historiesByPhone.set(rawPhone, []);
         historiesByPhone.get(rawPhone).push(h);
       }
@@ -1602,6 +1606,35 @@ export default function App() {
           displayName = `${c.firstName} ${c.lastName}`.trim();
       } else if (c.computedName && c.computedName !== posName) {
           displayName = c.computedName;
+      }
+
+      const lowerPosName = posName.toLowerCase();
+      const isWalkInCust = Boolean(c.isWalkIn) || 
+                           lowerPosName.includes('walk-in') || 
+                           lowerPosName.includes('วอคอิน') || 
+                           lowerPosName.includes('ลูกค้าทั่วไป');
+
+      if (isWalkInCust) {
+        return {
+          ...c,
+          computedName: displayName || 'ลูกค้าทั่วไป (Walk-in)',
+          computedPhone: '-',
+          computedMemberStatus: 'ทั่วไป',
+          computedIssue: '',
+          realAccumulatedAmount: 0,
+          productAccumulatedAmount: 0,
+          oldAmount: 0,
+          historyEarned: 0,
+          productEarned: 0,
+          historySpent: 0,
+          myHistories: [],
+          isApproved: false,
+          hasMemberCard: false,
+          isWalkIn: true,
+          hasMoleHistory: false,
+          profilePicData: null,
+          createdAtTimestamp: getCustomerTimestamp(c)
+        };
       }
 
       const myHistoriesMap = new Map();
@@ -2729,11 +2762,12 @@ export default function App() {
 
   // 🌟 สรุปภาพรวมลูกค้า (Summary Cards) 🌟
   const customerSummaryStats = useMemo(() => {
-    const vipCount = customers.filter(c => c.isApproved).length;
-    const avgAccumulated = customers.length > 0 ? Math.round(customers.reduce((sum, c) => sum + c.realAccumulatedAmount, 0) / customers.length) : 0;
+    const validCustomers = customers.filter(c => !c.isWalkIn);
+    const vipCount = validCustomers.filter(c => c.isApproved).length;
+    const avgAccumulated = validCustomers.length > 0 ? Math.round(validCustomers.reduce((sum, c) => sum + (c.realAccumulatedAmount || 0), 0) / validCustomers.length) : 0;
     const totalCourses = processedCourses.reduce((sum, c) => sum + c.computedRemainQty, 0);
-    const topSpender = customers.length > 0 ? customers.reduce((max, c) => c.realAccumulatedAmount > max.realAccumulatedAmount ? c : max, customers[0]) : null;
-    return { total: customers.length, vipCount, avgAccumulated, totalCourses, topSpender };
+    const topSpender = validCustomers.length > 0 ? validCustomers.reduce((max, c) => (c.realAccumulatedAmount || 0) > (max.realAccumulatedAmount || 0) ? c : max, validCustomers[0]) : null;
+    return { total: validCustomers.length, vipCount, avgAccumulated, totalCourses, topSpender };
   }, [customers, processedCourses]);
 
   // 🌟 จัดอันดับลูกค้า (Rankings) 🌟

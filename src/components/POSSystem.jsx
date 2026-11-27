@@ -810,35 +810,27 @@ export default function POSSystem({
   const [selectedCustomer, setSelectedCustomer] = useState(null);
 
   const handleSelectWalkIn = (initialMemberStatus = false) => {
-    let walkIn = customers.find(c => {
-      const name = String(getFuzzyKey(c, ["ชื่อ", "col_1", "computedName"]) || '').toLowerCase();
-      return name.includes('walk-in') || name.includes('วอคอิน') || name.includes('ลูกค้าทั่วไป');
-    });
-
     const isMember = Boolean(initialMemberStatus);
-    if (!walkIn) {
-      walkIn = {
-        id: 'walkin-default',
-        "ชื่อ": isMember ? "ลูกค้าทั่วไป (สิทธิ์สมาชิก)" : "ลูกค้าทั่วไป (Walk-in)",
-        "เบอร์โทร": "-",
-        computedName: isMember ? "ลูกค้าทั่วไป (สิทธิ์สมาชิก)" : "ลูกค้าทั่วไป (Walk-in)",
-        computedPhone: "-",
-        isWalkIn: true,
-        isApproved: isMember,
-        hasMemberCard: isMember,
-        isMemberDiscount: isMember
-      };
-    } else {
-      walkIn = {
-        ...walkIn,
-        computedName: walkIn.computedName || (isMember ? "ลูกค้าทั่วไป (สิทธิ์สมาชิก)" : "ลูกค้าทั่วไป (Walk-in)"),
-        computedPhone: walkIn.computedPhone || "-",
-        isWalkIn: true,
-        isApproved: isMember,
-        hasMemberCard: isMember,
-        isMemberDiscount: isMember
-      };
-    }
+    // 🌟 ลูกค้าวอคอิน (Walk-in) แต่ละคนต้องมีสถานะเป็นคนละคนในแต่ละบิล ไม่ดึงข้อมูลสะสมของคนอื่นและไม่สะสมยอดต่อกัน
+    const walkIn = {
+      id: `walkin-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      "ชื่อ": isMember ? "ลูกค้าทั่วไป (สิทธิ์สมาชิก)" : "ลูกค้าทั่วไป (Walk-in)",
+      "เบอร์โทร": "-",
+      computedName: isMember ? "ลูกค้าทั่วไป (สิทธิ์สมาชิก)" : "ลูกค้าทั่วไป (Walk-in)",
+      computedPhone: "-",
+      isWalkIn: true,
+      isApproved: isMember,
+      hasMemberCard: isMember,
+      isMemberDiscount: isMember,
+      realAccumulatedAmount: 0,
+      productAccumulatedAmount: 0,
+      totalAccumulated: 0,
+      oldAmount: 0,
+      historyEarned: 0,
+      historySpent: 0,
+      productEarned: 0,
+      myHistories: []
+    };
 
     setSelectedCustomer(walkIn);
     setCustomerSearch('');
@@ -872,7 +864,12 @@ export default function POSSystem({
     const finalName = rawName || (isMember ? 'ลูกค้าทั่วไป (สิทธิ์สมาชิก)' : 'ลูกค้าทั่วไป (Walk-in)');
     const finalPhone = rawPhone || '-';
 
-    let savedCustomerId = selectedCustomer?.id || 'walkin-default';
+    if (walkInFormData.saveToDb && !rawName && cleanPhone.length < 8) {
+      showToast('กรุณาระบุชื่อหรือเบอร์โทรลูกค้าเพื่อบันทึกลงระบบ', 'warning');
+      return;
+    }
+
+    let savedCustomerId = selectedCustomer?.id || `walkin-${Date.now()}`;
     if (walkInFormData.saveToDb && (cleanPhone.length >= 8 || rawName.length >= 2)) {
       try {
         const customerData = {
@@ -936,6 +933,14 @@ export default function POSSystem({
       hasMemberCard: isMember,
       isApproved: isMember,
       isMemberDiscount: isMember,
+      realAccumulatedAmount: 0,
+      productAccumulatedAmount: 0,
+      totalAccumulated: 0,
+      oldAmount: 0,
+      historyEarned: 0,
+      historySpent: 0,
+      productEarned: 0,
+      myHistories: [],
       issue: walkInFormData.issue || '',
       computedIssue: walkInFormData.issue || ''
     }));
@@ -2447,6 +2452,11 @@ export default function POSSystem({
     const name = String(selectedCustomer.computedName || getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]) || '').trim().toLowerCase();
     const cleanPhone = phone.replace(/\D/g, '');
 
+    // 🌟 ลูกค้าวอคอินเป็นคนละคน ไม่ดึงคอร์สของวอคอินคนอื่นมาแสดงทั้งหมด ยกเว้นพิมพ์ค้นหาเลขที่คอร์สเจาะจง
+    if (isWalkIn && !searchTerm.trim()) {
+      return [];
+    }
+
     return courses.filter(c => {
       if (!c.computedRemainQty || c.computedRemainQty <= 0) return false;
       
@@ -2469,9 +2479,9 @@ export default function POSSystem({
         isMatch = true;
       } else if (isWalkIn) {
         if (searchTerm.trim() !== '') {
-          isMatch = true;
+          isMatch = isCourseWalkIn && (courseNo.includes(searchTerm.toLowerCase()) || cBuyer.includes(searchTerm.toLowerCase()));
         } else {
-          isMatch = isCourseWalkIn;
+          isMatch = false;
         }
       }
 
@@ -2494,8 +2504,7 @@ export default function POSSystem({
 
   // 🌟 ประวัติคอร์สทั้งหมดของลูกค้า (สำหรับฟังก์ชัน "ต่อคอสเดิม" ในหน้าให้บริการ/ตัดคอร์ส)
   const customerAllCourses = useMemo(() => {
-    if (!selectedCustomer) return [];
-    const isWalkIn = Boolean(selectedCustomer.isWalkIn);
+    if (!selectedCustomer || selectedCustomer.isWalkIn) return [];
     const phone = String(selectedCustomer.computedPhone || getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]) || '').trim();
     const cleanPhone = phone.replace(/\D/g, '');
     const name = String(selectedCustomer.computedName || getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]) || '').trim().toLowerCase();
@@ -2508,12 +2517,10 @@ export default function POSSystem({
       const cPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').trim();
       const cCleanPhone = cPhone.replace(/\D/g, '');
       const cBuyer = String(getFuzzyKey(c, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "col_9", "col_2"]) || '').trim().toLowerCase();
-      const isCourseWalkIn = c.isWalkIn === true || cBuyer.includes('walk-in') || cBuyer.includes('วอคอิน') || cBuyer.includes('ทั่วไป') || cPhone === '-' || !cPhone;
 
       if (cleanPhone.length >= 6 && cCleanPhone.length >= 6 && cleanPhone === cCleanPhone) return true;
       if (phone && phone !== '-' && cPhone === phone) return true;
       if (name && !name.includes('ลูกค้าทั่วไป') && cBuyer === name) return true;
-      if (isWalkIn) return isCourseWalkIn;
       return false;
     });
   }, [courses, selectedCustomer]);
@@ -2610,24 +2617,32 @@ export default function POSSystem({
   }, [selectedCustomer, filteredPendingPayments]);
 
   const filteredCustomers = useMemo(() => {
-    if (!customerSearch) return customers.slice(0, 10);
-    return customers.filter(c => {
+    const filterOutWalkIn = (list) => (list || []).filter(c => {
+      if (c.isWalkIn) return false;
+      const name = String(c.computedName || getFuzzyKey(c, ["ชื่อ", "col_1"]) || '').toLowerCase();
+      return !name.includes('walk-in') && !name.includes('วอคอิน') && !name.includes('ลูกค้าทั่วไป');
+    });
+    if (!customerSearch) return filterOutWalkIn(customers).slice(0, 10);
+    return filterOutWalkIn(customers).filter(c => {
       const searchStr = `${String(getFuzzyKey(c, ["ชื่อ", "col_1"]) || '')} ${String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '')}`.toLowerCase();
       return searchStr.includes(customerSearch.toLowerCase());
     }).slice(0, 10);
   }, [customers, customerSearch]);
 
   const getCustomerAccumulatedAmount = (c) => {
-    if (!c) return 0;
-    const cName = String(getFuzzyKey(c, ["ชื่อ", "col_1"]) || '').trim();
+    if (!c || c.isWalkIn) return 0;
+    const cName = String(getFuzzyKey(c, ["ชื่อ", "col_1", "computedName"]) || '').trim().toLowerCase();
+    if (cName.includes('walk-in') || cName.includes('วอคอิน') || cName.includes('ลูกค้าทั่วไป')) return 0;
     const cPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '').trim();
+    if (!cPhone || cPhone === '-' || cPhone === 'ไม่มี') return 0;
     
     let historyEarned = 0;
     let historySpent = 0;
     
     histories.forEach(h => {
         if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '') === 'ยกเลิก') return;
-        const hName = String(getFuzzyKey(h, ["ชื่อลูกค้า", "col_2"]) || '').trim();
+        const hName = String(getFuzzyKey(h, ["ชื่อลูกค้า", "col_2"]) || '').trim().toLowerCase();
+        if (hName.includes('walk-in') || hName.includes('วอคอิน') || hName.includes('ลูกค้าทั่วไป')) return;
         const hPhoneNum = String(getFuzzyKey(h, ["เบอร์โทร", "col_3"]) || '').trim();
         if ((cName && hName === cName) || (cPhone && hPhoneNum === cPhone)) {
             const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '');
@@ -2650,6 +2665,11 @@ export default function POSSystem({
 
   const vipStats = useMemo(() => {
     if (!selectedCustomer) return { isVip: false, amount: 0 };
+    if (selectedCustomer.isWalkIn) return { isVip: false, amount: 0 };
+    const cName = String(selectedCustomer.computedName || getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]) || '').toLowerCase();
+    if (cName.includes('walk-in') || cName.includes('วอคอิน') || cName.includes('ลูกค้าทั่วไป')) {
+      return { isVip: false, amount: 0 };
+    }
     // Use the computed amount from App.jsx if available to ensure consistency
     const amt = selectedCustomer.realAccumulatedAmount !== undefined 
                 ? selectedCustomer.realAccumulatedAmount 
@@ -2657,21 +2677,34 @@ export default function POSSystem({
     return { isVip: amt >= 5000, amount: amt };
   }, [selectedCustomer, histories]);
 
-  const isVipCustomer = orderChannel === 'shopee' || vipStats.isVip || (selectedCustomer && (selectedCustomer.isApproved === true || selectedCustomer.hasMemberCard === true || selectedCustomer.isMemberDiscount === true));
+  const isVipCustomer = useMemo(() => {
+    if (!selectedCustomer) return orderChannel === 'shopee';
+    if (selectedCustomer.isWalkIn) {
+      // สำหรับลูกค้า Walk-in สิทธิ์สมาชิกจะเปิดเฉพาะเมื่อพนักงานจงใจกดปุ่ม "สิทธิ์สมาชิก" หรือ toggle เองเท่านั้น ไม่เด้งจากยอดสะสม
+      return Boolean(selectedCustomer.hasMemberCard || selectedCustomer.isMemberDiscount);
+    }
+    return orderChannel === 'shopee' || vipStats.isVip || Boolean(selectedCustomer.isApproved === true || selectedCustomer.hasMemberCard === true || selectedCustomer.isMemberDiscount === true);
+  }, [selectedCustomer, orderChannel, vipStats]);
 
   const customerCreditBalance = useMemo(() => {
-    if (!selectedCustomer) return 0;
+    if (!selectedCustomer || selectedCustomer.isWalkIn) return 0;
     const phone = String(getFuzzyKey(selectedCustomer, ["เบอร์โทร", "col_3"]) || '').trim();
-    if (!phone) return 0;
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (!phone || phone === '-' || phone === 'ไม่มี' || cleanPhone.length < 9) return 0;
     // Find all courses belonging to this customer
-    const myCourses = courses.filter(c => String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').trim() === phone);
+    const myCourses = courses.filter(c => {
+      if (c.isWalkIn) return false;
+      const cPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').trim();
+      return cPhone && cPhone !== '-' && cPhone === phone;
+    });
     // Sum the computedRemainCredit
     return myCourses.reduce((sum, c) => sum + (c.computedRemainCredit || 0), 0);
   }, [selectedCustomer, courses]);
 
   const customerPendingBalance = useMemo(() => {
+    if (!selectedCustomer || selectedCustomer.isWalkIn) return 0;
     return filteredPendingPayments.reduce((sum, c) => sum + (c.computedPendingAmount || 0), 0);
-  }, [filteredPendingPayments]);
+  }, [filteredPendingPayments, selectedCustomer]);
 
   const todaySales = useMemo(() => {
     const posFilterDateObj = new Date();
@@ -4746,7 +4779,7 @@ export default function POSSystem({
       }
 
       // 🌟 สิทธิพิเศษ CRM: มอบคูปอง CRM20 & BOOK10 ให้ลูกค้าในระบบอัตโนมัติ เพื่อดึงกลับมาซื้อซ้ำ/จองออนไลน์ 🌟
-      if (selectedCustomer?.id) {
+      if (selectedCustomer?.id && !selectedCustomer.isWalkIn && !selectedCustomer.id.startsWith('walkin-')) {
         try {
           await updateDoc(doc(db, 'customers', selectedCustomer.id), {
             collectedCoupons: arrayUnion('CRM20', 'BOOK10')
