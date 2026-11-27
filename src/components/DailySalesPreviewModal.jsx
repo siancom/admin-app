@@ -250,7 +250,7 @@ export default function DailySalesPreviewModal({
     const totalNetSales = finalProductSales + finalCourseSales + finalCreditSales + finalCodSales;
 
     // Cash flow metrics
-    const floatCash = dayEod ? parseNumber(dayEod.floatCash || 0) : 1153;
+    const floatCash = dayEod ? parseNumber(dayEod.floatCash || 0) : 1000;
     const cashTotalInDrawer = finalCashSales + floatCash;
     const nonCashSales = finalTransferSales + finalCreditSales + finalCodSales;
     const totalSystemBalance = cashTotalInDrawer + nonCashSales;

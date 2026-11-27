@@ -2012,9 +2012,6 @@ export default function POSSystem({
     );
   };
 
-  useEffect(() => {
-    setEodData(prev => ({ ...prev, floatCash: latestFloat }));
-  }, [latestFloat]);
   const [isSubmittingEod, setIsSubmittingEod] = useState(false);
 
   // 🌟 ส่งยอดย้อนหลัง: จำวันที่ก่อนเปิด EOD เพื่อคืนค่าตอนปิด
@@ -2031,6 +2028,7 @@ export default function POSSystem({
   const isEodBackdated = posFilterDate !== getLocalYYYYMMDD();
 
   const toThDateStr = (yyyymmdd) => {
+    if (!yyyymmdd) return '';
     const dObj = new Date();
     const [y, m, d] = yyyymmdd.split('-');
     dObj.setFullYear(y, m - 1, d);
@@ -2041,21 +2039,185 @@ export default function POSSystem({
   const existingEodForDate = useMemo(() => {
     if (!posFilterDate) return [];
     const target = toThDateStr(posFilterDate);
-    return dailySales.filter(d => d.branch === (globalBranch || "สำนักงานใหญ่") && d.date === target);
+    const normGb = normalizeBranchName(globalBranch);
+    return dailySales.filter(d => {
+      const matchBranch = !normGb || normalizeBranchName(d.branch) === normGb || normalizeBranchName(d.branch) === 'สำนักงานใหญ่';
+      const matchDate = d.date === target || (typeof d.createdAt === 'string' && d.createdAt.slice(0, 10) === posFilterDate);
+      return matchBranch && matchDate;
+    });
   }, [dailySales, globalBranch, posFilterDate]);
+
+  // ซิงค์เงินทอนตั้งต้น (floatCash) ให้ตรงกับวันที่เลือก (posFilterDate) โดยอัตโนมัติ
+  useEffect(() => {
+    if (!posFilterDate) return;
+    const targetTh = toThDateStr(posFilterDate);
+    const normGb = normalizeBranchName(globalBranch);
+
+    // 1. ตรวจสอบว่าวันที่เลือกมีส่งยอด EOD ไว้แล้วหรือไม่
+    const dayEod = dailySales.find(d => {
+      const matchBranch = !normGb || normalizeBranchName(d.branch) === normGb || normalizeBranchName(d.branch) === 'สำนักงานใหญ่';
+      const matchDate = d.date === targetTh || (typeof d.createdAt === 'string' && d.createdAt.slice(0, 10) === posFilterDate);
+      return matchBranch && matchDate;
+    });
+
+    if (dayEod && dayEod.floatCash !== undefined) {
+      setEodData(prev => ({ ...prev, floatCash: String(dayEod.floatCash) }));
+      return;
+    }
+
+    // 2. ถ้าเป็นวันนี้และยังไม่มี EOD ให้ใช้ latestFloat
+    const isToday = posFilterDate === getLocalYYYYMMDD();
+    if (isToday) {
+      setEodData(prev => ({ ...prev, floatCash: String(latestFloat) }));
+      return;
+    }
+
+    // 3. ถ้าเป็นวันย้อนหลังที่ยังไม่ได้ส่งยอด ให้หายอดยกไปจากวันก่อนหน้า
+    const prevEod = [...dailySales]
+      .filter(d => {
+        const matchBranch = !normGb || normalizeBranchName(d.branch) === normGb || normalizeBranchName(d.branch) === 'สำนักงานใหญ่';
+        const dDateIso = typeof d.createdAt === 'string' ? d.createdAt.slice(0, 10) : '';
+        return matchBranch && dDateIso && dDateIso < posFilterDate;
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+
+    const fallbackFloat = (prevEod && prevEod.nextDayFloat !== undefined) ? String(prevEod.nextDayFloat) : '1000';
+    setEodData(prev => ({ ...prev, floatCash: fallbackFloat }));
+  }, [posFilterDate, dailySales, globalBranch, latestFloat]);
+
+  // 🌟 ฟังก์ชันอัปเดตและบันทึกเงินทอน (ทั้งวันปัจจุบันและย้อนหลัง)
+  const handleUpdateFloatCash = async (newVal, targetDateIso = posFilterDate) => {
+    const cleanStr = String(newVal || '').replace(/,/g, '').trim();
+    const numVal = parseFloat(cleanStr);
+    if (isNaN(numVal) || numVal < 0) {
+      showToast('กรุณาระบุจำนวนเงินทอนเป็นตัวเลขที่ถูกต้อง', 'error');
+      return false;
+    }
+
+    const effectiveDate = targetDateIso || getLocalYYYYMMDD();
+    const targetDateTh = toThDateStr(effectiveDate);
+    const normGb = normalizeBranchName(globalBranch);
+    const branchName = globalBranch || "สำนักงานใหญ่";
+
+    // อัปเดต React state ทันที
+    setEodData(prev => ({ ...prev, floatCash: String(numVal) }));
+
+    try {
+      // 1. ถ้ามี EOD ที่ส่งไปแล้วของวันที่นี้ ให้คำนวณใหม่และอัปเดต daily_sales ใน Firestore ทันที
+      const dayEod = dailySales.find(d => {
+        const matchBranch = !normGb || normalizeBranchName(d.branch) === normGb || normalizeBranchName(d.branch) === 'สำนักงานใหญ่';
+        const matchDate = d.date === targetDateTh || (typeof d.createdAt === 'string' && d.createdAt.slice(0, 10) === effectiveDate);
+        return matchBranch && matchDate;
+      });
+
+      if (dayEod && dayEod.id) {
+        const cashSales = parseNumber(dayEod.cashSales || 0);
+        const transferSales = parseNumber(dayEod.transferSales || 0);
+        const creditSales = parseNumber(dayEod.creditSales || 0);
+        const codSales = parseNumber(dayEod.codSales || 0);
+        const nonCashSales = transferSales + creditSales + codSales;
+
+        const newExpectedCash = cashSales + numVal;
+        const newExpectedTotalSys = newExpectedCash + nonCashSales;
+        const newBaseFloat = Math.floor(numVal / 100) * 100;
+        const newExpDeposit = Math.floor(newExpectedTotalSys / 100) * 100 - newBaseFloat;
+        const newExpNextDayFloat = newExpectedTotalSys - newExpDeposit;
+        const newExpRemit = newExpectedCash - newExpNextDayFloat;
+
+        const actualRemitted = (dayEod.remitAmount !== undefined && !isNaN(Number(dayEod.remitAmount)))
+          ? Number(dayEod.remitAmount)
+          : (dayEod.actualCash !== undefined ? Math.max(0, Number(dayEod.actualCash) - (dayEod.nextDayFloat || 0)) : newExpRemit);
+
+        const newDiff = actualRemitted - newExpRemit;
+        const newActualTotalCash = actualRemitted + newExpNextDayFloat;
+        const newTotalSysBalance = newActualTotalCash + nonCashSales;
+        const newTotalDeposit = Math.floor(newTotalSysBalance / 100) * 100 - newBaseFloat;
+        const newNextDayFloat = newTotalSysBalance - newTotalDeposit;
+
+        await updateDoc(doc(db, 'daily_sales', dayEod.id), {
+          floatCash: numVal,
+          expectedCash: newExpectedCash,
+          actualCash: newActualTotalCash,
+          remitAmount: actualRemitted,
+          difference: newDiff,
+          totalDeposit: newTotalDeposit,
+          nextDayFloat: newNextDayFloat,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      // 2. ซิงค์กับ pos_sessions ของวันนั้น
+      try {
+        const sodQuery = query(
+          getCol('pos_sessions'),
+          where('date', '==', targetDateTh),
+          where('branch', '==', branchName)
+        );
+        const sodDocs = await getDocs(sodQuery);
+        if (!sodDocs.empty) {
+          await updateDoc(doc(db, 'pos_sessions', sodDocs.docs[0].id), {
+            floatCash: String(numVal),
+            updatedAt: new Date().toISOString()
+          });
+        } else {
+          const newSodRef = doc(getCol('pos_sessions'));
+          await setDoc(newSodRef, {
+            date: targetDateTh,
+            branch: branchName,
+            floatCash: String(numVal),
+            submittedBy: globalRole || 'owner',
+            createdAt: effectiveDate ? `${effectiveDate}T${new Date().toISOString().split('T')[1]}` : new Date().toISOString()
+          });
+        }
+      } catch (sodErr) {
+        console.warn("Could not sync to pos_sessions:", sodErr);
+      }
+
+      showToast(`บันทึกเงินทอนวันที่ ${targetDateTh} เป็น ฿${numVal.toLocaleString()} เรียบร้อยแล้ว`, 'success');
+      return true;
+    } catch (err) {
+      console.error("Error updating float cash:", err);
+      showToast('เกิดข้อผิดพลาดในการบันทึกเงินทอน: ' + err.message, 'error');
+      return false;
+    }
+  };
 
   const handleEodDateChange = (newDate) => {
     if (!newDate || newDate > getLocalYYYYMMDD()) return;
     setPosFilterDate(newDate);
-    // เงินทอนตั้งต้น = ยอดยกไปจากรายงานล่าสุดก่อนวันที่เลือก
-    const prev = [...dailySales]
-      .filter(d => d.branch === (globalBranch || "สำนักงานใหญ่") && typeof d.createdAt === 'string' && d.createdAt.slice(0, 10) < newDate)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+    const targetTh = toThDateStr(newDate);
+    const normGb = normalizeBranchName(globalBranch);
+    
+    // ตรวจสอบว่า newDate มี EOD อยู่แล้วหรือไม่
+    const existingEod = dailySales.find(d => {
+      const matchBranch = !normGb || normalizeBranchName(d.branch) === normGb || normalizeBranchName(d.branch) === 'สำนักงานใหญ่';
+      const matchDate = d.date === targetTh || (typeof d.createdAt === 'string' && d.createdAt.slice(0, 10) === newDate);
+      return matchBranch && matchDate;
+    });
+
     const isToday = newDate === getLocalYYYYMMDD();
+    let initialFloat = '1000';
+    if (existingEod && existingEod.floatCash !== undefined) {
+      initialFloat = String(existingEod.floatCash);
+    } else if (isToday) {
+      initialFloat = String(latestFloat);
+    } else {
+      const prev = [...dailySales]
+        .filter(d => {
+          const matchBranch = !normGb || normalizeBranchName(d.branch) === normGb || normalizeBranchName(d.branch) === 'สำนักงานใหญ่';
+          const dDateIso = typeof d.createdAt === 'string' ? d.createdAt.slice(0, 10) : '';
+          return matchBranch && dDateIso && dDateIso < newDate;
+        })
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+      if (prev && prev.nextDayFloat !== undefined) {
+        initialFloat = String(prev.nextDayFloat);
+      }
+    }
+
     setEodData(p => ({
       ...p,
-      floatCash: isToday ? latestFloat : (prev && prev.nextDayFloat !== undefined ? prev.nextDayFloat.toString() : '1000'),
-      actualCash: '',
+      floatCash: initialFloat,
+      actualCash: existingEod && existingEod.actualCash !== undefined ? String(existingEod.actualCash) : '',
       manualTransfer: '',
       manualTransferNote: '',
       clockOut: isToday ? p.clockOut : false,
@@ -5048,7 +5210,8 @@ export default function POSSystem({
       const remitAmount = eodData.actualCash ? actualRemittedCash : expectedRemitAmount;
 
       const onlineSales = eodBreakdown.online || 0;
-      const eodRef = doc(getCol('daily_sales'));
+      const isExistingReport = existingEodForDate.length > 0;
+      const eodRef = isExistingReport ? doc(db, 'daily_sales', existingEodForDate[0].id) : doc(getCol('daily_sales'));
       const batch = writeBatch(db);
       
       const posFilterDateObj = new Date();
@@ -5085,9 +5248,10 @@ export default function POSSystem({
         noSales: isEodNoSales && !manualTransferNum,
         manualTransfer: manualTransferNum,
         manualTransferNote: manualTransferNum ? (eodData.manualTransferNote || '') : '',
-        status: 'รอตรวจสอบ',
-        createdAt: posFilterDate ? `${posFilterDate}T${new Date().toISOString().split('T')[1]}` : new Date().toISOString()
-      });
+        status: isExistingReport ? (existingEodForDate[0].status || 'รอตรวจสอบ') : 'รอตรวจสอบ',
+        createdAt: isExistingReport ? (existingEodForDate[0].createdAt || new Date().toISOString()) : (posFilterDate ? `${posFilterDate}T${new Date().toISOString().split('T')[1]}` : new Date().toISOString()),
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
 
       // Handle Clock Out
       if (eodData.clockOut && !isEodBackdated && eodData.submittedBy !== 'owner') {
@@ -12896,6 +13060,8 @@ export default function POSSystem({
         setEodData={setEodData}
         setPosFilterDate={setPosFilterDate}
         globalRole={globalRole}
+        onUpdateFloatCash={handleUpdateFloatCash}
+        dailySales={dailySales}
         onPrintReceipt={(order) => {
           const items = order.cartItems || [{ name: order.courseName || 'รายการสั่งซื้อ (ย้อนหลัง)', price: Number(order.price) + Number(order.discount || 0), qty: 1, actionType: order.transactionType }];
           const subtotal = items.reduce((sum, item) => sum + (Number(item.price) * (item.qty || 1)), 0);

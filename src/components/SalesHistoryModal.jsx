@@ -11,7 +11,8 @@ import ClearMonthlyPosSalesModal from './ClearMonthlyPosSalesModal';
 export default function SalesHistoryModal({ 
   isOpen, onClose, showToast, globalBranch,
   appSettings, currentMonthSales, todaySales, todaySalesBreakdown, setShowEodModal, setShowEodPreviewA4,
-  posFilterDate, setPosFilterDate, globalRole, onPrintReceipt, eodData, setEodData
+  posFilterDate, setPosFilterDate, globalRole, onPrintReceipt, eodData, setEodData,
+  onUpdateFloatCash, dailySales = []
 }) {
   const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -470,14 +471,29 @@ export default function SalesHistoryModal({
                     {/* Bottom Actions */}
                     <div className="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-indigo-100/60 relative z-10">
                       <button 
-                        onClick={() => { 
-                            const val = window.prompt("ตั้งค่าเงินทอนตั้งต้น (ยอดยกมาในลิ้นชัก):", eodData?.floatCash || "0");
-                            if (val !== null && !isNaN(val)) {
-                              setEodData(prev => ({...prev, floatCash: val}));
-                              showToast('ตั้งค่าเงินทอนสำเร็จ', 'success');
+                        type="button"
+                        onClick={async () => { 
+                            const dateLabel = posFilterDate 
+                              ? new Date(posFilterDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })
+                              : 'วันนี้';
+                            const currentFloat = String(eodData?.floatCash || '0').replace(/,/g, '');
+                            const val = window.prompt(`แก้ไขเงินทอนตั้งต้นในลิ้นชัก (ประจำวันที่ ${dateLabel}):`, currentFloat);
+                            if (val !== null) {
+                              const cleanVal = val.replace(/,/g, '').trim();
+                              if (cleanVal === '' || isNaN(cleanVal) || Number(cleanVal) < 0) {
+                                showToast('กรุณาระบุจำนวนเงินทอนเป็นตัวเลขที่ถูกต้อง', 'error');
+                                return;
+                              }
+                              if (onUpdateFloatCash) {
+                                await onUpdateFloatCash(cleanVal, posFilterDate);
+                              } else {
+                                setEodData(prev => ({ ...prev, floatCash: cleanVal }));
+                                showToast('ตั้งค่าเงินทอนสำเร็จ', 'success');
+                              }
                             }
                         }} 
-                        className="flex-1 sm:flex-none px-3 py-2 bg-white text-amber-600 border border-amber-200 hover:bg-amber-50 rounded-xl text-[10px] sm:text-xs font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1.5"
+                        className="flex-1 sm:flex-none px-3 py-2 bg-white text-amber-600 border border-amber-200 hover:bg-amber-50 rounded-xl text-[10px] sm:text-xs font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer hover:border-amber-400"
+                        title="คลิกเพื่อแก้ไขเงินทอนตั้งต้น (บันทึกลงระบบทันที)"
                       >
                         <Wallet size={14} /> เงินทอน: ฿{Number(String(eodData?.floatCash || 0).replace(/,/g, '')).toLocaleString()}
                       </button>

@@ -1000,6 +1000,59 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
     }
   };
 
+  const handleEditDailySalesFloat = async (record) => {
+    const currentFloat = String(record.floatCash ?? 0).replace(/,/g, '');
+    const val = window.prompt(`แก้ไขเงินทอนตั้งต้น (ประจำวันที่ ${record.date}):`, currentFloat);
+    if (val === null) return;
+    const cleanVal = val.replace(/,/g, '').trim();
+    const numVal = parseFloat(cleanVal);
+    if (isNaN(numVal) || numVal < 0) {
+      triggerToast('กรุณาระบุจำนวนเงินเป็นตัวเลขที่ถูกต้อง', '', 'error');
+      return;
+    }
+
+    try {
+      const cashSales = parseNumber(record.cashSales || 0);
+      const transferSales = parseNumber(record.transferSales || 0);
+      const creditSales = parseNumber(record.creditSales || 0);
+      const codSales = parseNumber(record.codSales || 0);
+      const nonCashSales = transferSales + creditSales + codSales;
+
+      const newExpectedCash = cashSales + numVal;
+      const newExpectedTotalSys = newExpectedCash + nonCashSales;
+      const newBaseFloat = Math.floor(numVal / 100) * 100;
+      const newExpDeposit = Math.floor(newExpectedTotalSys / 100) * 100 - newBaseFloat;
+      const newExpNextDayFloat = newExpectedTotalSys - newExpDeposit;
+      const newExpRemit = newExpectedCash - newExpNextDayFloat;
+
+      const actualRemitted = (record.remitAmount !== undefined && !isNaN(Number(record.remitAmount)))
+        ? Number(record.remitAmount)
+        : (record.actualCash !== undefined ? Math.max(0, Number(record.actualCash) - (record.nextDayFloat || 0)) : newExpRemit);
+
+      const newDiff = actualRemitted - newExpRemit;
+      const newActualTotalCash = actualRemitted + newExpNextDayFloat;
+      const newTotalSysBalance = newActualTotalCash + nonCashSales;
+      const newTotalDeposit = Math.floor(newTotalSysBalance / 100) * 100 - newBaseFloat;
+      const newNextDayFloat = newTotalSysBalance - newTotalDeposit;
+
+      await updateDoc(doc(db, 'daily_sales', record.id), {
+        floatCash: numVal,
+        expectedCash: newExpectedCash,
+        actualCash: newActualTotalCash,
+        remitAmount: actualRemitted,
+        difference: newDiff,
+        totalDeposit: newTotalDeposit,
+        nextDayFloat: newNextDayFloat,
+        updatedAt: new Date().toISOString()
+      });
+
+      triggerToast(`แก้ไขเงินทอนวันที่ ${record.date} เป็น ฿${numVal.toLocaleString()} เรียบร้อยแล้ว`, '', 'success');
+    } catch (e) {
+      console.error(e);
+      triggerToast('เกิดข้อผิดพลาดในการแก้ไขเงินทอน: ' + e.message, '', 'error');
+    }
+  };
+
   const breakEvenAnalysis = useMemo(() => {
     const cleanTarget = normalizeBranchName(targetBranch);
     const isTargetBranch = (bName) => {
@@ -2010,7 +2063,20 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                       
                       <div className="bg-slate-50 rounded-xl p-3 space-y-2 text-sm mb-4">
                         <div className="flex justify-between"><span className="text-slate-500">เงินสดในระบบ</span><span className="font-bold">฿{d.cashSales?.toLocaleString()}</span></div>
-                        <div className="flex justify-between"><span className="text-slate-500">เงินทอนตั้งต้น</span><span className="font-bold">฿{d.floatCash?.toLocaleString()}</span></div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500">เงินทอนตั้งต้น</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold">฿{d.floatCash?.toLocaleString()}</span>
+                            <button 
+                              type="button"
+                              onClick={() => handleEditDailySalesFloat(d)}
+                              className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors cursor-pointer"
+                              title="แก้ไขเงินทอนตั้งต้นย้อนหลัง"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                          </div>
+                        </div>
                         <div className="border-t border-slate-200 pt-2 flex justify-between font-bold">
                           <span className="text-slate-700">ควรมีในลิ้นชัก</span>
                           <span className="text-indigo-600">฿{d.expectedCash?.toLocaleString()}</span>
