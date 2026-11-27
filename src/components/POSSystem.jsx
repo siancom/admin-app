@@ -2520,7 +2520,8 @@ export default function POSSystem({
       if (getCourseCategory(mc) === 'old_courses') return false;
       // Facial treatment courses (F-A to F-J) are handled in unified treatment cards with session options
       if (getCourseCategory(mc) === 'facial') return false;
-      const searchStr = `${String(getFuzzyKey(mc, ["รหัสคอส", "col_1"]) || '')} ${name}`.toLowerCase();
+      const optNames = Array.isArray(mc.promoOptions) ? mc.promoOptions.map(o => `${o.name || ''} ${o.code || ''} ${o.badge || ''} ${o.price || ''}`).join(' ') : '';
+      const searchStr = `${String(getFuzzyKey(mc, ["รหัสคอส", "col_1"]) || '')} ${name} ${optNames}`.toLowerCase();
       return searchTerm === '' || searchStr.includes(searchTerm.toLowerCase());
     }).sort((a, b) => {
       const tA = getCourseSortTimestamp(a);
@@ -2544,7 +2545,8 @@ export default function POSSystem({
       // For other courses, allow qty === '1'
       if (!isFacial && qty !== '1') return false;
 
-      const searchStr = `${String(getFuzzyKey(mc, ["รหัสคอส", "col_1"]) || '')} ${name}`.toLowerCase();
+      const optNames = Array.isArray(mc.promoOptions) ? mc.promoOptions.map(o => `${o.name || ''} ${o.code || ''} ${o.badge || ''} ${o.price || ''}`).join(' ') : '';
+      const searchStr = `${String(getFuzzyKey(mc, ["รหัสคอส", "col_1"]) || '')} ${name} ${optNames}`.toLowerCase();
       return searchTerm === '' || searchStr.includes(searchTerm.toLowerCase());
     }).sort((a, b) => {
       const tA = getCourseSortTimestamp(a);
@@ -8877,28 +8879,28 @@ export default function POSSystem({
             )}
 
             {(hasCourseUsage || isOwnerDirectUsage) && (
-                <div>
-                  <div className="text-sm font-semibold text-slate-700 mb-2">เข้าใช้เตียง (สำหรับ Walk-in)</div>
-                  <select
-                    value={selectedBed}
-                    onChange={(e) => setSelectedBed(e.target.value)}
-                    className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 outline-none"
-                  >
-                    <option value="">ไม่ระบุเตียง (แค่ตัดคอร์สอย่างเดียว)</option>
-                    {Array.from({ length: 4 }).map((_, i) => {
-                       const bedNum = String(i + 1);
-                       const isOccupied = bookings && bookings.some(b => String(b.bedNumber) === bedNum && b.status === 'กำลังใช้บริการ' && b.branch === (globalBranch || 'เฉวง'));
-                       return (
-                         <option key={bedNum} value={bedNum} disabled={isOccupied}>
-                           เตียง {bedNum} {isOccupied ? '(ไม่ว่าง)' : '(ว่าง)'}
-                         </option>
-                       );
-                    })}
-                  </select>
-                </div>
-              )}
+              <div>
+                <div className="text-sm font-semibold text-slate-700 mb-2">เข้าใช้เตียง (สำหรับ Walk-in)</div>
+                <select
+                  value={selectedBed}
+                  onChange={(e) => setSelectedBed(e.target.value)}
+                  className="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 outline-none"
+                >
+                  <option value="">ไม่ระบุเตียง (แค่ตัดคอร์สอย่างเดียว)</option>
+                  {Array.from({ length: 4 }).map((_, i) => {
+                     const bedNum = String(i + 1);
+                     const isOccupied = bookings && bookings.some(b => String(b.bedNumber) === bedNum && b.status === 'กำลังใช้บริการ' && b.branch === (globalBranch || 'เฉวง'));
+                     return (
+                       <option key={bedNum} value={bedNum} disabled={isOccupied}>
+                         เตียง {bedNum} {isOccupied ? '(ไม่ว่าง)' : '(ว่าง)'}
+                       </option>
+                     );
+                  })}
+                </select>
+              </div>
+            )}
 
-              {globalRole === 'owner' && (
+            {globalRole === 'owner' && (
                 <div>
                   <div className="text-sm font-semibold text-slate-700 mb-2">วันที่ทำรายการ (ย้อนหลังได้เฉพาะเจ้าของ)</div>
                   <input 
