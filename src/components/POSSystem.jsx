@@ -10,6 +10,7 @@ import { addDoc, updateDoc, doc, getDocs, query, where, writeBatch, orderBy, lim
 import { getFuzzyKey } from '../utils/fuzzy';
 import imageCompression from 'browser-image-compression';
 import { parseNumber, parseQty, getTotalStock, getBranchStock, getLocalYYYYMMDD, normalizeBranchName } from '../utils/parse';
+import { getSafeDateTime, getBookingStatus } from '../utils/dateUtils';
 import { splitCourseAndProductPrice } from '../utils/courseUtils';
 import { getProfilePicData, handleProfileImgError } from '../utils/imageUtils';
 import { getVipDiscountRate, computeFinalPrice, getOwnerDiscountRate, computeOwnerCostPrice } from '../utils/priceUtils';
@@ -605,6 +606,8 @@ export default function POSSystem({
   posActiveBookingId = null,
   posReturnToAppointmentsAfterCheckout = false,
   onReturnToAppointments = () => {},
+  onGoToBookings = () => {},
+  bookingBadgeCount = null,
   onViewCourseDetails = () => {},
   posPreselectedItems = [],
   clearPosPreselectedItems = () => {}
@@ -837,6 +840,41 @@ export default function POSSystem({
 
   // Helper for branch stock
   const [isBedModalOpen, setIsBedModalOpen] = useState(false);
+
+  // 📅 จำนวนคิวจองวันนี้ที่ยังไม่ถึงคิว (สำหรับแสดงป้ายแจ้งเตือนบนปุ่ม)
+  const todayUpcomingCount = useMemo(() => {
+    if (bookingBadgeCount !== undefined && bookingBadgeCount !== null) {
+      return bookingBadgeCount;
+    }
+    const todayStr = getLocalYYYYMMDD();
+    const isCancelledBooking = (b) => {
+      if (!b) return true;
+      if (b.isCancelled) return true;
+      const rawSt = String(b.status || b["สถานะ"] || '').trim().toLowerCase();
+      if (rawSt.includes('ยกเลิก') || rawSt.includes('cancel')) return true;
+      const st = getBookingStatus(b);
+      return st === 'ยกเลิก';
+    };
+
+    return (bookings || []).filter(b => {
+      if (isCancelledBooking(b)) return false;
+      const dt = getSafeDateTime(b);
+      const st = getBookingStatus(b);
+      const isToday = dt && dt.startsWith(todayStr);
+      const isNotReached = ['รอการยืนยัน', 'ยืนยันแล้ว', 'รอเข้ารับบริการ', 'รอคิว', 'กำลังใช้บริการ'].includes(st);
+      return isToday && isNotReached;
+    }).length;
+  }, [bookingBadgeCount, bookings]);
+
+  const handleGoToBookings = () => {
+    if (onGoToBookings) {
+      onGoToBookings();
+    } else if (onReturnToAppointments) {
+      onReturnToAppointments();
+    } else {
+      window.dispatchEvent(new CustomEvent('navigate-to-tab', { detail: 'bookings' }));
+    }
+  };
   // Checkout Details
   const [selectedCustomer, setSelectedCustomer] = useState(null);
 
@@ -5656,19 +5694,46 @@ export default function POSSystem({
       <div className="flex-1 flex flex-col h-full border-r border-slate-200">
         <div className="p-2.5 sm:p-4 bg-white border-b border-slate-200">
           
-          {/* Top Row: Bed status & Live Sales Bar */}
-          <div className="flex items-stretch gap-1.5 sm:gap-3 mb-3">
+          {/* Top Row: Bed status, Queue Booking Button & Live Sales Bar */}
+          <div className="flex items-stretch gap-1.5 sm:gap-2.5 mb-3">
+            {/* 🛏️ ดูสถานะเตียง */}
             <button 
+              type="button"
               onClick={() => setIsBedModalOpen(true)} 
-              className="shrink-0 sm:flex-1 py-1.5 sm:py-2 px-2 sm:px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl border border-indigo-200 shadow-xs flex items-center justify-center gap-1.5 sm:gap-2 transition-all active:scale-[0.99] relative"
+              className="shrink-0 py-1.5 sm:py-2 px-2 sm:px-3 bg-indigo-50/90 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl border border-indigo-200 shadow-xs flex items-center justify-center gap-1.5 sm:gap-2 transition-all active:scale-[0.99] relative cursor-pointer"
               title="ดูสถานะเตียงทรีตเมนต์ (Bed Management)"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-indigo-600 shrink-0 sm:w-[18px] sm:h-[18px]"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg>
               <span className="text-xs sm:text-sm whitespace-nowrap font-black">
-                <span className="sm:hidden">สถานะเตียง</span>
-                <span className="hidden sm:inline">ดูสถานะเตียงทรีตเมนต์ (Bed Management)</span>
+                <span className="md:hidden">เตียง</span>
+                <span className="hidden md:inline">ดูสถานะเตียง</span>
               </span>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5 sm:ml-1 shrink-0" title="ระบบเตียงพร้อมใช้งาน"></span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5 shrink-0" title="ระบบเตียงพร้อมใช้งาน"></span>
+            </button>
+
+            {/* 📅 ปุ่มไปหน้าคิวจองสวยพร้อมแสดงป้ายจำนวนคิว */}
+            <button 
+              type="button"
+              onClick={handleGoToBookings}
+              className="shrink-0 py-1.5 sm:py-2 px-2.5 sm:px-3.5 bg-gradient-to-r from-rose-50 via-pink-50 to-amber-50 hover:from-rose-100 hover:via-pink-100 hover:to-amber-100 text-rose-700 font-bold rounded-xl border border-rose-200/90 shadow-xs hover:shadow-md flex items-center justify-center gap-1.5 sm:gap-2 transition-all active:scale-[0.99] relative group cursor-pointer"
+              title="แตะเพื่อไปหน้าตารางนัดหมายและคิวจองวันนี้"
+            >
+              <div className="relative flex items-center justify-center">
+                <Calendar size={16} className="text-rose-600 sm:w-[18px] sm:h-[18px] group-hover:scale-110 transition-transform" />
+                {todayUpcomingCount > 0 && (
+                  <span className="absolute -top-1.5 -right-2 bg-red-500 text-white text-[9px] font-black min-w-4 h-4 px-0.5 flex items-center justify-center rounded-full border-2 border-white shadow-xs leading-none">
+                    {todayUpcomingCount > 99 ? '99+' : todayUpcomingCount}
+                  </span>
+                )}
+              </div>
+              <span className="text-xs sm:text-sm whitespace-nowrap font-black">
+                <span className="md:hidden">คิวจอง</span>
+                <span className="hidden md:inline">คิวจองวันนี้</span>
+              </span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-black shadow-xs flex items-center gap-0.5 ${todayUpcomingCount > 0 ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-200 text-slate-500'}`}>
+                <span>{todayUpcomingCount}</span>
+                <span className="hidden lg:inline text-[9px]">คิว</span>
+              </span>
             </button>
 
             {/* แถบแสดงยอดขายสวยๆ ต่อท้ายป้ายเตียง */}

@@ -7129,8 +7129,14 @@ const flexMessage = {
               onReturnToAppointments={() => {
                 setPosActiveBookingId(null);
                 setPosReturnToAppointmentsAfterCheckout(false);
+                setFilterBookingStatus("today_upcoming");
                 setActiveTab('bookings');
               }}
+              onGoToBookings={() => {
+                setFilterBookingStatus("today_upcoming");
+                setActiveTab('bookings');
+              }}
+              bookingBadgeCount={bookingStats.badgeCount}
               onViewCourseDetails={(c) => {
                 const fullCourse = processedCourses.find(pc => pc.id === c.id || (c.courseRefKey && pc.courseRefKey === c.courseRefKey)) || c;
                 setSelectedCourse(fullCourse);
