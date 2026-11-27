@@ -1358,10 +1358,10 @@ export default function App() {
     return onAuthStateChanged(auth, (currentUser) => { setUser(currentUser); setIsDbConnected(!!currentUser); });
   }, []);
 
-  // 🌟 ระดับที่ 1: ข้อมูลเร่งด่วนสำหรับหน้า Login และการเลือกสาขา (โหลดเสร็จใน ~100-200ms)
+  // 🌟 ระดับที่ 1: ข้อมูลหน้า Login, คิวจองนัดหมาย, และข้อมูลจุดขาย POS (ดึงมาก่อนในเฟสแรกทันที)
   useEffect(() => {
     if (!user) return;
-    const errHandler = (err) => console.error("Auth collections error:", err);
+    const errHandler = (err) => console.error("Tier 1 collections error:", err);
 
     const unsubBranches = onSnapshot(getCol('branches'), (s) => { 
       let docs = s.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -1372,24 +1372,49 @@ export default function App() {
         ];
       }
       setBranches(docs);
-      if (loginGate) setIsCloudLoading(false);
+      setIsCloudLoading(false);
     }, errHandler);
 
     const unsubSettings = onSnapshot(doc(db, 'app_settings', 'financial'), (docSnap) => { 
       if (docSnap.exists()) {
         setAppSettings(docSnap.data());
       }
-      if (loginGate) setIsCloudLoading(false);
     }, errHandler);
 
     const unsubEmployees = onSnapshot(getCol('employees'), (s) => { 
       setEmployees(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
-      if (loginGate) setIsCloudLoading(false);
+      setIsCloudLoading(false);
     }, errHandler);
 
     const unsubAttendance = onSnapshot(getCol('employee_attendance'), (s) => { 
       setEmployeeAttendance(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
-      if (loginGate) setIsCloudLoading(false);
+      setIsCloudLoading(false);
+    }, errHandler);
+
+    // 🌟 คิวจองนัดหมาย (Bookings) & วันหยุดร้าน
+    const unsubBookings = onSnapshot(getCol('bookings'), (s) => { 
+      setBookings(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+    }, errHandler);
+
+    const unsubHolidays = onSnapshot(getCol('store_holidays'), (s) => { 
+      setStoreHolidays(s.docs.map(d => ({ ...d.data(), id: d.id }))); 
+    }, errHandler);
+
+    // 🌟 ข้อมูล POS หน้าร้าน (สินค้า, คอร์สมาตรฐาน, โปรโมชั่น, ยอดขาย)
+    const unsubProducts = onSnapshot(getCol('products'), (s) => { 
+      setProducts(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+    }, errHandler);
+
+    const unsubMasterCourses = onSnapshot(getCol('master_courses'), (s) => { 
+      setMasterCourses(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+    }, errHandler);
+
+    const unsubPromo = onSnapshot(getCol('promotions'), (s) => { 
+      setPromotions(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+    }, errHandler);
+
+    const unsubDailySales = onSnapshot(getCol('daily_sales'), (s) => { 
+      setDailySales(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
     }, errHandler);
 
     return () => { 
@@ -1397,14 +1422,20 @@ export default function App() {
       unsubSettings(); 
       unsubEmployees(); 
       unsubAttendance(); 
+      unsubBookings();
+      unsubHolidays();
+      unsubProducts();
+      unsubMasterCourses();
+      unsubPromo();
+      unsubDailySales();
     };
-  }, [user, loginGate]);
+  }, [user]);
 
-  // 🌟 ระดับที่ 2: ข้อมูลขนาดใหญ่ (คอร์ส, ลูกค้า, ประวัติหลายหมื่นเรคคอร์ด) — ทยอยโหลดเมื่อเข้าสู่ระบบแล้วเท่านั้น (!loginGate)
+  // 🌟 ระดับที่ 2: ข้อมูลประวัติและลูกค้าย้อนหลังขนาดใหญ่ (คอร์สลูกค้าหลายพันใบ, ลูกค้า, ประวัติหลายหมื่นเรคคอร์ด)
   useEffect(() => {
     if (!user || loginGate) return;
     let loaded = 0;
-    const totalKeyCollections = 7;
+    const totalKeyCollections = 4;
     const updateProgress = () => { 
       loaded++; 
       setLoadingProgress(Math.min(100, Math.round((loaded / totalKeyCollections) * 100))); 
@@ -1416,28 +1447,34 @@ export default function App() {
     // ดึงสินค้า Woo เบื้องหลังหลังล็อกอินสำเร็จ
     fetchWooProducts(false);
 
-    const unsub1 = onSnapshot(getCol('courses'), (s) => { setCourses(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
-    const unsub2 = onSnapshot(getCol('master_courses'), (s) => { setMasterCourses(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
-    const unsub3 = onSnapshot(getCol('customers'), (s) => { setCustomersRaw(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
-    const unsub4 = onSnapshot(getCol('histories'), (s) => { setHistories(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
-    const unsub5 = onSnapshot(getCol('bookings'), (s) => { setBookings(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
-    const unsub6 = onSnapshot(getCol('orders'), (s) => { setOrders(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
-    const unsub7 = onSnapshot(getCol('products'), (s) => { setProducts(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
-    const unsubDailySales = onSnapshot(getCol('daily_sales'), (s) => { setDailySales(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsubPromo = onSnapshot(getCol('promotions'), (s) => { setPromotions(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsubHolidays = onSnapshot(getCol('store_holidays'), (s) => { setStoreHolidays(s.docs.map(d => ({ ...d.data(), id: d.id }))); }, errHandler);
-    const unsub13 = onSnapshot(getCol('employee_leaves'), (s) => { setEmployeeLeaves(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
+    const unsubCourses = onSnapshot(getCol('courses'), (s) => { setCourses(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
+    const unsubCustomers = onSnapshot(getCol('customers'), (s) => { setCustomersRaw(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
+    const unsubHistories = onSnapshot(getCol('histories'), (s) => { setHistories(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
+    const unsubOrders = onSnapshot(getCol('orders'), (s) => { setOrders(s.docs.map(d => ({ id: d.id, ...d.data() }))); updateProgress(); }, errHandler);
+
+    const unsubLeaves = onSnapshot(getCol('employee_leaves'), (s) => { setEmployeeLeaves(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsubReqs = onSnapshot(getCol('employee_requisitions'), (s) => { setEmployeeRequisitions(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsubJobs = onSnapshot(getCol('jobApplications'), (s) => { setJobApplications(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsub14 = onSnapshot(getCol('advance_payments'), (s) => { setAdvancePayments(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsub15 = onSnapshot(getCol('expenses'), (s) => { setExpenses(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsub16 = onSnapshot(getCol('service_logs'), (s) => { setServiceLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
+    const unsubAdvance = onSnapshot(getCol('advance_payments'), (s) => { setAdvancePayments(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
+    const unsubExpenses = onSnapshot(getCol('expenses'), (s) => { setExpenses(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
+    const unsubLogs = onSnapshot(getCol('service_logs'), (s) => { setServiceLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsubInvLogs = onSnapshot(getCol('inventory_logs'), (s) => { setInventoryLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
     const unsubActiveServices = onSnapshot(getCol('active_services'), (s) => { setActiveServices(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
 
     return () => { 
       clearTimeout(safetyTimer);
-      unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsubDailySales(); unsubPromo(); unsubHolidays(); unsub13(); unsubReqs(); unsubJobs(); unsub14(); unsub15(); unsub16(); unsubInvLogs(); unsubActiveServices();
+      unsubCourses(); 
+      unsubCustomers(); 
+      unsubHistories(); 
+      unsubOrders(); 
+      unsubLeaves(); 
+      unsubReqs(); 
+      unsubJobs(); 
+      unsubAdvance(); 
+      unsubExpenses(); 
+      unsubLogs(); 
+      unsubInvLogs(); 
+      unsubActiveServices();
     };
   }, [user, loginGate]);
 
