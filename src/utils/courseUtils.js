@@ -21,6 +21,14 @@ export function isAddType(typeStr) {
   return clean.match(new RegExp('(อัพ|เพิ่ม|แถม|บวก)')) !== null;
 }
 
+export function isRealProductRequisition(prod) {
+  if (!prod) return false;
+  const p = String(prod).trim();
+  if (p === '' || p === '0' || p === '-' || p === 'ไม่มี' || p === 'null' || p === 'undefined') return false;
+  if (p.toLowerCase().includes('_images/') || /\.(jpg|jpeg|png|webp)$/i.test(p)) return false;
+  return true;
+}
+
 export function extractHistoryQty(h) {
   // 🛡️ Note: col_15 in AppSheet histories is the photo path (รูปใบคอส/สินค้า), NOT quantity!
   const rawQty = getFuzzyKey(h, ["จำนวน", "จำนวนที่ใช้", "จำนวนที่ได้", "ตัดคอร์ส", "จำนวนครั้งที่ใช้", "qty"]);

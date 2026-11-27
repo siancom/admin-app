@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { X, Camera } from 'lucide-react';
+import { X, ScanBarcode } from 'lucide-react';
 
 export default function BarcodeScannerModal({ isOpen, onClose, onScan, continuous = false }) {
   const [error, setError] = useState(null);
@@ -90,7 +90,7 @@ export default function BarcodeScannerModal({ isOpen, onClose, onScan, continuou
       <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col">
         <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
           <div className="flex items-center gap-2 font-bold text-slate-700">
-            <Camera size={20} className="text-indigo-500" /> แสกนบาร์โค้ด / คิวอาร์โค้ด
+            <ScanBarcode size={20} className="text-indigo-500" /> แสกนบาร์โค้ด / คิวอาร์โค้ด
           </div>
           <button 
             onClick={onClose} 

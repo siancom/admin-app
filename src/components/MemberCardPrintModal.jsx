@@ -8,6 +8,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useReactToPrint } from 'react-to-print';
 import { getFuzzyKey } from '../utils/fuzzy';
 import { parseNumber } from '../utils/parse';
+import { isRealProductRequisition } from '../utils/courseUtils';
 
 export default function MemberCardPrintModal({
   isOpen,
@@ -106,7 +107,8 @@ export default function MemberCardPrintModal({
 
       // ในระบบเก่าทุกยอดคือยอดซื้อสินค้า (col_19 = ยอดสินค้า)
       // ลำดับการแสดงชื่อ: แสดงชื่อสินค้าก่อน ตามด้วยชื่อบริการ หรือการกระทำ
-      const displayName = rawProduct || rawService || rawAction || (amt > 0 ? 'สินค้า' : 'รายการ');
+      const validProd = isRealProductRequisition(rawProduct) ? rawProduct : '';
+      const displayName = validProd || rawService || rawAction || (amt > 0 ? 'สินค้า' : 'รายการ');
 
       // ตรวจสอบการหักเงิน/จ่ายเงินคืน
       const isDeductionOrSpent = type.includes('จ่ายเงินคืน') || h.isRefund === true;
@@ -117,7 +119,7 @@ export default function MemberCardPrintModal({
         isLegacy ||
         type.includes('สินค้า') ||
         type.includes('จัดซื้อ') ||
-        rawProduct.length > 0 ||
+        validProd.length > 0 ||
         (products && products.some(p => {
           const pName = String(getFuzzyKey(p, ["ชื่อสินค้า", "col_2", "name"]) || '').trim();
           return pName && (displayName.includes(pName) || pName.includes(displayName));

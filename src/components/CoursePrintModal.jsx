@@ -11,7 +11,8 @@ import {
   isFreeUsageApp as isFreeUsage,
   extractHistoryQty,
   isMoleHistoryRecord,
-  getHistorySortTime
+  getHistorySortTime,
+  isRealProductRequisition
 } from '../utils/courseUtils';
 
 const parseSignatureUrl = (sig) => {
@@ -146,8 +147,8 @@ export function CoursePrintSheet({
     // Any record that drew products or deducted course credit must be included in creditHistories
     const hasProductDraw =
       deductVal > 0 ||
-      rawProd.length > 0 ||
-      type.includes('เบิก') ||
+      isRealProductRequisition(rawProd) ||
+      (type.includes('เบิก') && !type.includes('0')) ||
       itemDesc.startsWith('โอนเครดิต') ||
       itemDesc.startsWith('หักลดเครดิต') ||
       itemDesc.includes('เบิกสินค้า') ||
@@ -659,7 +660,7 @@ export function CoursePrintSheet({
                     const rawProd = String(getFuzzyKey(h, ['สินค้า', 'col_18', 'รายการสินค้า', 'รายการเบิก']) || '').trim();
                     const rawService = String(getFuzzyKey(h, ['รายการที่ทำ', 'บริการ', 'col_23']) || '').trim();
                     const rawAction = String(getFuzzyKey(h, ['รายการ']) || '').trim();
-                    const displayProduct = rawProd || rawAction || rawService || 'เบิกใช้เครดิต';
+                    const displayProduct = (isRealProductRequisition(rawProd) ? rawProd : '') || rawAction || rawService || 'เบิกใช้เครดิต';
 
                     return (
                       <tr key={`cred_${i}`} className="min-h-[9.5mm]" style={{ breakInside: 'avoid' }}>
@@ -671,7 +672,7 @@ export function CoursePrintSheet({
                             {displayProduct}
                             {hQty > 1 ? ` (${hQty} ชิ้น)` : ''}
                           </div>
-                          {rawProd && rawService && rawService !== rawProd && (
+                          {isRealProductRequisition(rawProd) && rawService && rawService !== rawProd && (
                             <div className="text-[8px] text-slate-500 font-normal mt-0.5 truncate">
                               บริการควบคู่: {rawService}
                             </div>

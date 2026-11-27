@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle,
   Scissors, Search, Info, ShoppingCart, Package, Layers, User, Trash2, UserPlus,
-  Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink,
+  Sparkles, Check, CheckCircle, Plus, Minus, CreditCard, Banknote, Smartphone, X, Clock, DollarSign, ChevronLeft, ChevronRight, Truck, FileText, Calendar, Camera, Award, Printer, Maximize, Minimize, ScanLine, QrCode, Edit, Ticket, ExternalLink, ScanBarcode,
   Flame, TrendingUp, Tag, Droplet, Zap, Target, Heart, Edit3, AlertCircle, RefreshCw, PenTool, Eye
 } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
@@ -193,10 +193,15 @@ const WalkingPersonIcon = ({ size = 18, className = "" }) => (
     width={size} 
     height={size} 
     viewBox="0 0 24 24" 
-    fill="currentColor" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2.2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
     className={className}
   >
-    <path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7" />
+    <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
   </svg>
 );
 
@@ -6046,7 +6051,7 @@ export default function POSSystem({
                      className="px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-bold flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0"
                      title="เพิ่มลูกค้าใหม่"
                    >
-                     <Plus size={18} />
+                     <UserPlus size={18} className="text-indigo-600" />
                    </button>
                  )}
               </div>
@@ -6137,10 +6142,10 @@ export default function POSSystem({
               </div>
               <button 
                 onClick={() => setScannerTarget('productSearch')}
-                className="bg-indigo-100 text-indigo-600 w-10 h-10 rounded-xl hover:bg-indigo-200 transition-colors shrink-0 shadow-sm flex items-center justify-center"
+                className="bg-indigo-100 text-indigo-600 w-10 h-10 rounded-xl hover:bg-indigo-200 transition-colors shrink-0 shadow-sm flex items-center justify-center cursor-pointer"
                 title="แสกนบาร์โค้ด"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                <ScanBarcode size={20} />
               </button>
             </div>
             <button
@@ -6277,10 +6282,10 @@ export default function POSSystem({
               </div>
               <button 
                 onClick={() => setScannerTarget('productSearch')}
-                className="bg-indigo-100 text-indigo-600 p-3 rounded-xl hover:bg-indigo-200 transition-colors shrink-0 shadow-sm"
+                className="bg-indigo-100 text-indigo-600 p-3 rounded-xl hover:bg-indigo-200 transition-colors shrink-0 shadow-sm flex items-center justify-center cursor-pointer"
                 title="แสกนบาร์โค้ด"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                <ScanBarcode size={22} />
               </button>
             </div>
           </div>
@@ -7845,7 +7850,7 @@ export default function POSSystem({
                     className="px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl font-bold flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0"
                     title="เพิ่มลูกค้าใหม่"
                   >
-                    <Plus size={18} />
+                    <UserPlus size={18} className="text-indigo-600" />
                   </button>
                 )}
               </div>

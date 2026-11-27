@@ -50,7 +50,7 @@ import { getFuzzyKey } from './utils/fuzzy';
 import { 
   isUsageType, isAddType, isFreeUsageApp as isFreeUsage, extractHistoryQty, 
   isMoleHistoryRecord, checkWarranty, getHistoryDateKey, getHistorySortTime, 
-  getHistoryBranch, isHistoryUsageRecord, isLegacyHistory 
+  getHistoryBranch, isHistoryUsageRecord, isLegacyHistory, isRealProductRequisition
 } from './utils/courseUtils';
 import { handleProfileImgError, parseImageUrl, getProfilePicData } from './utils/imageUtils';
 import { getSafeDateTime, getBookingStatus, getOrderStatus } from './utils/dateUtils';
@@ -6319,7 +6319,7 @@ const flexMessage = {
                                                           ))}
                                                       </div>
                                                   )}
-                                                  {rawProduct && rawProduct !== displayAction && (
+                                                  {isRealProductRequisition(rawProduct) && rawProduct !== displayAction && (
                                                       <div className="inline-flex items-start gap-1.5 bg-amber-50 text-amber-900 border border-amber-200/70 px-2.5 py-1 rounded-xl text-xs font-semibold my-1 max-w-full">
                                                           <Package size={13} className="text-amber-600 shrink-0 mt-0.5" />
                                                           <span className="leading-snug">
@@ -10030,7 +10030,8 @@ const flexMessage = {
                            const prod = String(getFuzzyKey(h, ["สินค้า", "col_18"]) || '').trim();
                            
                            // If has product requisition / credit deduction, ALWAYS display in history table!
-                           if (deductVal > 0 || prod.length > 0) return true;
+                           const hasRealProd = isRealProductRequisition(prod);
+                           if (deductVal > 0 || hasRealProd) return true;
                            
                            if (isFreeUsage(h)) return false; 
                            if (isUsageType(type)) return true;
@@ -10066,7 +10067,9 @@ const flexMessage = {
                         const amt = parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดเบิก", "ยอด", "col_19"]));
                         const prod = String(getFuzzyKey(h, ["สินค้า", "col_18"]) || '').trim();
                         const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '');
-                        return amt > 0 || prod.length > 0 || type.includes('สินค้า') || type.includes('เบิก');
+                        const hasRealProd = isRealProductRequisition(prod);
+                        if (amt <= 0 && !hasRealProd) return false;
+                        return amt > 0 || hasRealProd;
                     }).sort((a, b) => {
                         const d1 = parseThaiDate(getFuzzyKey(a, ["วันที่", "col_1"]));
                         const d2 = parseThaiDate(getFuzzyKey(b, ["วันที่", "col_1"]));
