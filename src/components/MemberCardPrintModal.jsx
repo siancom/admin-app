@@ -47,14 +47,12 @@ export default function MemberCardPrintModal({
   const [manualTotalOverride, setManualTotalOverride] = useState('');
   const [isEditingTotal, setIsEditingTotal] = useState(false);
 
-  if (!isOpen || !customer) return null;
-
   // --- DATA EXTRACTION ---
-  const custName = customer.computedName || 'ลูกค้าทั่วไป';
-  const custPhone = customer.computedPhone || '-';
-  const memberStatus = customer.computedMemberStatus || 'ทั่วไป';
+  const custName = customer?.computedName || 'ลูกค้าทั่วไป';
+  const custPhone = customer?.computedPhone || '-';
+  const memberStatus = customer?.computedMemberStatus || 'ทั่วไป';
   const isVip = memberStatus.includes('VIP') || memberStatus.includes('บัตรทอง') || memberStatus.includes('สมาชิกพิเศษ');
-  const oldAmount = Number(customer.oldAmount || 0);
+  const oldAmount = Number(customer?.oldAmount || 0);
 
   // Helper function to parse Thai/standard dates for sorting newest first
   const parseDateForSort = (dateStr) => {
@@ -217,6 +215,8 @@ export default function MemberCardPrintModal({
       }
     `
   });
+
+  if (!isOpen || !customer) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-slate-900/80 backdrop-blur-md overflow-hidden animate-in fade-in duration-200">

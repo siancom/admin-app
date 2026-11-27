@@ -662,7 +662,7 @@ export default function DailySalesBannerChart({
               )}
             </span>
             <span className="text-slate-300 font-medium">
-              เฉลี่ย: <strong className="text-white">฿{Math.round((mtdPosTotal || mtdEodTotal) / (new Date().getDate() || 1)).toLocaleString()}</strong>/วัน
+              เฉลี่ย: <strong className="text-white">฿{Math.round((mtdPosTotal || mtdEodTotal) / (mtdDaysCount || 1)).toLocaleString()}</strong>/วัน
             </span>
           </div>
         </div>

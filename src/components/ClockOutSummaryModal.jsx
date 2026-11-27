@@ -44,8 +44,6 @@ export default function ClockOutSummaryModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState('summary'); // 'summary' | 'breakdown' | 'bookings'
 
-  if (!isOpen || !employee) return null;
-
   const todayStr = getLocalYYYYMMDD();
   const now = new Date();
   const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
@@ -84,7 +82,7 @@ export default function ClockOutSummaryModal({
   }, [attendanceRecord?.clockIn, now]);
 
   // Check EOD submission
-  const branchToCheck = attendanceRecord?.branch || employee.branch || 'เฉวง';
+  const branchToCheck = attendanceRecord?.branch || employee?.branch || 'เฉวง';
   const cleanBranch = normalizeBranchName(branchToCheck);
   const requiresEOD = cleanBranch !== 'เฉวง';
   const todayThaiStr = now.toLocaleDateString('th-TH');
@@ -95,6 +93,7 @@ export default function ClockOutSummaryModal({
 
   // 1. Calculate Today's Sales & Orders
   const todayOrders = useMemo(() => {
+    if (!employee) return [];
     return (orders || []).filter(o => {
       if (!o.createdAt || getOrderStatus(o) === 'ยกเลิก') return false;
       const isPO = o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า');
@@ -111,6 +110,7 @@ export default function ClockOutSummaryModal({
   }, [orders, todayStr, employee]);
 
   const todaySalesTotal = useMemo(() => {
+    if (!employee?.name) return 0;
     return todayOrders.reduce((sum, o) => {
       let p = parseNumber(o.price);
       if (o.orderChannel === 'shopee' && o.shopeeNetReceived !== undefined) {
@@ -121,10 +121,11 @@ export default function ClockOutSummaryModal({
       const shareCount = staffList.length > 0 && staffList.includes(employee.name) ? staffList.length : 1;
       return sum + (p / shareCount);
     }, 0);
-  }, [todayOrders, employee.name]);
+  }, [todayOrders, employee?.name]);
 
   // 2. Calculate Today's Commission
   const todayCommission = useMemo(() => {
+    if (!employee?.name) return 0;
     let comm = 0;
     (histories || []).forEach(h => {
       if (!isRecordToday(h, todayStr)) return;
@@ -206,6 +207,7 @@ export default function ClockOutSummaryModal({
 
   // 3. Calculate Today's Service Logs (ค่ามือ / DF)
   const todayServiceLogs = useMemo(() => {
+    if (!employee) return [];
     return (serviceLogs || []).filter(s => {
       const isEmp = s.employeeId === employee.id || s.employeeName === employee.name;
       if (!isEmp) return false;
@@ -223,11 +225,12 @@ export default function ClockOutSummaryModal({
   }, [todayServiceLogs]);
 
   // 4. Food allowance & estimated total income today
-  const foodAllowance = Number(employee.foodAllowanceRate !== undefined ? employee.foodAllowanceRate : 50);
+  const foodAllowance = Number(employee?.foodAllowanceRate !== undefined ? employee.foodAllowanceRate : 50);
   const totalEstIncomeToday = todayCommission + todayServiceFees + foodAllowance;
 
   // 5. Tomorrow's Bookings
   const tomorrowBookings = useMemo(() => {
+    if (!employee) return [];
     const list = (bookings || []).filter(b => {
       const st = getBookingStatus(b);
       if (st === 'ยกเลิก') return false;
@@ -255,6 +258,8 @@ export default function ClockOutSummaryModal({
       return dtA.localeCompare(dtB);
     });
   }, [bookings, tomorrowStr, employee, cleanBranch]);
+
+  if (!isOpen || !employee) return null;
 
   const handleConfirm = async () => {
     if (requiresEOD && !hasSubmittedEOD) {
