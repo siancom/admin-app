@@ -106,31 +106,67 @@ export default function StaffServiceQueue({
     }).slice(0, 10);
   }, [custSearchQuery, customers]);
 
-  // Helper to find all courses belonging to a specific customer
+  // 🌟 O(M) Pre-indexed Course Map by Clean Phone & Buyer Name (ป้องกันการวนลูปซ้อน N*M หลายล้านรอบ)
+  const customerCourseMap = useMemo(() => {
+    const byPhone = new Map();
+    const byName = new Map();
+    const activeCustomerPhones = new Map(); // cleanPhone -> count
+
+    (courses || []).forEach(c => {
+      const courseName = String(getFuzzyKey(c, ["ชื่อคอส", "ชื่อคอร์ส", "col_8"]) || c.name || '').toLowerCase();
+      const isCreditCourse = courseName.includes('วงเงิน') || courseName.includes('เติมเงิน') || courseName.includes('เครดิต') || courseName.includes('voucher') || courseName.includes('บัตรกำนัล') || courseName.includes('ฝากเงิน');
+      if (isCreditCourse) return;
+
+      const hasRemaining = Number(c.computedRemainQty || 0) > 0 && c.computedStatus !== 'ใช้ครบแล้ว';
+      const coursePhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').trim();
+      const cleanCoursePhone = coursePhone.replace(/\D/g, '');
+
+      if (cleanCoursePhone) {
+        if (!byPhone.has(cleanCoursePhone)) byPhone.set(cleanCoursePhone, []);
+        byPhone.get(cleanCoursePhone).push(c);
+
+        if (cleanCoursePhone.length >= 9) {
+          const last9 = cleanCoursePhone.slice(-9);
+          if (!byPhone.has(last9)) byPhone.set(last9, []);
+          if (!byPhone.get(last9).includes(c)) byPhone.get(last9).push(c);
+        }
+
+        if (hasRemaining) {
+          activeCustomerPhones.set(cleanCoursePhone, (activeCustomerPhones.get(cleanCoursePhone) || 0) + 1);
+          if (cleanCoursePhone.length >= 9) {
+            const last9 = cleanCoursePhone.slice(-9);
+            activeCustomerPhones.set(last9, (activeCustomerPhones.get(last9) || 0) + 1);
+          }
+        }
+      }
+
+      const courseBuyer = String(getFuzzyKey(c, ["ผู้ซื้อคอส", "col_9"]) || '').trim().toLowerCase();
+      if (courseBuyer && !courseBuyer.includes('ลูกค้าทั่วไป')) {
+        if (!byName.has(courseBuyer)) byName.set(courseBuyer, []);
+        byName.get(courseBuyer).push(c);
+      }
+    });
+
+    return { byPhone, byName, activeCustomerPhones };
+  }, [courses]);
+
+  // Helper to find all courses belonging to a specific customer (O(1) Hash Map Lookup)
   const getCustomerCourses = useCallback((cust) => {
     if (!cust) return [];
     const phone = String(cust.computedPhone || cust.phone || getFuzzyKey(cust, ["เบอร์โทร", "col_3"]) || '').trim();
     const cleanPhone = phone.replace(/\D/g, '');
     const name = String(cust.computedName || cust.name || getFuzzyKey(cust, ["ชื่อ", "col_1"]) || '').trim().toLowerCase();
 
-    return (courses || []).filter(c => {
-      const courseName = String(getFuzzyKey(c, ["ชื่อคอส", "ชื่อคอร์ส", "col_8"]) || c.name || '').toLowerCase();
-      const isCreditCourse = courseName.includes('วงเงิน') || courseName.includes('เติมเงิน') || courseName.includes('เครดิต') || courseName.includes('voucher') || courseName.includes('บัตรกำนัล') || courseName.includes('ฝากเงิน');
-      if (isCreditCourse) return false;
-
-      const courseBuyer = String(getFuzzyKey(c, ["ผู้ซื้อคอส", "col_9"]) || '').trim().toLowerCase();
-      const coursePhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').trim();
-      const cleanCoursePhone = coursePhone.replace(/\D/g, '');
-
-      let isMatch = false;
-      if (cleanPhone && cleanCoursePhone && (cleanPhone === cleanCoursePhone || (cleanPhone.length >= 9 && cleanCoursePhone.includes(cleanPhone)))) {
-        isMatch = true;
-      } else if (name && !name.includes('ลูกค้าทั่วไป') && courseBuyer === name) {
-        isMatch = true;
-      }
-      return isMatch;
-    });
-  }, [courses]);
+    if (cleanPhone) {
+      const found = customerCourseMap.byPhone.get(cleanPhone) || (cleanPhone.length >= 9 ? customerCourseMap.byPhone.get(cleanPhone.slice(-9)) : null);
+      if (found && found.length > 0) return found;
+    }
+    if (name && !name.includes('ลูกค้าทั่วไป')) {
+      const found = customerCourseMap.byName.get(name);
+      if (found && found.length > 0) return found;
+    }
+    return [];
+  }, [customerCourseMap]);
 
   // Courses of currently selected customer
   const customerAvailableCourses = useMemo(() => {
@@ -140,14 +176,21 @@ export default function StaffServiceQueue({
     return allCourses.filter(c => Number(c.computedRemainQty || 0) > 0 && c.computedStatus !== 'ใช้ครบแล้ว');
   }, [selectedCustomer, getCustomerCourses]);
 
-  // Quick list of customers who currently have remaining courses
+  // Quick list of customers who currently have remaining courses (O(N) with fast lookup instead of O(N*M))
   const customersWithRemainingCourses = useMemo(() => {
-    return (customers || []).map(cust => {
-      const custCourses = getCustomerCourses(cust);
-      const remainCount = custCourses.filter(c => Number(c.computedRemainQty || 0) > 0 && c.computedStatus !== 'ใช้ครบแล้ว').length;
-      return { ...cust, remainCourseCount: remainCount };
-    }).filter(c => c.remainCourseCount > 0).slice(0, 15);
-  }, [customers, getCustomerCourses]);
+    if (!customers || customers.length === 0) return [];
+    const result = [];
+    for (let i = 0; i < customers.length && result.length < 15; i++) {
+      const cust = customers[i];
+      const phone = String(cust.computedPhone || cust.phone || getFuzzyKey(cust, ["เบอร์โทร", "col_3"]) || '').trim();
+      const cleanPhone = phone.replace(/\D/g, '');
+      const count = (cleanPhone && (customerCourseMap.activeCustomerPhones.get(cleanPhone) || (cleanPhone.length >= 9 ? customerCourseMap.activeCustomerPhones.get(cleanPhone.slice(-9)) : 0))) || 0;
+      if (count > 0) {
+        result.push({ ...cust, remainCourseCount: count });
+      }
+    }
+    return result;
+  }, [customers, customerCourseMap]);
 
   // Handle select / unselect course
   const toggleSelectCourse = (courseId) => {

@@ -2060,6 +2060,19 @@ export default function App() {
     return s;
   }, [customersRaw]);
 
+  // 🌟 Customer map by clean phone for instant O(1) photo & profile lookups across tables/queues
+  const customerMapByPhone = useMemo(() => {
+    const m = new Map();
+    customersRaw.forEach(cu => {
+      const p = String(getFuzzyKey(cu, ["เบอร์โทร", "col_3", "phone", "cleanPhone"]) || cu.phone || cu.tel || '').replace(/\D/g, '');
+      if (p && p.length >= 8) {
+        m.set(p, cu);
+        if (p.length >= 9) m.set(p.slice(-9), cu);
+      }
+    });
+    return m;
+  }, [customersRaw]);
+
   const processedCourses = useMemo(() => {
     if (loginGate || courses.length === 0) return [];
     const consumedHistoryIds = new Set();
@@ -8041,6 +8054,17 @@ const flexMessage = {
                     for (let i = 0; i < startDayOfWeek; i++) days.push(null);
                     for (let i = 1; i <= daysInMonth; i++) days.push(new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth(), i));
 
+                    // 🌟 Pre-index bookings by date for O(1) calendar cell lookups (eliminates 42 full-array scans)
+                    const bookingsByDateMap = new Map();
+                    sortedBookings.forEach(b => {
+                        const dt = getSafeDateTime(b);
+                        if (dt) {
+                            const dStr = dt.slice(0, 10);
+                            if (!bookingsByDateMap.has(dStr)) bookingsByDateMap.set(dStr, []);
+                            bookingsByDateMap.get(dStr).push(b);
+                        }
+                    });
+
                     return (
                     <div className="bg-white border border-gray-200 rounded-3xl p-4 sm:p-6 shadow-sm overflow-hidden mt-4 pb-10">
                         <div className="flex justify-between items-center mb-6">
@@ -8055,7 +8079,7 @@ const flexMessage = {
                             {days.map((d, i) => {
                                 if(!d) return <div key={i} className="h-24 sm:h-32 bg-gray-50/50 rounded-xl border border-gray-50 border-dashed"></div>;
                                 const dStr = getLocalYYYYMMDD(d);
-                                const dayBookings = sortedBookings.filter(b => { const dt = getSafeDateTime(b); return dt && dt.startsWith(dStr); });
+                                const dayBookings = bookingsByDateMap.get(dStr) || [];
                                 const isToday = dStr === getLocalYYYYMMDD();
                                 const isHoliday = storeHolidays.some(h => h.id === dStr);
                                 let dayNewCount = 0;
@@ -8141,7 +8165,7 @@ const flexMessage = {
                                            }
                                            
                                            const isRightSide = st === 'เสร็จสิ้น' || st === 'ยกเลิก';
-                                           const picData = getProfilePicData(b, customersRaw);
+                                           const picData = getProfilePicData(b, customerMapByPhone);
                                            
                                            let timeDiffStr = '';
                                            let timeDiffColor = '';
@@ -8412,7 +8436,7 @@ const flexMessage = {
                             const dtSafe = getSafeDateTime(b);
                             
                             const isPast = dtSafe ? new Date(dtSafe) < new Date() && st !== 'เสร็จสิ้น' && st !== 'ยกเลิก' : false;
-                            const picData = getProfilePicData(b, customersRaw);
+                            const picData = getProfilePicData(b, customerMapByPhone);
                             
                             let timeDiffStr = '';
                             let timeDiffColor = '';
@@ -8686,7 +8710,7 @@ const flexMessage = {
                   const st = getOrderStatus(o);
                   // 🌟 สถานะดิบจริงจากเอกสาร — ใช้เป็นค่าของ dropdown เพื่อไม่เขียนทับสถานะรวยๆ (เช่น 'รอชำระที่สาขา (สาขาเฉวง)') โดยไม่ตั้งใจ
                   const rawSt = String(getFuzzyKey(o, ["status", "สถานะ"]) || '').trim() || 'รออนุมัติ';
-                  const picData = getProfilePicData({customerPhone: o.customerPhone}, customersRaw);
+                  const picData = getProfilePicData({customerPhone: o.customerPhone}, customerMapByPhone);
                   return (
                   <div key={idx} className={`bg-white border ${st === 'รออนุมัติ' ? 'border-amber-200 shadow-amber-100/50' : st === 'อนุมัติแล้ว' ? 'border-emerald-200 shadow-emerald-100/50' : 'border-red-200 shadow-red-100/50'} rounded-xl shadow-sm hover:shadow-md transition-all flex cursor-pointer relative overflow-hidden group`} onClick={() => setOrderTicket(o)}>
                      <div className={`absolute top-0 left-0 w-2 h-full ${st === 'รออนุมัติ' ? 'bg-amber-400' : st === 'อนุมัติแล้ว' ? 'bg-emerald-400' : 'bg-red-400'}`}></div>
@@ -9195,7 +9219,7 @@ const flexMessage = {
                   const isClosed = course.isClosed || course.computedStatus === 'ปิดคอร์สแล้ว';
                   const isCompleted = course.computedStatus === 'ใช้ครบแล้ว';
                   const courseCustomerPhone = String(getFuzzyKey(course, ["เบอร์โทร", "col_1"]) || '');
-                  const picData = getProfilePicData({customerPhone: courseCustomerPhone}, customersRaw);
+                  const picData = getProfilePicData({customerPhone: courseCustomerPhone}, customerMapByPhone);
                   return (
                     <div key={idx} className={`bg-white border-2 ${isClosed ? 'border-rose-100 bg-rose-50/10' : isPendingPayment ? 'border-red-100 shadow-red-100/50' : 'border-gray-100'} rounded-[24px] p-5 shadow-sm hover:shadow-lg transition-all cursor-pointer relative overflow-hidden group flex flex-col`} onClick={() => setSelectedCourse(course)}>
                        <div className={`absolute top-0 left-0 w-1.5 h-full ${isClosed ? 'bg-gradient-to-b from-rose-600 to-red-700' : isPendingPayment ? 'bg-red-400' : course.computedStatus === 'ยังคงเหลือ' ? 'bg-gradient-to-b from-teal-400 to-emerald-500' : course.computedStatus === 'หมดอายุ' ? 'bg-gradient-to-b from-rose-400 to-red-500' : 'bg-gray-300'}`}></div>
@@ -10532,7 +10556,7 @@ const flexMessage = {
                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
                       {(() => {
                           const courseCustomerPhone = String(getFuzzyKey(selectedCourse, ["เบอร์โทร", "col_1"]) || '');
-                          const picData = getProfilePicData({customerPhone: courseCustomerPhone}, customersRaw);
+                          const picData = getProfilePicData({customerPhone: courseCustomerPhone}, customerMapByPhone);
                           return (
                               <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 shrink-0 overflow-hidden border border-gray-200">
                                   {picData ? <img src={picData.primary} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" onError={(e) => handleProfileImgError(e, picData.fallback, 'block')} /> : null}

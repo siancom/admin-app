@@ -390,14 +390,17 @@ export default function SmartQueueCheckInModal({
 
   if (!isOpen) return null;
 
-  // Filter available customer courses
+  // Filter available customer courses (Memoized for high performance)
   const customerPhoneClean = selectedBooking ? String(selectedBooking.customerPhone || '').replace(/\D/g, '') : '';
-  const customerAvailableCourses = courses.filter(c => {
-    const cPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').replace(/\D/g, '');
-    const remainQty = Number(c.computedRemainQty ?? getFuzzyKey(c, ["ครั้งที่เหลือดิบ", "col_33", "col_4"]) ?? 1);
-    const remainCredit = Number(c.computedRemainCredit ?? getFuzzyKey(c, ["เครดิตที่ได้รับ", "col_14"]) ?? 0);
-    return cPhone && customerPhoneClean && (cPhone === customerPhoneClean || cPhone.endsWith(customerPhoneClean) || customerPhoneClean.endsWith(cPhone)) && (remainQty > 0 || remainCredit > 0);
-  });
+  const customerAvailableCourses = useMemo(() => {
+    if (!customerPhoneClean) return [];
+    return (courses || []).filter(c => {
+      const cPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_1"]) || '').replace(/\D/g, '');
+      const remainQty = Number(c.computedRemainQty ?? getFuzzyKey(c, ["ครั้งที่เหลือดิบ", "col_33", "col_4"]) ?? 1);
+      const remainCredit = Number(c.computedRemainCredit ?? getFuzzyKey(c, ["เครดิตที่ได้รับ", "col_14"]) ?? 0);
+      return cPhone && (cPhone === customerPhoneClean || cPhone.endsWith(customerPhoneClean) || customerPhoneClean.endsWith(cPhone)) && (remainQty > 0 || remainCredit > 0);
+    });
+  }, [courses, customerPhoneClean]);
 
   const isLineBooking = Boolean(
     selectedBooking?.lineUid || 

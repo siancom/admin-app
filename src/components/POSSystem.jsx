@@ -5059,185 +5059,8 @@ export default function POSSystem({
         });
       }
 
-      await batch.commit();
-
-      // 🌟 ปิดบิล Woo อัตโนมัติ: ออเดอร์แอปที่ถูกสร้างบน irisnatures.com (มี wcOrderId บน OD)
-      // → เมื่อ POS เก็บเงินเสร็จ (stamp ชำระเงินแล้ว) ให้ completed บนเว็บด้วย กัน POS ดึงซ้ำ/ค้างสถานะ processing
-      if (activeCustomerAppOrderIds.length > 0) {
-        (async () => {
-          for (const oid of activeCustomerAppOrderIds) {
-            try {
-              const od = orders.find(o => o.id === oid);
-              if (od && od.wcOrderId) {
-                await fetchWithProxy(`https://irisnatures.com/wp-json/wc/v3/orders/${od.wcOrderId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'completed' }) }, true);
-                console.log(`✅ Woo order #${od.wcOrderId} completed (ออเดอร์แอป ${od.orderNo} ปิดบิลแล้ว)`);
-              }
-            } catch (e) { console.error(`Failed to complete Woo order for ${oid}:`, e); }
-          }
-        })();
-      }
-
-      // 📮 ถ้ากรอกเลขพัสดุตอนชำระ → ลงทะเบียน 17TRACK + ดึงสถานะเก็บลงบิลทันที (เบื้องหลัง)
+      // 🌟 Optimistic UI: ดึงข้อมูลลายเซ็นและคำนวณใบเสร็จทันที เพื่อให้แสดงหน้าใบเสร็จและเคลียร์ตะกร้าใน 0.05 วินาที (ไม่บล็อกรอเน็ตเวิร์ก)
       const posTrackingClean = posTrackingNo.trim();
-      if (posTrackingClean) {
-        (async () => {
-          try {
-            try { await fetch17Track('https://api.17track.net/track/v2.2/register', [{ number: posTrackingClean }]); } catch (e) {}
-            const json = await fetch17Track('https://api.17track.net/track/v2.2/gettrackinfo', [{ number: posTrackingClean }]);
-            const acc = json?.data?.accepted?.[0];
-            const ti = acc?.track_info || null;
-            const allEvents = (ti?.tracking?.providers || []).flatMap(p => p?.events || []);
-            const lastEv = ti?.latest_event || allEvents[allEvents.length - 1] || null;
-            const normPhase = (s) => { const x = String(s || 'Pending'); return (x.charAt(0).toLowerCase() + x.slice(1)).replace(/_([a-zA-Z])/g, (m, c) => c.toUpperCase()); };
-            await updateDoc(orderRef, { trackingInfo: {
-              number: posTrackingClean,
-              carrier: acc?.carrier ? String(acc.carrier) : '',
-              phase: normPhase(ti?.latest_status?.status),
-              lastEvent: lastEv ? { time: lastEv.time_iso || '', desc: lastEv.description || '', location: lastEv.location || '' } : null,
-              events: allEvents.slice(-8).reverse().map(e => ({ time: e.time_iso || '', desc: e.description || '', location: e.location || '' })),
-              fetchedAt: new Date().toISOString()
-            }});
-            console.log(`✅ 17TRACK พร้อมสำหรับ ${orderNo} (${posTrackingClean})`);
-          } catch (e) { console.error('17TRACK at checkout failed:', e); }
-        })();
-      }
-
-      // --- Background: Upload Heavy Images ---
-      if (delayedHistoryUpdates.length > 0) {
-        (async () => {
-            try {
-                const imgBatch = writeBatch(db);
-                delayedHistoryUpdates.forEach(update => {
-                    imgBatch.update(update.ref, update.data);
-                });
-                await imgBatch.commit();
-            } catch (err) {
-                console.error('Failed to upload heavy images in background:', err);
-            }
-        })();
-      }
-
-      // --- Auto-complete Active Queue (non-blocking: runs after commit) ---
-      const custPhoneForQueue = cPhone;
-      const targetBkId = activeBookingId;
-      if (custPhoneForQueue || targetBkId) {
-        (async () => {
-          try {
-            const nowIso = new Date().toISOString();
-            const nowTimeStr = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
-            
-            // Explicit target booking from queue card/check-in
-            if (targetBkId) {
-              try {
-                await updateDoc(doc(db, 'bookings', targetBkId), {
-                  status: 'เสร็จสิ้น',
-                  completedAt: nowIso,
-                  serviceEndTime: nowTimeStr,
-                  posReceiptNo: orderNo || null
-                });
-              } catch (errBk) {
-                console.warn('Failed to update explicit booking:', errBk);
-              }
-            }
-
-            // Customer phone active bookings
-            if (custPhoneForQueue) {
-              const qBk = query(
-                collection(db, 'bookings'),
-                where('customerPhone', '==', custPhoneForQueue),
-                where('status', '==', 'กำลังใช้บริการ')
-              );
-              const snapBk = await getDocs(qBk);
-              if (!snapBk.empty) {
-                const queueBatch = writeBatch(db);
-                snapBk.forEach(docSnap => {
-                  queueBatch.update(docSnap.ref, { 
-                    status: 'เสร็จสิ้น', 
-                    completedAt: nowIso,
-                    serviceEndTime: nowTimeStr,
-                    posReceiptNo: orderNo || null
-                  });
-                });
-                await queueBatch.commit();
-              }
-            }
-          } catch (e) {
-            console.error('Error auto-completing queue:', e);
-          }
-        })();
-      }
-      
-      if (appliedVoucherId) {
-        updateDoc(doc(db, 'coupons', appliedVoucherId), { isUsed: true, usedAt: new Date().toISOString() })
-          .catch(e => console.error("Failed to mark voucher used", e));
-      }
-
-      // 🌟 สิทธิพิเศษ CRM: มอบคูปอง CRM20 & BOOK10 ให้ลูกค้าในระบบอัตโนมัติ เพื่อดึงกลับมาซื้อซ้ำ/จองออนไลน์ 🌟
-      if (selectedCustomer?.id && !selectedCustomer.isWalkIn && !selectedCustomer.id.startsWith('walkin-')) {
-        updateDoc(doc(db, 'customers', selectedCustomer.id), {
-          collectedCoupons: arrayUnion('CRM20', 'BOOK10')
-        }).catch(e => console.error("Failed to auto-grant CRM coupons:", e));
-      }
-
-      if (isOwnerDirectUsage) {
-        showToast('✨ บันทึกการใช้คอส (เช็คเบื้องต้น) เรียบร้อยแล้ว!', 'success');
-      } else {
-        showToast('ชำระเงินสำเร็จ!', 'success');
-      }
-      
-      // 🌟 อัปเดตสถานะคอร์สที่กำลังให้บริการ ให้เปลี่ยนเป็น "เรียบร้อย" เมื่อจ่ายเงินครบ 🌟
-      try {
-        const updatedServices = { ...activeServiceCourses };
-        usageItemsInCart.forEach(ci => {
-          updatedServices[ci.id] = {
-            status: 'เรียบร้อย',
-            completedAt: Date.now()
-          };
-        });
-        saveActiveServiceCourses(updatedServices);
-      } catch (err) {
-        console.warn('Error updating completed active service state:', err);
-      }
-
-      // 🌟 อัปเดตสถานะคิวใน active_services Firestore ให้เปลี่ยนเป็น "เรียบร้อย" เมื่อตัดยอด/จ่ายเงินสำเร็จ
-      (async () => {
-        try {
-          const snap = await getDocs(query(collection(db, 'active_services'), where('status', 'in', ['รอรับบริการ', 'กำลังให้บริการ'])));
-          const b = writeBatch(db);
-          let hasAny = false;
-          snap.forEach(docSnap => {
-            const data = docSnap.data();
-            const isMatch = usageItemsInCart.some(ci => 
-              data.courseId === ci.id || 
-              data.courseDocId === ci.id || 
-              (Array.isArray(data.courses) && data.courses.some(sc => sc.id === ci.id)) ||
-              (data.customerPhone && ci.originalItem && String(getFuzzyKey(ci.originalItem, ["เบอร์โทร", "col_1"])).trim() === String(data.customerPhone).trim())
-            );
-            if (isMatch) {
-              b.update(docSnap.ref, {
-                status: 'เรียบร้อย',
-                completedAt: new Date().toISOString()
-              });
-              hasAny = true;
-            }
-          });
-          if (hasAny) await b.commit();
-        } catch (e) {
-          console.warn('Error completing active_services from POS:', e);
-        }
-      })();
-
-      setShowPaymentModal(false);
-      setSelectedBed('');
-
-      // Save data for receipt modal instead of clearing everything immediately
-      const todayStr = getLocalYYYYMMDD(customDateObj);
-      const normCurrentBranch = normalizeBranchName(globalBranch || "เฉวง");
-      const todayBranchOrders = orders.filter(o => 
-         o.createdAt && getLocalYYYYMMDD(o.createdAt) === todayStr && normalizeBranchName(o.branch || "เฉวง") === normCurrentBranch
-      );
-      // Include this current order in the count by adding 1
-      const queueNo = String(todayBranchOrders.length + 1).padStart(3, '0');
 
       // Read signatures here (only for receipt display — NOT stored in Firestore batch)
       const custSignatureUrl = custSigRef.current?.toDataURL() || customerSignature || null;
@@ -5255,6 +5078,15 @@ export default function POSSystem({
       }
       setCustomerSignature(null);
       setStaffSignature(null);
+
+      // Save data for receipt modal instead of clearing everything immediately
+      const todayStr = getLocalYYYYMMDD(customDateObj);
+      const normCurrentBranch = normalizeBranchName(globalBranch || "เฉวง");
+      const todayBranchOrders = orders.filter(o => 
+         o.createdAt && getLocalYYYYMMDD(o.createdAt) === todayStr && normalizeBranchName(o.branch || "เฉวง") === normCurrentBranch
+      );
+      // Include this current order in the count by adding 1
+      const queueNo = String(todayBranchOrders.length + 1).padStart(3, '0');
 
       setReceiptData({
         orderNo,
@@ -5291,6 +5123,24 @@ export default function POSSystem({
         staffSignature: staffSignatureUrl,
         usedServices: usedServices.map(s => getFuzzyKey(s, ["ชื่อคอส", "col_4"]))
       });
+
+      // 🌟 อัปเดตสถานะคอร์สที่กำลังให้บริการ ให้เปลี่ยนเป็น "เรียบร้อย" ใน State ทันที 🌟
+      try {
+        const updatedServices = { ...activeServiceCourses };
+        usageItemsInCart.forEach(ci => {
+          updatedServices[ci.id] = {
+            status: 'เรียบร้อย',
+            completedAt: Date.now()
+          };
+        });
+        saveActiveServiceCourses(updatedServices);
+      } catch (err) {
+        console.warn('Error updating completed active service state:', err);
+      }
+
+      // Close modal and reset POS UI instantly (Optimistic UI - 0ms perceived lag)
+      setShowPaymentModal(false);
+      setSelectedBed('');
       setCart([]);
       setUsedServices([]);
       setSelectedHandFees([]);
@@ -5320,25 +5170,177 @@ export default function POSSystem({
       setIsMobileCartOpen(false); // Close cart immediately so receipt shows properly
       setActiveTab('products'); // 🌟 ชำระเงินเสร็จให้กลับมาหน้าขายครีมทุกครั้ง
 
+      if (isOwnerDirectUsage) {
+        showToast('✨ บันทึกการใช้คอส (เช็คเบื้องต้น) เรียบร้อยแล้ว!', 'success');
+      } else {
+        showToast('⚡ ชำระเงินสำเร็จ!', 'success');
+      }
+
       // If autoPrint is enabled — open preview immediately so print fires without user action (desktop only, no mobile freezing)
       const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       if (autoPrint && !isMobile) {
         setPrintMode('receipt');
         setShowPreviewModal(true);
       }
-      
-      // Send LINE Flex Message Notification for POS Checkout
-      if (selectedCustomer && selectedCustomer.lineUid && !isRequisitionMode && !isStoreUseTransaction) {
-          const receiptForLine = {
-             receiptNo: orderNo,
-             items: cart,
-             totalAmount: subtotal,
-             discount: totalSaved,
-             finalAmount: total
-          };
-          sendPOSCheckoutNotification(receiptForLine, selectedCustomer.lineUid)
+
+      const lineTargetUid = (selectedCustomer && selectedCustomer.lineUid && !isRequisitionMode && !isStoreUseTransaction) ? selectedCustomer.lineUid : null;
+      const receiptForLine = lineTargetUid ? {
+        receiptNo: orderNo,
+        items: effectiveCart,
+        totalAmount: subtotal,
+        discount: totalSaved,
+        finalAmount: total
+      } : null;
+
+      // 🚀 Asynchronous Background Commit & Sync (รันเบื้องหลัง ไม่บล็อกหน้าจอ POS)
+      (async () => {
+        try {
+          await batch.commit();
+
+          // 🌟 ปิดบิล Woo อัตโนมัติ: ออเดอร์แอปที่ถูกสร้างบน irisnatures.com (มี wcOrderId บน OD)
+          if (activeCustomerAppOrderIds.length > 0) {
+            for (const oid of activeCustomerAppOrderIds) {
+              try {
+                const od = orders.find(o => o.id === oid);
+                if (od && od.wcOrderId) {
+                  await fetchWithProxy(`https://irisnatures.com/wp-json/wc/v3/orders/${od.wcOrderId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'completed' }) }, true);
+                  console.log(`✅ Woo order #${od.wcOrderId} completed (ออเดอร์แอป ${od.orderNo} ปิดบิลแล้ว)`);
+                }
+              } catch (e) { console.error(`Failed to complete Woo order for ${oid}:`, e); }
+            }
+          }
+
+          // 📮 ถ้ากรอกเลขพัสดุตอนชำระ → ลงทะเบียน 17TRACK + ดึงสถานะเก็บลงบิลทันที (เบื้องหลัง)
+          if (posTrackingClean) {
+            try {
+              try { await fetch17Track('https://api.17track.net/track/v2.2/register', [{ number: posTrackingClean }]); } catch (e) {}
+              const json = await fetch17Track('https://api.17track.net/track/v2.2/gettrackinfo', [{ number: posTrackingClean }]);
+              const acc = json?.data?.accepted?.[0];
+              const ti = acc?.track_info || null;
+              const allEvents = (ti?.tracking?.providers || []).flatMap(p => p?.events || []);
+              const lastEv = ti?.latest_event || allEvents[allEvents.length - 1] || null;
+              const normPhase = (s) => { const x = String(s || 'Pending'); return (x.charAt(0).toLowerCase() + x.slice(1)).replace(/_([a-zA-Z])/g, (m, c) => c.toUpperCase()); };
+              await updateDoc(orderRef, { trackingInfo: {
+                number: posTrackingClean,
+                carrier: acc?.carrier ? String(acc.carrier) : '',
+                phase: normPhase(ti?.latest_status?.status),
+                lastEvent: lastEv ? { time: lastEv.time_iso || '', desc: lastEv.description || '', location: lastEv.location || '' } : null,
+                events: allEvents.slice(-8).reverse().map(e => ({ time: e.time_iso || '', desc: e.description || '', location: e.location || '' })),
+                fetchedAt: new Date().toISOString()
+              }});
+              console.log(`✅ 17TRACK พร้อมสำหรับ ${orderNo} (${posTrackingClean})`);
+            } catch (e) { console.error('17TRACK at checkout failed:', e); }
+          }
+
+          // --- Background: Upload Heavy Images ---
+          if (delayedHistoryUpdates.length > 0) {
+            try {
+              const imgBatch = writeBatch(db);
+              delayedHistoryUpdates.forEach(update => {
+                imgBatch.update(update.ref, update.data);
+              });
+              await imgBatch.commit();
+            } catch (err) {
+              console.error('Failed to upload heavy images in background:', err);
+            }
+          }
+
+          // --- Auto-complete Active Queue (non-blocking: runs after commit) ---
+          const custPhoneForQueue = cPhone;
+          const targetBkId = activeBookingId;
+          if (custPhoneForQueue || targetBkId) {
+            try {
+              const nowIso = new Date().toISOString();
+              const nowTimeStr = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+              
+              // Explicit target booking from queue card/check-in
+              if (targetBkId) {
+                try {
+                  await updateDoc(doc(db, 'bookings', targetBkId), {
+                    status: 'เสร็จสิ้น',
+                    completedAt: nowIso,
+                    serviceEndTime: nowTimeStr,
+                    posReceiptNo: orderNo || null
+                  });
+                } catch (errBk) {
+                  console.warn('Failed to update explicit booking:', errBk);
+                }
+              }
+
+              // Customer phone active bookings
+              if (custPhoneForQueue) {
+                const qBk = query(
+                  collection(db, 'bookings'),
+                  where('customerPhone', '==', custPhoneForQueue),
+                  where('status', '==', 'กำลังใช้บริการ')
+                );
+                const snapBk = await getDocs(qBk);
+                if (!snapBk.empty) {
+                  const queueBatch = writeBatch(db);
+                  snapBk.forEach(docSnap => {
+                    queueBatch.update(docSnap.ref, { 
+                      status: 'เสร็จสิ้น', 
+                      completedAt: nowIso,
+                      serviceEndTime: nowTimeStr,
+                      posReceiptNo: orderNo || null
+                    });
+                  });
+                  await queueBatch.commit();
+                }
+              }
+            } catch (e) {
+              console.error('Error auto-completing queue:', e);
+            }
+          }
+          
+          if (appliedVoucherId) {
+            updateDoc(doc(db, 'coupons', appliedVoucherId), { isUsed: true, usedAt: new Date().toISOString() })
+              .catch(e => console.error("Failed to mark voucher used", e));
+          }
+
+          // 🌟 สิทธิพิเศษ CRM: มอบคูปอง CRM20 & BOOK10 ให้ลูกค้าในระบบอัตโนมัติ เพื่อดึงกลับมาซื้อซ้ำ/จองออนไลน์ 🌟
+          if (selectedCustomer?.id && !selectedCustomer.isWalkIn && !selectedCustomer.id.startsWith('walkin-')) {
+            updateDoc(doc(db, 'customers', selectedCustomer.id), {
+              collectedCoupons: arrayUnion('CRM20', 'BOOK10')
+            }).catch(e => console.error("Failed to auto-grant CRM coupons:", e));
+          }
+
+          // 🌟 อัปเดตสถานะคิวใน active_services Firestore ให้เปลี่ยนเป็น "เรียบร้อย" เมื่อตัดยอด/จ่ายเงินสำเร็จ
+          try {
+            const snap = await getDocs(query(collection(db, 'active_services'), where('status', 'in', ['รอรับบริการ', 'กำลังให้บริการ'])));
+            const b = writeBatch(db);
+            let hasAny = false;
+            snap.forEach(docSnap => {
+              const data = docSnap.data();
+              const isMatch = usageItemsInCart.some(ci => 
+                data.courseId === ci.id || 
+                data.courseDocId === ci.id || 
+                (Array.isArray(data.courses) && data.courses.some(sc => sc.id === ci.id)) ||
+                (data.customerPhone && ci.originalItem && String(getFuzzyKey(ci.originalItem, ["เบอร์โทร", "col_1"])).trim() === String(data.customerPhone).trim())
+              );
+              if (isMatch) {
+                b.update(docSnap.ref, {
+                  status: 'เรียบร้อย',
+                  completedAt: new Date().toISOString()
+                });
+                hasAny = true;
+              }
+            });
+            if (hasAny) await b.commit();
+          } catch (e) {
+            console.warn('Error completing active_services from POS:', e);
+          }
+
+          // Send LINE Flex Message Notification for POS Checkout
+          if (lineTargetUid && receiptForLine) {
+            sendPOSCheckoutNotification(receiptForLine, lineTargetUid)
               .catch(e => console.warn('POS Line notification failed:', e.message));
-      }
+          }
+        } catch (commitError) {
+          console.error("Async POS Commit failed:", commitError);
+          showToast(`⚠️ เกิดข้อผิดพลาดในการบันทึกข้อมูล: ${commitError.message}`, 'error');
+        }
+      })();
 
     } catch (error) {
       console.error(error);
