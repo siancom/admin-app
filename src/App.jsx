@@ -10104,8 +10104,10 @@ const flexMessage = {
                histories={histories}
                serviceLogs={serviceLogs}
                advancePayments={advancePayments}
-               courses={courses}
+               courses={processedCourses || courses}
                attendance={employeeAttendance}
+               leaves={employeeLeaves}
+               masterCourses={masterCourses}
             />
           )}
 

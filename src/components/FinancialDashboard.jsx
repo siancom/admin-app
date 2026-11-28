@@ -195,7 +195,7 @@ const DonutChart = ({ data, size = 160, strokeWidth = 24 }) => {
   );
 };
 
-export default function FinancialDashboard({ orders = [], dailySales = [], appSettings = {}, branches = [], expenses = [], employees = [], histories = [], serviceLogs = [], advancePayments = [], courses = [], attendance = [] }) {
+export default function FinancialDashboard({ orders = [], dailySales = [], appSettings = {}, branches = [], expenses = [], employees = [], histories = [], serviceLogs = [], advancePayments = [], courses = [], attendance = [], leaves = [], masterCourses = [] }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [filterDate, setFilterDate] = useState(getLocalDateStr());
   const [filterMode, setFilterMode] = useState('day'); // 'day' or 'month'
@@ -244,7 +244,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
   const [previewImage, setPreviewImage] = useState(null);
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [selectedPaymentCourse, setSelectedPaymentCourse] = useState(null);
-  const [expenseForm, setExpenseForm] = useState({ date: getLocalDateStr(), category: 'เงินเดือนพนักงาน', amount: '', note: '', branch: 'สำนักงานใหญ่', status: 'จ่ายแล้ว', receiptFile: null, receiptPreview: null });
+  const [expenseForm, setExpenseForm] = useState({ date: getLocalDateStr(), category: 'เงินเดือนพนักงาน', amount: '', note: '', branch: 'ทั้งหมด', status: 'จ่ายแล้ว', receiptFile: null, receiptPreview: null });
   const [treasuryForm, setTreasuryForm] = useState({ amount: '', category: 'เงินทุนตั้งต้น', date: getLocalDateStr(), note: '', branch: 'สำนักงานใหญ่', bankName: '', bankAccountName: '' });
   const [showTreasuryHistory, setShowTreasuryHistory] = useState(null);
   const [isTreasurySummaryOpen, setIsTreasurySummaryOpen] = useState(false);
@@ -869,6 +869,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
      let totalComm = 0;
      let totalService = 0;
      let totalAdv = 0;
+     let totalDebt = 0;
      let totalNet = 0;
 
      // Filter employees by branch
@@ -885,7 +886,11 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
            histories,
            serviceLogs,
            advancePayments,
-           attendance
+           attendance,
+           leaves,
+           masterCourses,
+           courses,
+           orders
         });
         totalBase += p.baseSalary;
         totalComm += p.totalCommission;
@@ -893,6 +898,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
         totalFood += p.totalFoodAllowance;
         totalDiligence += p.diligenceAllowance;
         totalAdv += p.totalAdvances;
+        totalDebt += (p.totalPendingDebt || 0);
         totalNet += p.totalIncome;
      });
 
@@ -905,10 +911,11 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
         totalFood, 
         totalDiligence,
         totalAdv, 
+        totalDebt,
         totalNet, 
         branchEmployees 
      };
-  }, [expenseForm.category, expenseForm.date, expenseForm.branch, employees, histories, serviceLogs, advancePayments, attendance]);
+  }, [expenseForm.category, expenseForm.date, expenseForm.branch, employees, histories, serviceLogs, advancePayments, attendance, leaves, masterCourses, courses, orders]);
 
   const handleAutoSalary = (emp) => {
     if (expenseForm.category !== 'เงินเดือนพนักงาน') {
@@ -923,10 +930,25 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
       histories,
       serviceLogs,
       advancePayments,
-      attendance
+      attendance,
+      leaves,
+      masterCourses,
+      courses,
+      orders
     });
     
-    const debugLog = `ฐาน ${p.baseSalary}, คอม ${Number(p.totalCommission || 0).toFixed(2)}, มือ ${p.totalServiceFees}, อาหาร ${p.totalFoodAllowance}, เบี้ยขยัน ${p.diligenceAllowance}, หักเบิก ${p.totalAdvances}`;
+    const parts = [
+      `ฐาน ฿${p.baseSalary.toLocaleString()}`,
+      `คอม ฿${Number(p.totalCommission || 0).toLocaleString()}`,
+      `ค่ามือ ฿${p.totalServiceFees.toLocaleString()}`,
+      `อาหาร ฿${p.totalFoodAllowance.toLocaleString()}`,
+      `เบี้ยขยัน ฿${p.diligenceAllowance.toLocaleString()}`,
+      `หักเบิก -฿${p.totalAdvances.toLocaleString()}`
+    ];
+    if (p.totalPendingDebt > 0) {
+      parts.push(`หักค้างชำระ -฿${p.totalPendingDebt.toLocaleString()}`);
+    }
+    const debugLog = parts.join(', ');
     
     setExpenseForm({
        ...expenseForm, 
@@ -2505,7 +2527,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                     <div className="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100">
                       <label className="block text-xs font-bold text-slate-400 mb-1">สาขา</label>
                       <select value={expenseForm.branch} onChange={e => setExpenseForm({...expenseForm, branch: e.target.value})} className="w-full bg-transparent border-none outline-none font-bold text-slate-700 appearance-none cursor-pointer">
-                        {branchOptions.map(b => <option key={b} value={b === 'ทั้งหมด' ? 'สำนักงานใหญ่' : b}>{b === 'ทั้งหมด' ? 'สำนักงานใหญ่' : b}</option>)}
+                        {branchOptions.map(b => <option key={b} value={b}>{b}</option>)}
                       </select>
                     </div>
                  </div>
@@ -2567,6 +2589,12 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                            <span className="text-[10px] font-bold text-slate-500 mb-1">รวมเบิกเงินล่วงหน้า</span>
                            <span className="text-sm font-black text-rose-600">฿{payrollSummary.totalAdv.toLocaleString()}</span>
                          </div>
+                         {payrollSummary.totalDebt > 0 && (
+                           <div className="bg-rose-50/70 border border-rose-200 p-3 rounded-xl flex flex-col items-center justify-center text-center">
+                             <span className="text-[10px] font-bold text-rose-600 mb-1">รวมหักค้างชำระ</span>
+                             <span className="text-sm font-black text-rose-700">-฿{payrollSummary.totalDebt.toLocaleString()}</span>
+                           </div>
+                         )}
                          <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl flex flex-col items-center justify-center text-center col-span-2 lg:col-span-1">
                            <span className="text-[10px] font-bold text-emerald-600 mb-1">ยอดรวมที่ต้องจ่ายสุทธิ</span>
                            <span className="text-lg font-black text-emerald-700">฿{payrollSummary.totalNet.toLocaleString(undefined, {maximumFractionDigits:0})}</span>
@@ -2575,18 +2603,32 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                      </div>
                      
                      <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
-                       <label className="block text-xs font-bold text-indigo-600 mb-3 flex items-center gap-1"><Users size={14}/> ดึงเงินเดือนอัตโนมัติรายบุคคล (เฉพาะ {expenseForm.branch || 'ทั้งหมด'})</label>
+                       <label className="block text-xs font-bold text-indigo-600 mb-3 flex items-center gap-1"><Users size={14}/> ดึงเงินเดือนอัตโนมัติรายบุคคล (สาขา: {expenseForm.branch || 'ทั้งหมด'})</label>
                        <div className="flex flex-wrap gap-2">
-                           {payrollSummary.branchEmployees.map(emp => (
+                           {payrollSummary.branchEmployees.map(emp => {
+                               const p = calculateEmployeeMonthlyPayroll(emp, payrollSummary.monthPrefix, {
+                                  histories,
+                                  serviceLogs,
+                                  advancePayments,
+                                  attendance,
+                                  leaves,
+                                  masterCourses,
+                                  courses,
+                                  orders
+                               });
+                               return (
                                <button 
                                   key={emp.id}
                                   type="button"
                                   onClick={() => handleAutoSalary(emp)}
-                                  className="text-xs bg-white text-indigo-700 px-4 py-2 rounded-xl shadow-sm font-bold border border-indigo-200 hover:bg-indigo-600 hover:text-white transition-all active:scale-95"
+                                  className="text-xs bg-white text-indigo-700 px-3.5 py-2 rounded-xl shadow-sm font-bold border border-indigo-200 hover:bg-indigo-600 hover:text-white transition-all active:scale-95 flex items-center gap-2"
+                                  title={`คลิกเพื่อดึงยอดเงินเดือนของ ${emp.name} ประจำเดือน ${payrollSummary.monthPrefix}`}
                                >
-                                   {emp.name}
+                                   <span>{emp.name}</span>
+                                   <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800 font-mono font-bold">฿{p.totalIncome.toLocaleString()}</span>
                                </button>
-                           ))}
+                               );
+                           })}
                            {payrollSummary.branchEmployees.length === 0 && (
                                <span className="text-xs text-indigo-400">ไม่มีพนักงานในสาขานี้</span>
                            )}
