@@ -1849,6 +1849,10 @@ export default function App() {
         return {
           ...c,
           computedName: displayName || 'ลูกค้าทั่วไป (Walk-in)',
+          computedNickname: '',
+          membershipCardNo: '',
+          hasMemberCard: false,
+          hasAccumCard: false,
           computedPhone: '-',
           computedMemberStatus: 'ทั่วไป',
           computedIssue: '',
@@ -1936,6 +1940,25 @@ export default function App() {
       } else if (productAccumulatedAmount > 0 && productAccumulatedAmount < 5000 && ['ยังไม่สะสมยอด', 'ทั่วไป', ''].includes(memberStatus)) {
         memberStatus = 'สะสมยอด';
       }
+
+      // 🌟 ดึงชื่อเล่นลูกค้าอย่างชาญฉลาด (จากฟิลด์ nickname หรือในวงเล็บของชื่อ)
+      let rawNickname = String(c.nickname || getFuzzyKey(c, ["ชื่อเล่น", "nickname", "nickName", "col_nickname"]) || '').trim();
+      if (!rawNickname) {
+        const match = (displayName || posName).match(/\(([^)]+)\)/);
+        if (match && match[1]) {
+          const candidate = match[1].trim();
+          if (!['vip', 'member', 'walk-in', 'วอคอิน', 'เฉวง', 'ละไม', 'แม่น้ำ'].includes(candidate.toLowerCase())) {
+            rawNickname = candidate;
+          }
+        }
+      }
+
+      // 🌟 ดึงข้อมูลบัตรสะสมยอด / บัตรสมาชิก
+      const rawCardNo = String(c.membershipCardNo || c.memberCardNo || getFuzzyKey(c, ["หมายเลขใบสะสม", "เลขที่ใบสะสม", "บัตรสมาชิก", "เลขบัตรสมาชิก", "col_11"]) || '').trim();
+      const cardNo = (rawCardNo && rawCardNo !== '-' && rawCardNo !== '0') ? rawCardNo : '';
+      const hasMemberCard = Boolean(c.hasMemberCard || cardNo || c.memberCardPhotoUrl || c.memberCardPhotoPreview);
+      const isApprovedCustomer = !['ยังไม่สะสมยอด', 'ทั่วไป', 'สะสมยอด', 'รอบัตร'].includes(memberStatus) && memberStatus !== '';
+      const hasAccumCard = Boolean(cardNo || hasMemberCard || isApprovedCustomer || ['สะสมยอด', 'สมาชิกระดับ VIP', 'รอบัตร'].includes(memberStatus) || productAccumulatedAmount > 0 || totalAccumulated > 0);
       
       // 🌟 ดึงข้อมูลรูปภาพสำหรับ Customer
       const picData = getProfilePicData(c, null);
@@ -1944,6 +1967,11 @@ export default function App() {
       return { 
         ...c, 
         computedName: displayName, 
+        computedNickname: rawNickname,
+        nickname: rawNickname || c.nickname || '',
+        membershipCardNo: cardNo || c.membershipCardNo || '',
+        hasMemberCard,
+        hasAccumCard,
         computedPhone: String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone", "computedPhone"]) || ''), 
         computedMemberStatus: memberStatus, 
         computedIssue: String(getFuzzyKey(c, ["ปัญหาผิวหน้า", "col_8"]) || ''), 
@@ -1954,7 +1982,7 @@ export default function App() {
         productEarned,
         historySpent, 
         myHistories, 
-        isApproved: !['ยังไม่สะสมยอด', 'ทั่วไป', 'สะสมยอด', 'รอบัตร'].includes(memberStatus) && memberStatus !== '',
+        isApproved: isApprovedCustomer,
         hasMoleHistory: myHistories.some(isMoleHistoryRecord),
         profilePicData: picData,
         createdAtTimestamp
@@ -2985,13 +3013,25 @@ export default function App() {
 
   const filteredCustomers = useMemo(() => {
     return customers.filter(c => {
-      const matchSearch = `${c.computedName} ${c.computedPhone}`.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchStatus = filterCustomerStatus === 'all' || (filterCustomerStatus === 'อนุมัติแล้ว (Member)' ? c.isApproved : c.computedMemberStatus === filterCustomerStatus);
+      const nick = c.computedNickname ? ` ${c.computedNickname}` : '';
+      const card = c.membershipCardNo ? ` ${c.membershipCardNo}` : '';
+      const matchSearch = `${c.computedName}${nick}${card} ${c.computedPhone}`.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      let matchStatus = true;
+      if (filterCustomerStatus === 'all') {
+        matchStatus = true;
+      } else if (filterCustomerStatus === 'อนุมัติแล้ว (Member)') {
+        matchStatus = c.isApproved;
+      } else if (filterCustomerStatus === 'บัตรสะสมยอด' || filterCustomerStatus === 'has_card') {
+        matchStatus = Boolean(c.hasAccumCard);
+      } else {
+        matchStatus = c.computedMemberStatus === filterCustomerStatus;
+      }
       return matchSearch && matchStatus;
     }).sort((a, b) => {
       if (customerSortMode === 'cardNo') {
-        const cardB = parseNumber(String(getFuzzyKey(b, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), ''));
-        const cardA = parseNumber(String(getFuzzyKey(a, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), ''));
+        const cardB = parseNumber(String(b.membershipCardNo || getFuzzyKey(b, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), ''));
+        const cardA = parseNumber(String(a.membershipCardNo || getFuzzyKey(a, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), ''));
         return cardB - cardA;
       }
       if (customerSortMode === 'accumulated') {
@@ -3007,8 +3047,8 @@ export default function App() {
         if (timeA > 0 && timeB > 0) return timeB - timeA;
         return timeB > 0 ? 1 : -1;
       }
-      const cardB = parseNumber(String(getFuzzyKey(b, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), ''));
-      const cardA = parseNumber(String(getFuzzyKey(a, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), ''));
+      const cardB = parseNumber(String(b.membershipCardNo || getFuzzyKey(b, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), ''));
+      const cardA = parseNumber(String(a.membershipCardNo || getFuzzyKey(a, ["หมายเลขใบสะสม", "col_11"]) || '').replace(new RegExp('[^0-9]', 'g'), ''));
       return cardB - cardA;
     });
   }, [customers, searchTerm, filterCustomerStatus, customerSortMode]);
@@ -3017,17 +3057,29 @@ export default function App() {
   const customerSummaryStats = useMemo(() => {
     const validCustomers = customers.filter(c => !c.isWalkIn);
     const vipCount = validCustomers.filter(c => c.isApproved).length;
+    const cardCount = validCustomers.filter(c => c.hasAccumCard).length;
     const avgAccumulated = validCustomers.length > 0 ? Math.round(validCustomers.reduce((sum, c) => sum + (c.realAccumulatedAmount || 0), 0) / validCustomers.length) : 0;
     const totalCourses = processedCourses.reduce((sum, c) => sum + c.computedRemainQty, 0);
     const topSpender = validCustomers.length > 0 ? validCustomers.reduce((max, c) => (c.realAccumulatedAmount || 0) > (max.realAccumulatedAmount || 0) ? c : max, validCustomers[0]) : null;
-    return { total: validCustomers.length, vipCount, avgAccumulated, totalCourses, topSpender };
+    return { total: validCustomers.length, vipCount, cardCount, avgAccumulated, totalCourses, topSpender };
   }, [customers, processedCourses]);
 
   // 🌟 จัดอันดับลูกค้า (Rankings) 🌟
   const rankedCustomers = useMemo(() => {
     return customers.filter(c => {
-      const matchSearch = `${c.computedName} ${c.computedPhone}`.includes(searchTerm);
-      const matchStatus = filterCustomerStatus === 'all' || (filterCustomerStatus === 'อนุมัติแล้ว (Member)' ? c.isApproved : c.computedMemberStatus === filterCustomerStatus);
+      const nick = c.computedNickname ? ` ${c.computedNickname}` : '';
+      const card = c.membershipCardNo ? ` ${c.membershipCardNo}` : '';
+      const matchSearch = `${c.computedName}${nick}${card} ${c.computedPhone}`.toLowerCase().includes(searchTerm.toLowerCase());
+      let matchStatus = true;
+      if (filterCustomerStatus === 'all') {
+        matchStatus = true;
+      } else if (filterCustomerStatus === 'อนุมัติแล้ว (Member)') {
+        matchStatus = c.isApproved;
+      } else if (filterCustomerStatus === 'บัตรสะสมยอด' || filterCustomerStatus === 'has_card') {
+        matchStatus = Boolean(c.hasAccumCard);
+      } else {
+        matchStatus = c.computedMemberStatus === filterCustomerStatus;
+      }
       return matchSearch && matchStatus;
     }).map(c => {
       const custCourses = getCustomerCourses(c.computedPhone);
@@ -8954,22 +9006,69 @@ const flexMessage = {
             <div className="flex flex-col h-full space-y-4 max-w-7xl mx-auto">
               {/* 🌟 Summary Cards 🌟 */}
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
-                <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-3 sm:p-4 rounded-2xl shadow-md text-white hover:shadow-xl hover:-translate-y-1 transition-all">
+                <div 
+                  onClick={() => setFilterCustomerStatus('all')}
+                  className={`p-3 sm:p-4 rounded-2xl shadow-md cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all ${
+                    filterCustomerStatus === 'all'
+                      ? 'bg-gradient-to-br from-indigo-600 to-purple-700 text-white ring-2 ring-indigo-300'
+                      : 'bg-gradient-to-br from-indigo-600 to-purple-700 text-white opacity-90'
+                  }`}
+                >
                   <p className="text-[9px] sm:text-[10px] font-bold text-indigo-100 uppercase tracking-wider mb-0.5">ลูกค้าทั้งหมด</p>
                   <p className="text-xl sm:text-2xl font-black">{customerSummaryStats.total}</p>
                 </div>
-                <div onClick={() => setFilterCustomerStatus('อนุมัติแล้ว (Member)')} className="bg-gradient-to-br from-amber-500 to-orange-600 p-3 sm:p-4 rounded-2xl shadow-md text-white cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all">
+
+                <div 
+                  onClick={() => setFilterCustomerStatus(filterCustomerStatus === 'อนุมัติแล้ว (Member)' ? 'all' : 'อนุมัติแล้ว (Member)')} 
+                  className={`p-3 sm:p-4 rounded-2xl shadow-md cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all ${
+                    filterCustomerStatus === 'อนุมัติแล้ว (Member)'
+                      ? 'bg-gradient-to-br from-amber-500 to-orange-600 text-white ring-2 ring-orange-300'
+                      : 'bg-gradient-to-br from-amber-500 to-orange-600 text-white opacity-90'
+                  }`}
+                >
                   <p className="text-[9px] sm:text-[10px] font-bold text-amber-100 uppercase tracking-wider mb-0.5">⭐ VIP Member</p>
                   <p className="text-xl sm:text-2xl font-black">{customerSummaryStats.vipCount}</p>
                 </div>
-                <div className="bg-white p-3 sm:p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-                  <p className="text-[9px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">💵 ยอดสะสมเฉลี่ย</p>
-                  <p className="text-xl sm:text-2xl font-black text-emerald-600">฿{customerSummaryStats.avgAccumulated.toLocaleString()}</p>
+
+                {/* 📇 บัตรสะสมยอด (แทนที่ ยอดสะสมเฉลี่ย ตามที่ผู้ใช้สั่ง) */}
+                <div 
+                  onClick={() => setFilterCustomerStatus(filterCustomerStatus === 'บัตรสะสมยอด' ? 'all' : 'บัตรสะสมยอด')} 
+                  className={`p-3 sm:p-4 rounded-2xl shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer border ${
+                    filterCustomerStatus === 'บัตรสะสมยอด'
+                      ? 'bg-gradient-to-br from-teal-500 to-emerald-600 text-white border-teal-500 shadow-md ring-2 ring-teal-300'
+                      : 'bg-white border-gray-200 text-gray-800 hover:border-teal-400'
+                  }`}
+                  title="คลิกเพื่อดูบัตรสะสมยอดของลูกค้าทั้งหมด"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-wider mb-0.5 ${
+                      filterCustomerStatus === 'บัตรสะสมยอด' ? 'text-teal-100' : 'text-gray-400'
+                    }`}>
+                      📇 บัตรสะสมยอด
+                    </p>
+                    {filterCustomerStatus === 'บัตรสะสมยอด' && (
+                      <span className="text-[9px] bg-white/20 px-1.5 py-0.2 rounded-full text-white font-bold">กำลังดู</span>
+                    )}
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <p className={`text-xl sm:text-2xl font-black ${
+                      filterCustomerStatus === 'บัตรสะสมยอด' ? 'text-white' : 'text-teal-600'
+                    }`}>
+                      {customerSummaryStats.cardCount?.toLocaleString() || '0'}
+                    </p>
+                    <span className={`text-[10px] font-bold ${
+                      filterCustomerStatus === 'บัตรสะสมยอด' ? 'text-teal-100' : 'text-gray-400'
+                    }`}>
+                      ใบ
+                    </span>
+                  </div>
                 </div>
+
                 <div className="bg-white p-3 sm:p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
                   <p className="text-[9px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">📦 ครั้งคอร์สคงเหลือ</p>
                   <p className="text-xl sm:text-2xl font-black text-teal-600">{customerSummaryStats.totalCourses}</p>
                 </div>
+
                 {customerSummaryStats.topSpender && (
                   <div className="bg-white p-3 sm:p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow col-span-2 lg:col-span-1">
                     <p className="text-[9px] sm:text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">🏆 Top Spender</p>
@@ -8981,15 +9080,16 @@ const flexMessage = {
 
               {/* 🌟 Search + Filter + Toggle Bar 🌟 */}
               <div className="p-4 bg-white rounded-3xl shadow-sm border border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-                 <div className="flex items-center w-full max-w-md"><Search size={20} className="text-gray-400 ml-2" /><input type="text" placeholder="ค้นหาชื่อลูกค้า, เบอร์โทร..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full mx-2 outline-none text-sm" /></div>
+                 <div className="flex items-center w-full max-w-md"><Search size={20} className="text-gray-400 ml-2" /><input type="text" placeholder="ค้นหาชื่อลูกค้า, ชื่อเล่น, หมายเลขใบสะสม, เบอร์โทร..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full mx-2 outline-none text-sm" /></div>
                  <div className="flex gap-2 w-full sm:w-auto flex-wrap">
                     <div className="flex bg-gray-100 p-1 rounded-xl shrink-0">
                        <button onClick={() => setCustomerViewMode('grid')} className={`px-3 py-1.5 flex items-center text-xs font-bold rounded-lg transition-colors ${customerViewMode === 'grid' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><LayoutGrid size={14} className="mr-1"/> การ์ด</button>
                        <button onClick={() => setCustomerViewMode('ranking')} className={`px-3 py-1.5 flex items-center text-xs font-bold rounded-lg transition-colors ${customerViewMode === 'ranking' ? 'bg-white shadow-sm text-amber-600' : 'text-gray-500 hover:text-gray-700'}`}><Award size={14} className="mr-1"/> อันดับ</button>
                     </div>
                     <select value={filterCustomerStatus} onChange={(e) => setFilterCustomerStatus(e.target.value)} className="bg-gray-50 rounded-xl px-3 py-2 text-sm font-bold flex-1 sm:w-auto outline-none border border-gray-200">
-                      <option value="all">สมาชิกทั้งหมด</option>
-                      <option value="อนุมัติแล้ว (Member)">VIP (Member)</option>
+                      <option value="all">ลูกค้าทั้งหมด</option>
+                      <option value="บัตรสะสมยอด">📇 บัตรสะสมยอดทั้งหมด ({customerSummaryStats.cardCount})</option>
+                      <option value="อนุมัติแล้ว (Member)">⭐ VIP Member ({customerSummaryStats.vipCount})</option>
                       <option value="สะสมยอด">สะสมยอด</option>
                       <option value="ทั่วไป">ทั่วไป</option>
                     </select>
@@ -9017,8 +9117,13 @@ const flexMessage = {
                                <span className={customer.profilePicData ? "hidden" : "flex items-center justify-center w-full h-full"}>{String(customer.computedName || 'U')[0]}</span>
                             </div>
                             <div className="flex-1 min-w-0">
-                               <h4 className="font-black text-gray-900 text-sm truncate flex items-center gap-1">
+                               <h4 className="font-black text-gray-900 text-sm truncate flex items-center gap-1.5 flex-wrap">
                                    <span className="truncate">{customer.computedName}</span>
+                                   {customer.computedNickname && (
+                                       <span className="text-xs font-black text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded-md shrink-0">
+                                           ({customer.computedNickname})
+                                       </span>
+                                   )}
                                    {customer.lineUid && (
                                        <span className="text-[#06C755] shrink-0" title="เชื่อมต่อ LINE แล้ว">
                                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M24 10.304c0-5.369-5.383-9.738-12-9.738-6.616 0-12 4.369-12 9.738 0 4.814 4.269 8.846 10.036 9.608.391.084.922.258 1.057.592.122.295.079.756.039 1.066l-.172 1.028c-.05.293-.239 1.168 1.026.634 1.265-.534 6.817-4.01 9.324-6.883 1.83-2.096 2.69-4.041 2.69-6.045z"/></svg>
@@ -9043,6 +9148,12 @@ const flexMessage = {
                                  <div className={`text-[10px] px-2 py-1 rounded-md font-bold ${customer.isApproved ? 'bg-orange-50 text-orange-600' : 'bg-gray-100 text-gray-600'}`}>
                                     {customer.isApproved ? 'VIP Member' : customer.computedMemberStatus}
                                  </div>
+                                 {customer.membershipCardNo && (
+                                     <div className="text-[10px] px-2 py-0.5 rounded-md font-bold bg-amber-50 text-amber-700 border border-amber-200 flex items-center font-mono" title={`หมายเลขใบสะสม: ${customer.membershipCardNo}`}>
+                                         <Award size={10} className="mr-1 text-amber-500" />
+                                         {customer.membershipCardNo}
+                                     </div>
+                                 )}
                                  {customer.hasMoleHistory && (
                                      <div className="text-[10px] px-2 py-1 rounded-md font-bold bg-teal-50 text-teal-600 border border-teal-100 flex items-center">
                                          <Sparkles size={10} className="mr-1" /> จี้ไฝ
@@ -9051,8 +9162,23 @@ const flexMessage = {
                              </div>
                          </div>
                          <div className="pt-3 border-t border-gray-50 flex justify-between items-center pl-2 mt-auto">
-                            <p className="text-[10px] text-gray-400 font-bold uppercase">ยอดสะสมสุทธิ</p>
-                            <p className={`font-black text-lg ${customer.isApproved ? 'text-orange-600' : 'text-indigo-700'}`}>฿{customer.realAccumulatedAmount?.toLocaleString() || '0'}</p>
+                            <div>
+                              <p className="text-[10px] text-gray-400 font-bold uppercase">ยอดสะสมสุทธิ</p>
+                              <p className={`font-black text-lg ${customer.isApproved ? 'text-orange-600' : 'text-indigo-700'}`}>฿{customer.realAccumulatedAmount?.toLocaleString() || '0'}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedCustomer(customer);
+                                setIsPrintMode(true);
+                              }}
+                              className="text-[11px] font-bold px-2.5 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 transition-all flex items-center gap-1 active:scale-95 shadow-2xs"
+                              title="ดู / พิมพ์บัตรสะสมยอด"
+                            >
+                              <FileText size={12} className="text-teal-600" />
+                              <span>บัตรสะสมยอด</span>
+                            </button>
                          </div>
                       </div>
                     ))}
@@ -9124,8 +9250,13 @@ const flexMessage = {
                                   </div>
                                   <div>
                                     <div className="flex items-center gap-2">
-                                      <h4 className="font-black text-gray-900 text-sm line-clamp-1 flex items-center gap-1">
-                                          {customer.computedName}
+                                      <h4 className="font-black text-gray-900 text-sm line-clamp-1 flex items-center gap-1.5 flex-wrap">
+                                          <span>{customer.computedName}</span>
+                                          {customer.computedNickname && (
+                                              <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.2 rounded">
+                                                  ({customer.computedNickname})
+                                              </span>
+                                          )}
                                           {customer.lineUid && (
                                               <span className="text-[#06C755]" title="เชื่อมต่อ LINE แล้ว">
                                                   <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M24 10.304c0-5.369-5.383-9.738-12-9.738-6.616 0-12 4.369-12 9.738 0 4.814 4.269 8.846 10.036 9.608.391.084.922.258 1.057.592.122.295.079.756.039 1.066l-.172 1.028c-.05.293-.239 1.168 1.026.634 1.265-.534 6.817-4.01 9.324-6.883 1.83-2.096 2.69-4.041 2.69-6.045z"/></svg>
@@ -10450,7 +10581,14 @@ const flexMessage = {
                     
                     <div className="flex-1 text-center sm:text-left">
                         <div className="flex flex-col sm:flex-row items-center gap-3 mb-3">
-                            <h2 className="text-3xl font-black drop-shadow-sm">{selectedCustomer.computedName}</h2>
+                            <h2 className="text-3xl font-black drop-shadow-sm flex items-center gap-2 flex-wrap">
+                                <span>{selectedCustomer.computedName}</span>
+                                {selectedCustomer.computedNickname && (
+                                    <span className="text-sm font-bold text-amber-200 bg-white/20 px-3 py-1 rounded-full backdrop-blur-sm border border-white/30">
+                                        ชื่อเล่น: {selectedCustomer.computedNickname}
+                                    </span>
+                                )}
+                            </h2>
                             {selectedCustomer.isApproved && <button onClick={() => setIsVipFormOpen(true)} className="bg-orange-500 hover:bg-orange-600 transition-colors text-white px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm flex items-center active:scale-95 cursor-pointer" title="ดู/สร้างใบสมัคร VIP"><Award size={12} className="mr-1"/> VIP</button>}
                         </div>
                         <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 sm:gap-4 text-white/90 text-sm">

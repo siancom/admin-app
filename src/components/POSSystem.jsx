@@ -2863,7 +2863,8 @@ export default function POSSystem({
     });
     if (!customerSearch) return filterOutWalkIn(customers).slice(0, 10);
     return filterOutWalkIn(customers).filter(c => {
-      const searchStr = `${String(getFuzzyKey(c, ["ชื่อ", "col_1"]) || '')} ${String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '')}`.toLowerCase();
+      const nick = String(c.computedNickname || c.nickname || getFuzzyKey(c, ["ชื่อเล่น", "nickname"]) || '');
+      const searchStr = `${String(c.computedName || getFuzzyKey(c, ["ชื่อ", "col_1"]) || '')} ${nick} ${String(getFuzzyKey(c, ["เบอร์โทร", "col_3"]) || '')}`.toLowerCase();
       return searchStr.includes(customerSearch.toLowerCase());
     }).slice(0, 10);
   }, [customers, customerSearch]);
@@ -6124,6 +6125,17 @@ export default function POSSystem({
                         <span className="font-black text-slate-800 text-sm sm:text-base truncate">
                           {selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]))}
                         </span>
+                        {(() => {
+                          const nick = selectedCustomer.computedNickname || selectedCustomer.nickname || getFuzzyKey(selectedCustomer, ["ชื่อเล่น", "nickname"]);
+                          if (nick) {
+                            return (
+                              <span className="text-xs font-black text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded-md shrink-0">
+                                ({nick})
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
 
                         {selectedCustomer.isWalkIn ? (
                           <span className="bg-orange-100 text-orange-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-orange-200 shrink-0">
@@ -8050,6 +8062,17 @@ export default function POSSystem({
                         <span className="font-black text-slate-800 text-sm sm:text-base truncate">
                           {selectedCustomer.computedName || String(getFuzzyKey(selectedCustomer, ["ชื่อ", "col_1"]))}
                         </span>
+                        {(() => {
+                          const nick = selectedCustomer.computedNickname || selectedCustomer.nickname || getFuzzyKey(selectedCustomer, ["ชื่อเล่น", "nickname"]);
+                          if (nick) {
+                            return (
+                              <span className="text-xs font-black text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded-md shrink-0">
+                                ({nick})
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
 
                         {selectedCustomer.isWalkIn ? (
                           <span className="bg-orange-100 text-orange-800 text-[9px] font-bold px-1.5 py-0.2 rounded-full border border-orange-200 shrink-0">
@@ -8341,8 +8364,19 @@ export default function POSSystem({
                               })()}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="font-medium text-slate-800 flex items-center gap-2 truncate flex-wrap">
-                                  {c.computedName || String(getFuzzyKey(c, ["ชื่อ", "col_1"]))}
+                              <div className="font-medium text-slate-800 flex items-center gap-1.5 truncate flex-wrap">
+                                  <span>{c.computedName || String(getFuzzyKey(c, ["ชื่อ", "col_1"]))}</span>
+                                  {(() => {
+                                    const nick = c.computedNickname || c.nickname || getFuzzyKey(c, ["ชื่อเล่น", "nickname"]);
+                                    if (nick) {
+                                      return (
+                                        <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.2 rounded shrink-0">
+                                          ({nick})
+                                        </span>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                                   {isVip && <span className="bg-yellow-100 text-yellow-700 text-[10px] font-bold px-1.5 py-0.5 rounded border border-yellow-200">VIP</span>}
                                   {(c.isApproved || amt >= 5000) && (
                                     <button 

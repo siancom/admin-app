@@ -49,6 +49,7 @@ export default function MemberCardPrintModal({
 
   // --- DATA EXTRACTION ---
   const custName = customer?.computedName || 'ลูกค้าทั่วไป';
+  const custNickname = customer?.computedNickname || customer?.nickname || '';
   const custPhone = customer?.computedPhone || '-';
   const memberStatus = customer?.computedMemberStatus || 'ทั่วไป';
   const isVip = memberStatus.includes('VIP') || memberStatus.includes('บัตรทอง') || memberStatus.includes('สมาชิกพิเศษ');
@@ -334,7 +335,7 @@ export default function MemberCardPrintModal({
             <div className="flex justify-between items-start">
               <div>
                 <p className="text-[10px] font-bold text-teal-600 uppercase">บัตรสมาชิก / สะสมยอด</p>
-                <h4 className="font-black text-slate-800 text-sm leading-tight">{custName}</h4>
+                <h4 className="font-black text-slate-800 text-sm leading-tight">{custName} {custNickname ? `(${custNickname})` : ''}</h4>
                 <p className="text-[11px] font-mono text-slate-500">{custPhone}</p>
               </div>
               <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${isVip ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-teal-100 text-teal-800 border border-teal-200'}`}>
@@ -613,7 +614,7 @@ export default function MemberCardPrintModal({
                   <div className="relative z-10 my-auto flex items-center justify-between">
                     <div>
                       <p className="text-[7px] font-bold text-teal-200/70 uppercase">ชื่อสมาชิก</p>
-                      <h4 className="text-sm font-black text-white tracking-wide truncate max-w-[50mm] drop-shadow-sm">{custName}</h4>
+                      <h4 className="text-sm font-black text-white tracking-wide truncate max-w-[50mm] drop-shadow-sm">{custName} {custNickname ? `(${custNickname})` : ''}</h4>
                       <p className="font-mono text-[9px] font-bold text-teal-300 tracking-wider">{custPhone}</p>
                     </div>
                     {/* Simulated Gold Chip */}
@@ -816,7 +817,7 @@ export default function MemberCardPrintModal({
                 <div className="grid grid-cols-2 gap-4 bg-slate-50 border border-slate-200 p-4 rounded-2xl mb-6">
                   <div>
                     <p className="text-xs text-slate-500 font-bold">ชื่อลูกค้า</p>
-                    <p className="text-base font-black text-slate-800">{custName}</p>
+                    <p className="text-base font-black text-slate-800">{custName} {custNickname ? `(${custNickname})` : ''}</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 font-bold">เบอร์โทรศัพท์</p>

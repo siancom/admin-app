@@ -535,6 +535,7 @@ export default function SmartQueueCheckInModal({
                       >
                         <div>
                           <span className="font-black text-indigo-900">{cust.name || cust.computedName}</span>
+                          {cust.computedNickname && <span className="text-xs font-bold text-indigo-600 ml-1">({cust.computedNickname})</span>}
                           <span className="text-[11px] text-slate-500 font-mono ml-1.5">({cust.phone || cust.computedPhone})</span>
                           {cust.memberCardNo && <span className="text-[9px] text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded ml-1">#{cust.memberCardNo}</span>}
                         </div>
