@@ -1858,6 +1858,45 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
               return orderIso.startsWith(monthStr);
           });
           
+          // 📊 Compute Monthly Summary KPIs 📊
+          const monthlyPosTotal = monthlyOrders.reduce((sum, o) => {
+             const isOldPO = (o.courseName || '').includes('[ซื้อเข้า');
+             const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
+             const isPO = o.transactionType === 'owner_purchase' || isOldPO;
+             if (isReq || isPO) return sum;
+             return sum + getEffectiveOrderPrice(o);
+          }, 0);
+
+          let monthlyEodTotal = 0;
+          let monthlyDepositTotal = 0;
+          let monthlyCashDeposit = 0;
+          let monthlyTransferSales = 0;
+          let unverifiedCount = 0;
+          const eodDaysSet = new Set();
+
+          monthlyDailySales.forEach(ds => {
+             const dIso = getIsoDate(ds);
+             if (dIso) eodDaysSet.add(dIso);
+             
+             const tSales = parseNumber(ds.totalSales);
+             const manualTransfer = parseNumber(ds.manualTransfer || 0);
+             const diff = parseNumber(ds.difference || 0);
+             const baseSales = tSales > 0 ? tSales : (parseNumber(ds.cashSales) + parseNumber(ds.transferSales) + manualTransfer);
+             const dayEod = Math.max(0, baseSales + diff);
+             monthlyEodTotal += dayEod;
+             
+             monthlyDepositTotal += parseNumber(ds.totalDeposit || ds.expectedDeposit || 0);
+             monthlyCashDeposit += parseNumber(ds.remitAmount || ds.actualCash || 0);
+             monthlyTransferSales += parseNumber(ds.transferSales || 0);
+             
+             if (ds.status === 'รอตรวจสอบ' || !ds.status) {
+                unverifiedCount++;
+             }
+          });
+
+          const monthlyEodDaysCount = eodDaysSet.size;
+          const monthlyDiff = monthlyPosTotal - monthlyEodTotal;
+          
           const calendarDays = Array(firstDay).fill(null);
           for (let i = 1; i <= daysInMonth; i++) {
             const d = new Date(year, month, i);
@@ -1886,51 +1925,186 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
           const selectedDayCards = stats.filteredDailySales;
           
           return (
-            <div className="space-y-6">
-              {/* Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
-                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                  <ListChecks className="text-teal-500" /> ตรวจรับยอดประจำวัน
-                </h2>
-                
-                <div className="flex items-center gap-4 bg-white px-4 py-2 rounded-2xl border border-slate-200 shadow-sm w-fit">
-                  <button 
-                    onClick={() => setCalendarMonth(new Date(year, month - 1, 1))}
-                    className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-500"
-                  >
-                    <ChevronLeft size={20} />
-                  </button>
-                  <div className="font-bold text-slate-700 text-lg min-w-[120px] text-center">
-                    {monthNamesThai[month]} {year + 543}
+            <div className="relative overflow-hidden bg-slate-950/85 rounded-3xl border border-indigo-900/40 p-4 sm:p-7 backdrop-blur-md shadow-2xl text-white space-y-6">
+              {/* Decorative Ambient Glows */}
+              <div className="absolute -top-24 -right-24 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+
+              {/* 🌟 Header & Controls 🌟 */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-indigo-900/40 relative z-10">
+                <div className="flex items-center gap-3">
+                  <span className="p-2.5 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-lg shadow-indigo-500/25 shrink-0">
+                    <ListChecks size={24} />
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                        ตรวจรับและกระทบยอดประจำวัน
+                      </h2>
+                      <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30 flex items-center gap-1 shadow-xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        อัปเดตสด Real-time
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 font-medium mt-0.5">
+                      ภาพรวมการตรวจสอบและกระทบยอดเงินนำฝาก ประจำสาขา <span className="text-purple-300 font-bold">{filterBranch}</span> • ประจำเดือน {monthNamesThai[month]} {year + 543}
+                    </p>
                   </div>
-                  <button 
-                    onClick={() => setCalendarMonth(new Date(year, month + 1, 1))}
-                    className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-500"
-                  >
-                    <ChevronRight size={20} />
-                  </button>
                 </div>
-                
-                <div className="flex flex-wrap items-center gap-2 ml-auto">
-                  <select 
-                    value={filterBranch} 
-                    onChange={(e) => setFilterBranch(e.target.value)} 
-                    className="bg-white border border-slate-200 text-sm font-bold text-slate-700 px-3 py-2 rounded-xl outline-none shadow-sm"
-                  >
-                    {branchOptions.map(b => (
-                      <option key={b} value={b}>{b}</option>
-                    ))}
-                  </select>
-                  
+
+                {/* Controls: Branch Pills, Month Selector & Print Button */}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* Branch Selector Pills */}
+                  <div className="flex items-center gap-1 bg-slate-900/80 p-1 rounded-2xl border border-slate-800">
+                    {branchOptions.map(b => {
+                      const isActive = filterBranch === b;
+                      return (
+                        <button
+                          key={b}
+                          type="button"
+                          onClick={() => setFilterBranch(b)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            isActive
+                              ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-indigo-500/25'
+                              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                          }`}
+                        >
+                          {b}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Month Navigator */}
+                  <div className="flex items-center gap-2 bg-slate-900/80 px-3 py-1.5 rounded-2xl border border-slate-800 shadow-sm">
+                    <button 
+                      onClick={() => setCalendarMonth(new Date(year, month - 1, 1))}
+                      className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-white cursor-pointer"
+                      title="เดือนก่อนหน้า"
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+                    <span className="font-black text-slate-200 text-xs sm:text-sm min-w-[110px] text-center">
+                      {monthNamesThai[month]} {year + 543}
+                    </span>
+                    <button 
+                      onClick={() => setCalendarMonth(new Date(year, month + 1, 1))}
+                      className="p-1 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-white cursor-pointer"
+                      title="เดือนถัดไป"
+                    >
+                      <ChevronRight size={18} />
+                    </button>
+                  </div>
+
+                  {/* Print Button */}
                   <button 
                     onClick={() => setShowMonthlyPrintModal(true)}
-                    className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm"
+                    className="flex items-center gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-4 py-2 rounded-2xl text-xs font-bold transition-all shadow-md shadow-purple-900/30 active:scale-95 cursor-pointer"
                   >
-                    <Printer size={18} /> พรีวิว/พิมพ์ยอด
+                    <Printer size={15} /> พรีวิว/พิมพ์ยอด A4
                   </button>
                 </div>
               </div>
-              
+
+              {/* 📊 4 KPI Summary Cards (สไตล์ตามรูป 2) 📊 */}
+              <div className="relative z-10 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                {/* Card 1: ยอดบิลขาย POS */}
+                <div className="bg-slate-900/70 hover:bg-slate-900/90 p-4 sm:p-5 rounded-2xl border border-cyan-500/30 backdrop-blur-md transition-all flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-xs shadow-cyan-400/50" />
+                        ยอดบิลขาย POS
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30">
+                        POS MTD
+                      </span>
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                      ฿{monthlyPosTotal.toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between pt-2 border-t border-slate-800">
+                    <span>{monthlyOrders.length} บิลขายในเดือนนี้</span>
+                    <span className="text-cyan-300 font-bold">บิลหน้าร้าน + Shopee</span>
+                  </div>
+                </div>
+
+                {/* Card 2: ยอดส่งยอดประจำเดือน (EOD) */}
+                <div className="bg-slate-900/70 hover:bg-slate-900/90 p-4 sm:p-5 rounded-2xl border border-purple-500/30 backdrop-blur-md transition-all flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-purple-400 shadow-xs shadow-purple-400/50" />
+                        ยอดส่งยอดประจำเดือน
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30">
+                        EOD
+                      </span>
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-black text-purple-200 tracking-tight">
+                      ฿{monthlyEodTotal.toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between pt-2 border-t border-slate-800">
+                    <span>ส่งแล้ว {monthlyEodDaysCount} วัน (จาก {daysInMonth} วัน)</span>
+                    <span className="text-purple-300 font-bold">{Math.round((monthlyEodDaysCount / (daysInMonth || 1)) * 100)}%</span>
+                  </div>
+                </div>
+
+                {/* Card 3: ยอดเงินนำฝากจริง (Deposit) */}
+                <div className="bg-slate-900/70 hover:bg-slate-900/90 p-4 sm:p-5 rounded-2xl border border-emerald-500/30 backdrop-blur-md transition-all flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-xs shadow-emerald-400/50" />
+                        ยอดเงินนำฝากจริง
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                        Deposit
+                      </span>
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-black text-emerald-300 tracking-tight">
+                      ฿{monthlyDepositTotal.toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between pt-2 border-t border-slate-800">
+                    <span>สด ฿{monthlyCashDeposit.toLocaleString()} • โอน ฿{monthlyTransferSales.toLocaleString()}</span>
+                  </div>
+                </div>
+
+                {/* Card 4: ส่วนต่าง & ผลการกระทบยอด */}
+                <div className="bg-slate-900/70 hover:bg-slate-900/90 p-4 sm:p-5 rounded-2xl border border-indigo-500/30 backdrop-blur-md transition-all flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                        <span className={`w-2 h-2 rounded-full ${Math.abs(monthlyDiff) === 0 ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                        ส่วนต่างกระทบยอด
+                      </span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold border ${
+                        unverifiedCount > 0 
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' 
+                          : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                      }`}>
+                        {unverifiedCount > 0 ? `รอตรวจ ${unverifiedCount} รายการ` : 'ตรวจครบแล้ว'}
+                      </span>
+                    </div>
+                    <div className={`text-2xl sm:text-3xl font-black tracking-tight ${
+                      Math.abs(monthlyDiff) === 0 ? 'text-emerald-300' : monthlyDiff > 0 ? 'text-amber-300' : 'text-rose-400'
+                    }`}>
+                      ฿{Math.abs(monthlyDiff).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-400 flex items-center justify-between pt-2 border-t border-slate-800">
+                    <span>
+                      {Math.abs(monthlyDiff) === 0 ? '✓ ยอดตรงกันสมบูรณ์' : monthlyDiff > 0 ? 'POS มากกว่าส่งยอด' : 'ส่งยอดมากกว่า POS'}
+                    </span>
+                    <span className="text-slate-400 font-medium">เฉลี่ย ฿{Math.round(monthlyPosTotal / (monthlyEodDaysCount || 1)).toLocaleString()}/วัน</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Monthly EOD Print Modal */}
               <MonthlyEodPrintModal 
                 isOpen={showMonthlyPrintModal} 
                 onClose={() => setShowMonthlyPrintModal(false)}
@@ -1942,17 +2116,24 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                 orders={monthlyOrders}
                 expenses={opexExpenses}
               />
-              
-              {/* Calendar Grid */}
-              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-                <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50/50">
+
+              {/* 📅 Cyber/Dark Calendar Grid (สไตล์ตามรูป 2) 📅 */}
+              <div className="bg-slate-900/60 rounded-3xl border border-slate-800 overflow-hidden relative z-10 shadow-xl">
+                {/* Days of Week Header */}
+                <div className="grid grid-cols-7 border-b border-slate-800 bg-slate-950/80">
                   {dayNames.map(d => (
-                    <div key={d} className="py-3 text-center text-xs font-bold text-slate-500">{d}</div>
+                    <div key={d} className="py-3 text-center text-xs font-bold text-slate-400 tracking-wider">
+                      {d}
+                    </div>
                   ))}
                 </div>
-                <div className="grid grid-cols-7">
+
+                {/* Calendar Days */}
+                <div className="grid grid-cols-7 divide-slate-800">
                   {calendarDays.map((cDay, idx) => {
-                    if (!cDay) return <div key={`empty-${idx}`} className="min-h-[100px] border-b border-r border-slate-100 bg-slate-50/30"></div>;
+                    if (!cDay) {
+                      return <div key={`empty-${idx}`} className="min-h-[105px] border-b border-r border-slate-900/60 bg-slate-950/30"></div>;
+                    }
                     
                     const isSelected = cDay.dateStr === filterDate;
                     const isToday = cDay.dateStr === getLocalDateStr();
@@ -1965,40 +2146,62 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                           setFilterMode('day');
                           setSelectedDayStr(cDay.dateStr);
                         }}
-                        className={`min-h-[100px] p-2 pb-6 border-b border-r border-slate-100 cursor-pointer transition-all relative overflow-hidden flex flex-col ${isSelected ? 'bg-indigo-50 ring-2 ring-indigo-500 ring-inset' : 'hover:bg-slate-50'}`}
+                        className={`min-h-[105px] p-2 sm:p-2.5 pb-7 border-b border-r border-slate-800/80 cursor-pointer transition-all relative overflow-hidden flex flex-col group ${
+                          isSelected 
+                            ? 'bg-indigo-950/60 ring-2 ring-indigo-400 ring-inset shadow-lg shadow-indigo-500/20' 
+                            : 'bg-slate-900/40 hover:bg-slate-800/80'
+                        }`}
                       >
-                        <div className="flex flex-col xl:flex-row xl:justify-between items-start xl:items-center mb-1 gap-1">
-                          <div className={`text-xs sm:text-sm font-bold w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full shrink-0 ${isToday ? 'bg-indigo-600 text-white' : isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
+                        {/* Date Number & POS Sales */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1.5">
+                          <div className={`text-xs sm:text-sm font-bold w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full shrink-0 transition-transform group-hover:scale-105 ${
+                            isToday 
+                              ? 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-black shadow-md shadow-indigo-500/40' 
+                              : isSelected 
+                              ? 'bg-cyan-500 text-slate-950 font-black shadow-xs' 
+                              : 'text-slate-300 group-hover:text-white'
+                          }`}>
                             {cDay.date.getDate()}
                           </div>
                           {cDay.totalSales > 0 && (
-                            <div className="text-[9px] sm:text-[10px] font-bold text-blue-600 bg-blue-50 px-1 py-0.5 rounded w-full xl:w-auto text-left xl:text-right truncate" title={`ยอดขายรวม ฿${cDay.totalSales.toLocaleString()}`}>
+                            <div 
+                              className="text-[9px] sm:text-[10px] font-black text-cyan-300 bg-cyan-950/80 border border-cyan-500/30 px-1.5 py-0.5 rounded-lg w-fit text-left sm:text-right truncate shadow-xs" 
+                              title={`ยอดขาย POS ฿${cDay.totalSales.toLocaleString()}`}
+                            >
                               ฿{cDay.totalSales.toLocaleString()}
                             </div>
                           )}
                         </div>
                         
-                        <div className="space-y-1 mt-1 flex-1">
+                        {/* EOD Branch Dots & Status */}
+                        <div className="space-y-1 mt-0.5 flex-1">
                           {cDay.eods.length > 0 ? (
-                            cDay.eods.slice(0, 3).map((eod, i) => (
+                            cDay.eods.slice(0, 2).map((eod, i) => (
                               <div key={i} className="flex items-center gap-1.5 text-[10px] w-full pr-1">
-                                <div className={`w-2 h-2 rounded-full shrink-0 ${eod.status === 'ยืนยันแล้ว' ? 'bg-emerald-500' : eod.status === 'ปฏิเสธ' ? 'bg-red-500' : 'bg-amber-500'}`}></div>
-                                <span className="truncate text-slate-600 flex-1">{eod.branch === 'สำนักงานใหญ่' ? 'สนญ.' : eod.branch}</span>
+                                <div className={`w-2 h-2 rounded-full shrink-0 shadow-xs ${
+                                  eod.status === 'ยืนยันแล้ว' ? 'bg-emerald-400 shadow-emerald-400/50' : 
+                                  eod.status === 'ปฏิเสธ' ? 'bg-rose-500 shadow-rose-500/50' : 
+                                  'bg-amber-400 shadow-amber-400/50'
+                                }`} />
+                                <span className="truncate text-slate-400 group-hover:text-slate-200 flex-1 font-medium">
+                                  {eod.branch === 'สำนักงานใหญ่' ? 'สนญ.' : eod.branch}
+                                </span>
                               </div>
                             ))
                           ) : (
-                            <div className="text-[10px] text-slate-300 italic px-1">-</div>
+                            <div className="text-[10px] text-slate-600 italic px-1">-</div>
                           )}
-                          {cDay.eods.length > 3 && (
-                            <div className="text-[10px] text-slate-400 font-medium pl-3">+{cDay.eods.length - 3} สาขา</div>
+                          {cDay.eods.length > 2 && (
+                            <div className="text-[9px] text-purple-300 font-bold pl-3.5">+{cDay.eods.length - 2} สาขา</div>
                           )}
                         </div>
                         
+                        {/* Deposit bottom badge */}
                         {(() => {
                            const dayTotalDeposit = cDay.eods.reduce((sum, eod) => sum + (eod.totalDeposit || eod.remitAmount || 0), 0);
                            if (dayTotalDeposit > 0) {
                              return (
-                               <div className="absolute bottom-0 left-0 right-0 bg-emerald-500 text-white text-[10px] font-bold text-center py-0.5">
+                               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-[10px] font-black text-center py-0.5 shadow-sm tracking-wide">
                                  ฝาก ฿{dayTotalDeposit.toLocaleString()}
                                </div>
                              );
@@ -2011,37 +2214,49 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                 </div>
               </div>
               
-              {/* Selected Day Cards Header */}
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-1.5 h-6 bg-indigo-500 rounded-full"></div>
-                <h3 className="font-bold text-lg text-slate-800">
-                  รายการส่งยอดวันที่ {(toValidDate(filterDate) || new Date()).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
-                </h3>
+              {/* 📋 Selected Day Cards Header (สไตล์ตามรูป 2 Info Bar) 📋 */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/90 p-4 rounded-2xl border border-slate-800 relative z-10">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                  <span className="text-xs font-bold text-slate-400">รายการส่งยอดวันที่เลือก:</span>
+                  <span className="text-xs sm:text-sm font-black text-white px-3 py-1 rounded-xl bg-indigo-950/80 border border-indigo-700/60 shadow-xs">
+                    {(toValidDate(filterDate) || new Date()).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                    {filterDate === getLocalDateStr() && ' 🔥 (วันนี้)'}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-400 font-medium flex items-center gap-2">
+                  <span>พบ <strong className="text-white">{selectedDayCards.length}</strong> ใบส่งยอด</span>
+                </div>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Selected Day Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
                 {[...selectedDayCards]
                   .sort((a,b) => (toValidDate(b.createdAt || b.date)?.getTime() || 0) - (toValidDate(a.createdAt || a.date)?.getTime() || 0))
                   .map(d => (
-                  <div key={d.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                  <div key={d.id} className="bg-slate-900/90 rounded-3xl border border-slate-800 shadow-xl overflow-hidden flex flex-col hover:border-slate-700 transition-all">
                     {/* Status Banner */}
-                    <div className={`px-4 py-2 text-xs font-bold text-center text-white ${d.status === 'ยืนยันแล้ว' ? 'bg-emerald-500' : d.status === 'ปฏิเสธ' ? 'bg-red-500' : 'bg-amber-500'}`}>
+                    <div className={`px-4 py-2 text-xs font-bold text-center text-white ${
+                      d.status === 'ยืนยันแล้ว' ? 'bg-emerald-600' : d.status === 'ปฏิเสธ' ? 'bg-rose-600' : 'bg-amber-600'
+                    }`}>
                       สถานะ: {d.status}
                     </div>
                     
-                    <div className="p-5 flex-1">
-                      <div className="flex justify-between items-start mb-3">
+                    <div className="p-5 flex-1 space-y-4">
+                      <div className="flex justify-between items-start">
                         <div>
-                          <div className="text-lg font-black text-slate-800">{d.branch}</div>
-                          <div className="text-xs text-slate-400 font-mono">{(toValidDate(d.createdAt) || toValidDate(d.date)) ? (toValidDate(d.createdAt) || toValidDate(d.date)).toLocaleString('th-TH') : (d.date || '-')}</div>
+                          <div className="text-lg font-black text-white">{d.branch}</div>
+                          <div className="text-xs text-slate-400 font-mono mt-0.5">
+                            {(toValidDate(d.createdAt) || toValidDate(d.date)) ? (toValidDate(d.createdAt) || toValidDate(d.date)).toLocaleString('th-TH') : (d.date || '-')}
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <div className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-md">
-                            นับสดได้: <span className="font-bold text-slate-700">฿{d.actualCash?.toLocaleString()}</span>
+                          <div className="text-[11px] font-medium text-slate-300 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700">
+                            นับสดได้: <span className="font-bold text-emerald-300">฿{d.actualCash?.toLocaleString()}</span>
                           </div>
                           <button 
                             onClick={() => handleDeleteEod(d.id)}
-                            className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition-colors cursor-pointer"
                             title="ลบใบส่งยอด"
                           >
                             <Trash2 size={16} />
@@ -2049,82 +2264,91 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                         </div>
                       </div>
                       
-                      <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-3 text-white shadow-md mb-4">
-                        <h3 className="font-bold text-xs text-indigo-100 mb-2 flex items-center gap-1"><CheckCircle size={14} /> สรุปยอดเตรียมนำฝาก</h3>
-                        <div className="space-y-1">
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="text-indigo-100">เงินสด:</span>
+                      {/* สรุปยอดเตรียมนำฝาก */}
+                      <div className="bg-gradient-to-r from-purple-700 to-indigo-700 rounded-2xl p-4 text-white shadow-lg">
+                        <h3 className="font-bold text-xs text-purple-200 mb-2 flex items-center gap-1.5">
+                          <CheckCircle size={15} /> สรุปยอดเตรียมนำฝาก
+                        </h3>
+                        <div className="space-y-1.5 text-xs">
+                          <div className="flex justify-between items-center">
+                            <span className="text-purple-200">เงินสด:</span>
                             <span className="font-bold">฿{d.remitAmount?.toLocaleString()}</span>
                           </div>
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="text-indigo-100">เงินโอน:</span>
+                          <div className="flex justify-between items-center">
+                            <span className="text-purple-200">เงินโอน:</span>
                             <span className="font-bold">฿{d.transferSales?.toLocaleString()}</span>
                           </div>
                           {(d.creditSales > 0 || d.codSales > 0) && (
-                            <div className="flex justify-between items-center text-xs">
-                              <span className="text-indigo-100">ยอดค้าง (เครดิต/COD):</span>
-                              <span className="font-bold text-orange-200">฿{((d.creditSales || 0) + (d.codSales || 0)).toLocaleString()}</span>
+                            <div className="flex justify-between items-center">
+                              <span className="text-purple-200">ยอดค้าง (เครดิต/COD):</span>
+                              <span className="font-bold text-amber-300">฿{((d.creditSales || 0) + (d.codSales || 0)).toLocaleString()}</span>
                             </div>
                           )}
-                          <div className="pt-1 mt-1 border-t border-indigo-400/50 flex justify-between items-center">
+                          <div className="pt-2 mt-1 border-t border-purple-400/40 flex justify-between items-center">
                             <span className="font-bold text-sm">ยอดนำฝากรวม:</span>
-                            <span className="font-black text-base">฿{parseNumber(d.totalDeposit || d.expectedDeposit || 0).toLocaleString()}</span>
+                            <span className="font-black text-lg text-emerald-300">
+                              ฿{parseNumber(d.totalDeposit || d.expectedDeposit || 0).toLocaleString()}
+                            </span>
                           </div>
                         </div>
                       </div>
                       
-                      <div className="bg-slate-50 rounded-xl p-3 space-y-2 text-sm mb-4">
-                        <div className="flex justify-between"><span className="text-slate-500">เงินสดในระบบ</span><span className="font-bold">฿{d.cashSales?.toLocaleString()}</span></div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-500">เงินทอนตั้งต้น</span>
+                      {/* รายละเอียดลิ้นชักเงินสด */}
+                      <div className="bg-slate-800/60 rounded-2xl p-3.5 space-y-2 text-xs border border-slate-700/60">
+                        <div className="flex justify-between text-slate-300">
+                          <span className="text-slate-400">เงินสดในระบบ:</span>
+                          <span className="font-bold text-white">฿{d.cashSales?.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-slate-300">
+                          <span className="text-slate-400">เงินทอนตั้งต้น:</span>
                           <div className="flex items-center gap-1.5">
-                            <span className="font-bold">฿{d.floatCash?.toLocaleString()}</span>
+                            <span className="font-bold text-white">฿{d.floatCash?.toLocaleString()}</span>
                             <button 
                               type="button"
                               onClick={() => handleEditDailySalesFloat(d)}
-                              className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors cursor-pointer"
+                              className="p-1 text-slate-400 hover:text-indigo-400 hover:bg-slate-700 rounded transition-colors cursor-pointer"
                               title="แก้ไขเงินทอนตั้งต้นย้อนหลัง"
                             >
                               <Edit2 size={13} />
                             </button>
                           </div>
                         </div>
-                        <div className="border-t border-slate-200 pt-2 flex justify-between font-bold">
-                          <span className="text-slate-700">ควรมีในลิ้นชัก</span>
-                          <span className="text-indigo-600">฿{d.expectedCash?.toLocaleString()}</span>
+                        <div className="border-t border-slate-700 pt-2 flex justify-between font-bold">
+                          <span className="text-slate-300">ควรมีในลิ้นชัก:</span>
+                          <span className="text-cyan-300">฿{d.expectedCash?.toLocaleString()}</span>
                         </div>
-                        <div className={`flex justify-between font-bold ${d.difference > 0 ? 'text-emerald-600' : d.difference < 0 ? 'text-red-600' : 'text-slate-500'}`}>
-                          <span>ผลต่าง (เกิน/ขาด)</span>
+                        <div className={`flex justify-between font-bold ${d.difference > 0 ? 'text-emerald-400' : d.difference < 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                          <span>ผลต่าง (เกิน/ขาด):</span>
                           <span>{d.difference > 0 ? '+' : ''}{d.difference?.toLocaleString()}</span>
                         </div>
                         
                         {(d.nextDayFloat !== undefined) && (
-                          <div className="border-t border-indigo-100 pt-2 mt-2 bg-indigo-50/50 -mx-3 px-3 pb-2 rounded-b-xl">
-                             <div className="flex justify-between text-indigo-600 text-xs">
-                               <span className="font-bold">ยอดเงินทอนยกไปพรุ่งนี้</span>
-                               <span className="font-black">฿{d.nextDayFloat?.toLocaleString()}</span>
+                          <div className="border-t border-slate-700 pt-2 mt-2 -mx-3.5 px-3.5 pb-1 rounded-b-xl bg-slate-800/40">
+                             <div className="flex justify-between text-xs">
+                               <span className="text-indigo-300 font-bold">ยอดเงินทอนยกไปพรุ่งนี้:</span>
+                               <span className="font-black text-white">฿{d.nextDayFloat?.toLocaleString()}</span>
                              </div>
                           </div>
                         )}
                       </div>
   
-                      <div className="flex flex-col gap-1 text-xs text-slate-500 mb-4">
+                      <div className="flex flex-col gap-1 text-xs text-slate-400">
                         <div className="flex justify-between">
-                          <span className="font-bold">โอน: ฿{d.transferSales?.toLocaleString()}</span>
-                          <span className="font-bold">ออนไลน์/Shopee: ฿{(d.onlineSales || 0).toLocaleString()}</span>
+                          <span className="font-bold text-slate-300">โอน: ฿{d.transferSales?.toLocaleString()}</span>
+                          <span className="font-bold text-slate-300">ออนไลน์/Shopee: ฿{(d.onlineSales || 0).toLocaleString()}</span>
                         </div>
                         
                         {d.transferDetails && d.transferDetails.length > 0 && (
-                          <div className="mt-1 pt-2 border-t border-slate-100">
-                            <div className="text-[10px] font-bold text-slate-400 mb-1">รายการโอนย่อย:</div>
-                            <div className="max-h-24 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                          <div className="mt-2 pt-2 border-t border-slate-800">
+                            <div className="text-[10px] font-bold text-slate-400 mb-1.5">รายการโอนย่อย:</div>
+                            <div className="max-h-28 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
                               {d.transferDetails.map((t, idx) => (
-                                <div key={idx} className="flex flex-col text-[11px] bg-emerald-500 border border-emerald-600 p-2 rounded-md shadow-sm">
-                                  <div className="flex justify-between font-bold text-white mb-1">
-                                    <span className="truncate mr-2">{t.time} - {t.customer}</span>
-                                    <span className="shrink-0">฿{t.amount?.toLocaleString()}</span>
+                                <div key={idx} className="flex flex-col text-[11px] bg-slate-800 border border-slate-700 p-2 rounded-xl">
+                                  <div className="flex justify-between font-bold text-white mb-0.5">
+                                    <span className="truncate mr-2 text-slate-300">{t.time} - {t.customer}</span>
+                                    <span className="shrink-0 text-emerald-400">฿{t.amount?.toLocaleString()}</span>
                                   </div>
-                                  <div className="text-[10px] text-emerald-50 leading-tight">{t.items || 'สินค้า/บริการ'}</div>
+                                  <div className="text-[10px] text-slate-400 leading-tight">{t.items || 'สินค้า/บริการ'}</div>
                                 </div>
                               ))}
                             </div>
@@ -2133,12 +2357,14 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                       </div>
 
                       {((d.creditSales || 0) + (d.codSales || 0) + (d.onlineSales || 0)) > 0 && (
-                        <div className="bg-rose-50 px-4 py-3 rounded-xl flex flex-col mb-4 border border-rose-100">
-                          <div className="flex justify-between items-center text-rose-700 mb-2">
-                            <span className="font-bold text-sm">ยอดค้างชำระรวม</span>
-                            <span className="font-black text-lg">฿{((d.creditSales || 0) + (d.codSales || 0) + (d.onlineSales || 0)).toLocaleString()}</span>
+                        <div className="bg-rose-950/30 px-3.5 py-3 rounded-2xl flex flex-col border border-rose-900/50">
+                          <div className="flex justify-between items-center text-rose-300 mb-1.5">
+                            <span className="font-bold text-xs">ยอดค้างชำระรวม:</span>
+                            <span className="font-black text-base text-rose-200">
+                              ฿{((d.creditSales || 0) + (d.codSales || 0) + (d.onlineSales || 0)).toLocaleString()}
+                            </span>
                           </div>
-                          <div className="text-xs font-semibold text-rose-600/80 space-y-1.5 border-t border-rose-200/60 pt-2.5">
+                          <div className="text-xs font-semibold text-rose-300/80 space-y-1 border-t border-rose-900/50 pt-2">
                             {(d.creditSales > 0) && (
                               <div className="flex justify-between items-center">
                                 <span>• เครดิต:</span>
@@ -2158,47 +2384,31 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                               </div>
                             )}
                           </div>
-                          {d.pendingDetails && d.pendingDetails.length > 0 && (
-                            <div className="mt-3 pt-3 border-t border-rose-200/60">
-                              <div className="text-[10px] font-bold text-rose-500 mb-2">รายการยอดค้าง:</div>
-                              <div className="max-h-32 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
-                                {d.pendingDetails.map((p, idx) => (
-                                  <div key={idx} className="flex flex-col text-[11px] bg-orange-500 border border-orange-600 p-2 rounded-md shadow-sm">
-                                    <div className="flex justify-between font-bold text-white mb-1">
-                                      <span className="truncate mr-2">{p.time} - {p.customer} ({p.channel})</span>
-                                      <span className="shrink-0">฿{p.amount?.toLocaleString()}</span>
-                                    </div>
-                                    <div className="text-[10px] text-orange-50 leading-tight">{p.items}</div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
   
                       {d.imageBase64 ? (
                         <button 
                           onClick={() => setPreviewImage(d.imageBase64)}
-                          className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg flex items-center justify-center gap-2 text-sm font-bold transition-colors"
+                          className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-colors border border-slate-700 cursor-pointer"
                         >
-                          <ImageIcon size={16} /> ดูรูปสลิป/สรุปยอด
+                          <ImageIcon size={15} /> ดูรูปสลิป / สรุปยอด
                         </button>
                       ) : (
-                        <div className="w-full py-2 bg-slate-50 text-slate-400 rounded-lg flex items-center justify-center gap-2 text-sm border border-dashed border-slate-200">
-                          <ImageIcon size={16} /> ไม่มีรูปแนบ
+                        <div className="w-full py-2 bg-slate-800/40 text-slate-500 rounded-xl flex items-center justify-center gap-2 text-xs border border-dashed border-slate-800">
+                          <ImageIcon size={15} /> ไม่มีรูปแนบ
                         </div>
                       )}
                     </div>
                     
                     {d.status === 'รอตรวจสอบ' && (
-                      <div className="flex border-t border-slate-100">
-                        <button onClick={() => handleVerify(d.id, 'ปฏิเสธ')} className="flex-1 py-3 text-red-500 font-bold text-sm hover:bg-red-50 transition-colors flex items-center justify-center gap-1">
-                          <X size={16}/> ปฏิเสธ
+                      <div className="flex border-t border-slate-800 bg-slate-900/50">
+                        <button onClick={() => handleVerify(d.id, 'ปฏิเสธ')} className="flex-1 py-3 text-rose-400 font-bold text-xs hover:bg-rose-950/40 transition-colors flex items-center justify-center gap-1.5 cursor-pointer">
+                          <X size={15}/> ปฏิเสธ
                         </button>
-                        <div className="w-px bg-slate-100"></div>
-                        <button onClick={() => handleVerify(d.id, 'ยืนยันแล้ว')} className="flex-1 py-3 text-emerald-600 font-bold text-sm hover:bg-emerald-50 transition-colors flex items-center justify-center gap-1">
-                          <Check size={16}/> ยืนยันยอด
+                        <div className="w-px bg-slate-800"></div>
+                        <button onClick={() => handleVerify(d.id, 'ยืนยันแล้ว')} className="flex-1 py-3 text-emerald-400 font-bold text-xs hover:bg-emerald-950/40 transition-colors flex items-center justify-center gap-1.5 cursor-pointer">
+                          <Check size={15}/> ยืนยันยอด
                         </button>
                       </div>
                     )}
@@ -2206,16 +2416,16 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                 ))}
                 
                 {selectedDayCards.length === 0 && (
-                  <div className="col-span-full py-16 text-center text-slate-400 bg-slate-50/50 rounded-3xl border border-slate-200 border-dashed">
-                    <ListChecks size={40} className="mx-auto mb-3 opacity-20" />
-                    <p>ไม่มีรายการที่ค้นพบในวันนี้</p>
+                  <div className="col-span-full py-16 text-center text-slate-500 bg-slate-900/40 rounded-3xl border border-slate-800 border-dashed">
+                    <ListChecks size={40} className="mx-auto mb-3 opacity-30 text-indigo-400" />
+                    <p className="font-bold text-sm">ไม่มีรายการส่งยอดในวันนี้</p>
                   </div>
                 )}
               </div>
             </div>
           );
         })()}
-                {activeTab === 'expenses' && (
+        {activeTab === 'expenses' && (
           <>
           <style>{`
             @media (max-width: 1023px) {
