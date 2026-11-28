@@ -6525,6 +6525,8 @@ const flexMessage = {
         "image": courseData.image || '',
         "col_13": courseData.image || '',
         "promoOptions": Array.isArray(courseData.promoOptions) ? courseData.promoOptions : [],
+        "coursePrice": courseData.coursePrice || '',
+        "productPrice": courseData.productPrice || '',
         "isNewSystem": true,
         "isAvailableInShop": true,
         "source": "new_system",
@@ -8790,12 +8792,20 @@ const flexMessage = {
                           </div>
                           <div className="space-y-1">
                             {promoOpts.map((opt, oIdx) => (
-                              <div key={opt.id || oIdx} className="flex items-center justify-between text-[11px] bg-white/90 px-2 py-1 rounded-lg border border-pink-100">
-                                <span className="font-bold text-slate-800 truncate mr-2 flex items-center gap-1">
-                                  <span>{opt.name || `โปรที่ ${oIdx+1}`}</span>
-                                  {opt.badge && <span className="px-1.5 py-0.2 bg-red-100 text-red-600 rounded text-[9px] font-black">{opt.badge}</span>}
-                                </span>
-                                <span className="font-black text-pink-600 shrink-0">฿{Number(opt.price || 0).toLocaleString()} <span className="text-[9px] font-normal text-slate-500">({opt.sessions || 1} ครั้ง)</span></span>
+                              <div key={opt.id || oIdx} className="flex flex-col text-[11px] bg-white/90 px-2 py-1.5 rounded-lg border border-pink-100 gap-0.5">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-slate-800 truncate mr-2 flex items-center gap-1">
+                                    <span>{opt.name || `โปรที่ ${oIdx+1}`}</span>
+                                    {opt.badge && <span className="px-1.5 py-0.2 bg-red-100 text-red-600 rounded text-[9px] font-black">{opt.badge}</span>}
+                                  </span>
+                                  <span className="font-black text-pink-600 shrink-0">฿{Number(opt.price || 0).toLocaleString()} <span className="text-[9px] font-normal text-slate-500">({opt.sessions || 1} ครั้ง)</span></span>
+                                </div>
+                                {(Number(opt.coursePrice) > 0 || Number(opt.productPrice) > 0) && (
+                                  <div className="flex items-center justify-between text-[9px] text-amber-800 bg-amber-50/70 px-1.5 py-0.5 rounded border border-amber-200/50">
+                                    <span>คอร์ส: ฿{Number(opt.coursePrice || 0).toLocaleString()}</span>
+                                    <span>เซตสินค้า: ฿{Number(opt.productPrice || 0).toLocaleString()}</span>
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -8868,7 +8878,7 @@ const flexMessage = {
             />
           )}
 
-          {activeTab === 'employees' && globalRole === 'owner' && <EmployeeDashboard employees={employees} requisitions={employeeRequisitions} jobApplications={jobApplications} attendance={employeeAttendance} histories={histories} branches={branches} leaves={employeeLeaves} advancePayments={advancePayments} dailySales={dailySales} appSettings={appSettings} orders={orders} serviceLogs={serviceLogs} bookings={bookings} onGoToPOS={handlePosAccess} />}
+          {activeTab === 'employees' && globalRole === 'owner' && <EmployeeDashboard employees={employees} requisitions={employeeRequisitions} jobApplications={jobApplications} attendance={employeeAttendance} histories={histories} branches={branches} leaves={employeeLeaves} advancePayments={advancePayments} dailySales={dailySales} appSettings={appSettings} orders={orders} serviceLogs={serviceLogs} bookings={bookings} masterCourses={masterCourses} onGoToPOS={handlePosAccess} />}
 
           {activeTab === 'courses' && (
             <div className="flex flex-col h-full space-y-4 max-w-7xl mx-auto">
@@ -13727,6 +13737,7 @@ const flexMessage = {
           orders={orders}
           serviceLogs={serviceLogs}
           bookings={bookings}
+          masterCourses={masterCourses}
           globalBranch={globalBranch}
           globalRole={globalRole}
           initialEmployee={initialEmployeeForAttendance}

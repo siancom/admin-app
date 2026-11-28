@@ -93,6 +93,19 @@ export function CoursePrintSheet({
     Number(course.computedRemainQty ?? (totalSessions - usedSessions))
   );
 
+  // Sort histories chronologically (oldest -> newest) so Visit #1 is first
+  const validHistories = (course.myHistories || [])
+    .filter((h) => {
+      if (!h) return false;
+      if (h.isCancelled) return false;
+      const st = String(getFuzzyKey(h, ['สถานะ', 'col_7', 'col_8', 'col_9']) || '').trim();
+      if (st === 'ยกเลิก') return false;
+      if (isMoleHistoryRecord(h)) return false;
+      return true;
+    })
+    .slice()
+    .sort((a, b) => getHistorySortTime(a) - getHistorySortTime(b));
+
   let totalCredit = Number(course.computedTotalCredit || 0);
   // 🛡️ Fallback sanity check:
   // If totalCredit equals totalSessions (<= 20) or is less than 50, and course is not explicitly a credit program,
@@ -134,19 +147,6 @@ export function CoursePrintSheet({
   const cleanIncludedItems = includedItemsRaw
     ? includedItemsRaw.replace(/\\n/g, ' • ').replace(/\s*\n+\s*/g, ' • ').trim()
     : '';
-
-  // Sort histories chronologically (oldest -> newest) so Visit #1 is first
-  const validHistories = (course.myHistories || [])
-    .filter((h) => {
-      if (!h) return false;
-      if (h.isCancelled) return false;
-      const st = String(getFuzzyKey(h, ['สถานะ', 'col_7', 'col_8', 'col_9']) || '').trim();
-      if (st === 'ยกเลิก') return false;
-      if (isMoleHistoryRecord(h)) return false;
-      return true;
-    })
-    .slice()
-    .sort((a, b) => getHistorySortTime(a) - getHistorySortTime(b));
 
   const sessionHistories = [];
   const creditHistories = [];

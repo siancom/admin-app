@@ -7,7 +7,7 @@ import EmployeePortal from './EmployeePortal';
 import PinModal from './PinModal';
 import ClockOutSummaryModal from './ClockOutSummaryModal';
 
-export default function FrontAttendanceModal({ employees = [], attendance = [], branches = [], leaves = [], advancePayments = [], histories = [], dailySales = [], onClose, onGoToPOS, appSettings = {}, orders = [], serviceLogs = [], bookings = [], requisitions = [], globalBranch, globalRole, initialEmployee, featureFlags = {}, mode = 'board', onStaffIdentity }) {
+export default function FrontAttendanceModal({ employees = [], attendance = [], branches = [], leaves = [], advancePayments = [], histories = [], dailySales = [], onClose, onGoToPOS, appSettings = {}, orders = [], serviceLogs = [], bookings = [], requisitions = [], masterCourses = [], globalBranch, globalRole, initialEmployee, featureFlags = {}, mode = 'board', onStaffIdentity }) {
   const [branchFilter, setBranchFilter] = useState(globalBranch || 'ทั้งหมด');
   const [selectedBranches, setSelectedBranches] = useState({});
   const [selectedEmployeeForPortal, setSelectedEmployeeForPortal] = useState(null);
@@ -472,6 +472,7 @@ export default function FrontAttendanceModal({ employees = [], attendance = [], 
            orders={orders}
            serviceLogs={serviceLogs}
            bookings={bookings}
+           masterCourses={masterCourses}
            isAdmin={globalRole === 'owner'}
            onClose={() => setSelectedEmployeeForPortal(null)}
            onClockIn={(emp) => handleClockIn(emp.id, emp.name, emp.branch)}

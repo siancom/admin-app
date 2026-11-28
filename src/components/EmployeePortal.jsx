@@ -21,6 +21,7 @@ export default function EmployeePortal({
   serviceLogs = [],
   orders = [],
   bookings = [],
+  masterCourses = [],
   appSettings = {},
   onClose,
   onClockIn,
@@ -187,16 +188,18 @@ export default function EmployeePortal({
         advancePayments,
         attendance,
         leaves,
-        localOverrides
+        localOverrides,
+        masterCourses
      });
-  }, [histories, serviceLogs, advancePayments, attendance, leaves, employee, payrollMonth, localOverrides]);
+  }, [histories, serviceLogs, advancePayments, attendance, leaves, employee, payrollMonth, localOverrides, masterCourses]);
 
   const commissionDetails = useMemo(() => {
     return calculateEmployeeCommissionDetails(employee, payrollMonth, {
       histories,
-      orders
+      orders,
+      masterCourses
     });
-  }, [employee, payrollMonth, histories, orders]);
+  }, [employee, payrollMonth, histories, orders, masterCourses]);
 
   const myFilteredServiceLogs = useMemo(() => {
     return (serviceLogs || [])

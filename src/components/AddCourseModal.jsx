@@ -130,6 +130,8 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
     name: '',
     category: 'โปรโมชั่น',
     price: '',
+    coursePrice: '',
+    productPrice: '',
     sessions: '',
     duration: '',
     credit: '',
@@ -171,12 +173,18 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
           name: String(getFuzzyKey(initialData, ["ชื่อคอส", "col_4"]) || initialData.name || ''),
           category: String(getFuzzyKey(initialData, ["ประเภท", "col_2"]) || initialData.category || defaultCat),
           price: String(getFuzzyKey(initialData, ["ราคาขาย", "ราคา", "col_5", "col_6"]) || initialData.price || ''),
+          coursePrice: String(initialData.coursePrice || getFuzzyKey(initialData, ["ราคาเฉพาะคอร์ส", "coursePrice"]) || ''),
+          productPrice: String(initialData.productPrice || getFuzzyKey(initialData, ["ราคาเซตผลิตภัณฑ์", "productPrice"]) || ''),
           sessions: String(getFuzzyKey(initialData, ["จำนวนครั้ง", "col_7"]) || initialData.sessions || ''),
           duration: String(getFuzzyKey(initialData, ["กำหนดเวลา"]) || initialData.duration || ''),
           credit: String(getFuzzyKey(initialData, ["เครดิตที่ได้รับ", "col_8"]) || initialData.credit || ''),
           freeVip: String(getFuzzyKey(initialData, ["ฟรีบัตรสมาชิก"])) === 'ใช่' || initialData.freeVip === true,
           image: String(getFuzzyKey(initialData, ["รูปภาพ", "รูป", "image", "img", "col_13"]) || initialData.image || ''),
-          promoOptions: Array.isArray(initialData.promoOptions) ? initialData.promoOptions : [],
+          promoOptions: Array.isArray(initialData.promoOptions) ? initialData.promoOptions.map(o => ({
+            ...o,
+            coursePrice: o.coursePrice !== undefined && o.coursePrice !== null ? String(o.coursePrice) : '',
+            productPrice: o.productPrice !== undefined && o.productPrice !== null ? String(o.productPrice) : ''
+          })) : [],
           endDate: formattedEnd
         });
 
@@ -204,6 +212,8 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
           name: '',
           category: 'โปรโมชั่น',
           price: '',
+          coursePrice: '',
+          productPrice: '',
           sessions: '',
           duration: '',
           credit: '',
@@ -247,6 +257,8 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
       id: `opt_${Date.now()}`,
       name: '',
       price: '',
+      coursePrice: '',
+      productPrice: '',
       sessions: '1',
       badge: '',
       items: ''
@@ -267,7 +279,31 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
   const handleUpdatePromoOption = (indexToUpdate, field, value) => {
     setFormData(prev => {
       const updated = [...prev.promoOptions];
-      updated[indexToUpdate] = { ...updated[indexToUpdate], [field]: value };
+      const currentOpt = { ...updated[indexToUpdate], [field]: value };
+
+      // Smart auto-split helper between total promo price, course price, and product price
+      if (field === 'price') {
+        const numPrice = Number(value);
+        if (numPrice > 0 && Number(currentOpt.coursePrice) > 0 && !currentOpt.productPrice) {
+          currentOpt.productPrice = String(Math.max(0, numPrice - Number(currentOpt.coursePrice)));
+        } else if (numPrice > 0 && Number(currentOpt.productPrice) > 0 && !currentOpt.coursePrice) {
+          currentOpt.coursePrice = String(Math.max(0, numPrice - Number(currentOpt.productPrice)));
+        }
+      } else if (field === 'coursePrice') {
+        const numCoursePrice = Number(value);
+        const numPrice = Number(currentOpt.price);
+        if (numPrice > 0 && !isNaN(numCoursePrice) && value !== '') {
+          currentOpt.productPrice = String(Math.max(0, numPrice - numCoursePrice));
+        }
+      } else if (field === 'productPrice') {
+        const numProdPrice = Number(value);
+        const numPrice = Number(currentOpt.price);
+        if (numPrice > 0 && !isNaN(numProdPrice) && value !== '') {
+          currentOpt.coursePrice = String(Math.max(0, numPrice - numProdPrice));
+        }
+      }
+
+      updated[indexToUpdate] = currentOpt;
       
       // Auto update main price to lowest promo price if set
       const firstValidPrice = updated.find(o => Number(o.price) > 0)?.price;
@@ -306,6 +342,8 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
         name: '',
         category: 'โปรโมชั่น',
         price: '',
+        coursePrice: '',
+        productPrice: '',
         sessions: '',
         duration: '',
         credit: '',
@@ -515,6 +553,54 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:border-pink-500 text-slate-700"
                       />
                     </div>
+
+                    {/* 🌟 แยกราคาคอร์ส และ ราคาเซตสินค้า เพื่อการคำนวณค่าคอมมิชชั่นอย่างแม่นยำ 🌟 */}
+                    <div className="sm:col-span-2 bg-gradient-to-r from-amber-50/80 via-orange-50/60 to-pink-50/80 p-3 rounded-xl border border-amber-200/90 space-y-2 mt-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-extrabold text-amber-900 flex items-center gap-1.5">
+                          <Sparkles size={12} className="text-amber-600" />
+                          แยกราคาคอร์ส & ผลิตภัณฑ์ (สำหรับคิดคอมมิชชั่น)
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-amber-100/90 text-amber-800 border-amber-200">
+                          {Number(opt.coursePrice) > 0 || Number(opt.productPrice) > 0 ? '✓ กำหนดแล้ว' : 'ไม่บังคับ (ระบุเมื่อโปรนี้มีเซตสินค้า)'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>
+                            ราคาเฉพาะคอร์ส (บาท)
+                          </label>
+                          <input
+                            type="number"
+                            placeholder="เช่น 899 (คิดคอมคอร์ส)"
+                            value={opt.coursePrice || ''}
+                            onChange={(e) => handleUpdatePromoOption(optIdx, 'coursePrice', e.target.value)}
+                            className="w-full bg-white border border-amber-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:border-amber-500 font-extrabold text-blue-700 shadow-2xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-pink-500 inline-block"></span>
+                            ราคาเซตผลิตภัณฑ์ (บาท)
+                          </label>
+                          <input
+                            type="number"
+                            placeholder="เช่น 1100 (คิดคอมสินค้า)"
+                            value={opt.productPrice || ''}
+                            onChange={(e) => handleUpdatePromoOption(optIdx, 'productPrice', e.target.value)}
+                            className="w-full bg-white border border-amber-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:border-amber-500 font-extrabold text-pink-700 shadow-2xs"
+                          />
+                        </div>
+                      </div>
+                      {(Number(opt.coursePrice) > 0 || Number(opt.productPrice) > 0) && (
+                        <div className="text-[11px] font-medium text-slate-700 flex flex-wrap items-center justify-between pt-1 border-t border-amber-200/60 gap-1">
+                          <span>💡 ฐานคิดคอมคอร์ส: <b className="text-blue-700 font-bold">฿{Number(opt.coursePrice || 0).toLocaleString()}</b></span>
+                          <span>ฐานคิดคอมสินค้า: <b className="text-pink-700 font-bold">฿{Number(opt.productPrice || 0).toLocaleString()}</b></span>
+                          <span>รวมยอด: <b className={(Number(opt.coursePrice || 0) + Number(opt.productPrice || 0)) === Number(opt.price || 0) ? 'text-emerald-700 font-bold' : 'text-amber-800 font-bold'}>฿{(Number(opt.coursePrice || 0) + Number(opt.productPrice || 0)).toLocaleString()}</b> {Number(opt.price || 0) > 0 && `(จากจ่ายจริง ฿${Number(opt.price).toLocaleString()})`}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -539,8 +625,74 @@ export default function AddCourseModal({ isOpen, onClose, onAdd, products = [], 
             icon={Monitor} label="จำนวนครั้งการลงเครื่อง / บริการ" type="number" 
             value={formData.sessions} onChange={e => setFormData({...formData, sessions: e.target.value})} 
           />
-          
-          <div className="flex flex-col gap-1.5">
+
+          {/* 🌟 แยกราคาคอร์สและสินค้าสำหรับคอร์สหลัก 🌟 */}
+          <div className="md:col-span-2 bg-amber-50/60 p-3.5 rounded-2xl border border-amber-200/80 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+              <Sparkles size={13} className="text-amber-600" />
+              แยกราคาคอร์ส & ผลิตภัณฑ์ สำหรับคิดคอมมิชชั่น (กรณีคอร์สรวมสินค้า)
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-amber-100/90 text-amber-800 border-amber-200">
+              {Number(formData.coursePrice) > 0 || Number(formData.productPrice) > 0 ? '✓ กำหนดแล้ว' : 'ไม่บังคับ (ระบุเมื่อคอร์สนี้มีเซตสินค้า)'}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>
+                ราคาเฉพาะคอร์ส (บาท) - คิดคอมคอร์ส
+              </label>
+              <input
+                type="number"
+                placeholder="เช่น 899"
+                value={formData.coursePrice || ''}
+                onChange={e => {
+                  const val = e.target.value;
+                  const numVal = Number(val);
+                  const numPrice = Number(formData.price);
+                  let nextProdPrice = formData.productPrice;
+                  if (numPrice > 0 && !isNaN(numVal) && val !== '') {
+                    nextProdPrice = String(Math.max(0, numPrice - numVal));
+                  }
+                  setFormData({ ...formData, coursePrice: val, productPrice: nextProdPrice });
+                }}
+                className="w-full bg-white border border-amber-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:border-amber-500 font-extrabold text-blue-700 shadow-2xs"
+              />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-pink-500 inline-block"></span>
+                ราคาเซตผลิตภัณฑ์ (บาท) - คิดคอมสินค้า
+              </label>
+              <input
+                type="number"
+                placeholder="เช่น 1100"
+                value={formData.productPrice || ''}
+                onChange={e => {
+                  const val = e.target.value;
+                  const numVal = Number(val);
+                  const numPrice = Number(formData.price);
+                  let nextCoursePrice = formData.coursePrice;
+                  if (numPrice > 0 && !isNaN(numVal) && val !== '') {
+                    nextCoursePrice = String(Math.max(0, numPrice - numVal));
+                  }
+                  setFormData({ ...formData, productPrice: val, coursePrice: nextCoursePrice });
+                }}
+                className="w-full bg-white border border-amber-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:border-amber-500 font-extrabold text-pink-700 shadow-2xs"
+              />
+            </div>
+          </div>
+          {(Number(formData.coursePrice) > 0 || Number(formData.productPrice) > 0) && (
+            <div className="text-[11px] font-medium text-slate-700 flex flex-wrap items-center justify-between pt-1 border-t border-amber-200/60 gap-1">
+              <span>💡 คอมคอร์สคิดจาก: <b className="text-blue-700 font-bold">฿{Number(formData.coursePrice || 0).toLocaleString()}</b></span>
+              <span>คอมสินค้าคิดจาก: <b className="text-pink-700 font-bold">฿{Number(formData.productPrice || 0).toLocaleString()}</b></span>
+              <span>รวมยอด: <b className={(Number(formData.coursePrice || 0) + Number(formData.productPrice || 0)) === Number(formData.price || 0) ? 'text-emerald-700 font-bold' : 'text-amber-800 font-bold'}>฿{(Number(formData.coursePrice || 0) + Number(formData.productPrice || 0)).toLocaleString()}</b></span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
             <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
               <Clock size={14} className="text-pink-500" />
               กำหนดเวลา

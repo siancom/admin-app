@@ -10,7 +10,7 @@ import PayslipModal from './PayslipModal';
 import EmployeePortal from './EmployeePortal';
 import JobApplicationModal from './JobApplicationModal';
 import EmploymentContractModal from './EmploymentContractModal';
-export default function EmployeeDashboard({ employees = [], attendance = [], histories = [], branches = [], leaves = [], advancePayments = [], dailySales = [], onGoToPOS, appSettings = {}, orders = [], serviceLogs = [], requisitions = [], jobApplications = [], bookings = [] }) {
+export default function EmployeeDashboard({ employees = [], attendance = [], histories = [], branches = [], leaves = [], advancePayments = [], dailySales = [], onGoToPOS, appSettings = {}, orders = [], serviceLogs = [], requisitions = [], jobApplications = [], bookings = [], masterCourses = [] }) {
   const [activeTab, setActiveTab] = useState('attendance');
   const [branchFilter, setBranchFilter] = useState('ทั้งหมด');
   const [selectedPosReceipt, setSelectedPosReceipt] = useState(null);
@@ -457,9 +457,10 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
         advancePayments,
         attendance,
         leaves,
+        masterCourses
       })
     );
-  }, [filteredEmployees, payrollMonth, histories, serviceLogs, advancePayments, attendance, leaves]);
+  }, [filteredEmployees, payrollMonth, histories, serviceLogs, advancePayments, attendance, leaves, masterCourses]);
   const attendanceHistoryData = getAttendanceHistory();
 
   return (
@@ -1936,6 +1937,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
            orders={orders}
            serviceLogs={serviceLogs}
            bookings={bookings}
+           masterCourses={masterCourses}
            onClose={() => setSelectedEmployeeForPortal(null)}
            onClockIn={(emp) => handleClockIn(emp.id, emp.name)}
            onClockOut={(att) => handleClockOut(att.id, att.branch, selectedEmployeeForPortal.branch)}

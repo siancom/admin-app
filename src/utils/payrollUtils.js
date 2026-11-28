@@ -66,6 +66,7 @@ export function calculateEmployeeMonthlyPayroll(
     leaves = [],
     localOverrides = null,
     localBaseSalary = undefined,
+    masterCourses = [],
   } = {}
 ) {
   if (!emp) return null;
@@ -124,8 +125,29 @@ export function calculateEmployeeMonthlyPayroll(
       } else if (typeStr.includes('ซื้อคอส') || typeStr.includes('ซื้อคอร์ส') || typeStr.includes('ซื้อเพิ่ม') || typeStr.includes('อัพคอร์ส') || typeStr.includes('เปิดคอร์ส') || (!typeStr && price > 0)) {
         // 🌟 เฉพาะการซื้อคอร์สใหม่ หรือซื้อเพิ่มเท่านั้น ที่ได้ค่าคอมคอร์ส
         // ตรวจสอบกรณีคอร์สที่รวมเซตผลิตภัณฑ์ (พนักงานจะได้ค่าคอมแยกคอร์สกับสินค้า)
-        const courseBase = parseNumber(h.courseCommissionBase ?? (h.coursePrice ? parseNumber(h.coursePrice) * parseQty(h['จำนวน'] || 1) : null));
-        const prodBase = parseNumber(h.productCommissionBase ?? (h.productPrice ? parseNumber(h.productPrice) * parseQty(h['จำนวน'] || 1) : null));
+        let courseBase = parseNumber(h.courseCommissionBase ?? (h.coursePrice ? parseNumber(h.coursePrice) * parseQty(h['จำนวน'] || 1) : null));
+        let prodBase = parseNumber(h.productCommissionBase ?? (h.productPrice ? parseNumber(h.productPrice) * parseQty(h['จำนวน'] || 1) : null));
+
+        if (courseBase <= 0 && prodBase <= 0 && Array.isArray(masterCourses) && masterCourses.length > 0) {
+          const matchedMaster = masterCourses.find(mc => 
+            mc.id === h.courseId || 
+            mc.id === h.id ||
+            String(mc["ชื่อคอส"] || mc.name || '').trim() === itemStr.trim() ||
+            itemStr.includes(String(mc["ชื่อคอส"] || mc.name || '').trim())
+          );
+          if (matchedMaster) {
+            let opt = null;
+            if (Array.isArray(matchedMaster.promoOptions)) {
+              opt = matchedMaster.promoOptions.find(o => itemStr.includes(o.name) || (o.price && Number(o.price) === price));
+            }
+            const cPrice = Number(opt?.coursePrice ?? matchedMaster.coursePrice ?? 0);
+            const pPrice = Number(opt?.productPrice ?? matchedMaster.productPrice ?? 0);
+            if (cPrice > 0 || pPrice > 0) {
+              courseBase = cPrice > 0 ? cPrice : Math.max(0, price - pPrice);
+              prodBase = pPrice > 0 ? pPrice : Math.max(0, price - courseBase);
+            }
+          }
+        }
 
         if (courseBase > 0 || prodBase > 0) {
           const cComm = (courseBase * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
@@ -357,7 +379,7 @@ export function calculateEmployeeMonthlyPayroll(
 /**
  * Returns itemized lists of product commission items and course commission items for an employee.
  */
-export function calculateEmployeeCommissionDetails(emp, payrollMonth, { histories = [], orders = [] } = {}) {
+export function calculateEmployeeCommissionDetails(emp, payrollMonth, { histories = [], orders = [], masterCourses = [] } = {}) {
   if (!emp) {
     return {
       productItems: [],
@@ -446,8 +468,29 @@ export function calculateEmployeeCommissionDetails(emp, payrollMonth, { historie
     } else if (typeStr.includes('บริการ') || typeStr.includes('จี้') || itemStr.includes('จี้') || h.isService || h.noCourseCommission || h.type === 'service') {
       // Hand fee (handled in serviceLogs)
     } else if (typeStr.includes('ซื้อคอส') || typeStr.includes('ซื้อคอร์ส') || typeStr.includes('ซื้อเพิ่ม') || typeStr.includes('อัพคอร์ส') || typeStr.includes('เปิดคอร์ส') || (!typeStr && price > 0)) {
-      const courseBase = parseNumber(h.courseCommissionBase ?? (h.coursePrice ? parseNumber(h.coursePrice) * parseQty(h['จำนวน'] || 1) : null));
-      const prodBase = parseNumber(h.productCommissionBase ?? (h.productPrice ? parseNumber(h.productPrice) * parseQty(h['จำนวน'] || 1) : null));
+      let courseBase = parseNumber(h.courseCommissionBase ?? (h.coursePrice ? parseNumber(h.coursePrice) * parseQty(h['จำนวน'] || 1) : null));
+      let prodBase = parseNumber(h.productCommissionBase ?? (h.productPrice ? parseNumber(h.productPrice) * parseQty(h['จำนวน'] || 1) : null));
+
+      if (courseBase <= 0 && prodBase <= 0 && Array.isArray(masterCourses) && masterCourses.length > 0) {
+        const matchedMaster = masterCourses.find(mc => 
+          mc.id === h.courseId || 
+          mc.id === h.id ||
+          String(mc["ชื่อคอส"] || mc.name || '').trim() === itemStr.trim() ||
+          itemStr.includes(String(mc["ชื่อคอส"] || mc.name || '').trim())
+        );
+        if (matchedMaster) {
+          let opt = null;
+          if (Array.isArray(matchedMaster.promoOptions)) {
+            opt = matchedMaster.promoOptions.find(o => itemStr.includes(o.name) || (o.price && Number(o.price) === price));
+          }
+          const cPrice = Number(opt?.coursePrice ?? matchedMaster.coursePrice ?? 0);
+          const pPrice = Number(opt?.productPrice ?? matchedMaster.productPrice ?? 0);
+          if (cPrice > 0 || pPrice > 0) {
+            courseBase = cPrice > 0 ? cPrice : Math.max(0, price - pPrice);
+            prodBase = pPrice > 0 ? pPrice : Math.max(0, price - courseBase);
+          }
+        }
+      }
 
       let effectiveCourseBase = price;
       let effectiveProdBase = 0;

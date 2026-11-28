@@ -3374,6 +3374,8 @@ export default function POSSystem({
             maxQty: 999, 
             originalItem: item,
             promoOption: promoOption || null,
+            coursePrice: promoOption?.coursePrice ?? item.coursePrice ?? null,
+            productPrice: promoOption?.productPrice ?? item.productPrice ?? null,
             sessions: sessions,
             items: itemsDesc,
             badge: badgeStr,

@@ -375,6 +375,56 @@ export function splitCourseAndProductPrice(item, masterCourses = []) {
     String(mc["ชื่อคอส"] || mc.name || '').trim() === String(item.name || '').trim()
   ) : null);
 
+  // 1. Explicit coursePrice and/or productPrice from promoOption, item, or master course (กำหนดโดยแอดมิน)
+  let optCoursePrice = Number(
+    item.coursePrice ??
+    item.promoOption?.coursePrice ?? 
+    item.selectedPromoOption?.coursePrice ?? 
+    master?.coursePrice ?? 
+    0
+  );
+  let optProdPrice = Number(
+    item.productPrice ??
+    item.promoOption?.productPrice ?? 
+    item.selectedPromoOption?.productPrice ?? 
+    master?.productPrice ?? 
+    0
+  );
+
+  // If promoOption in item didn't carry coursePrice/productPrice, check master.promoOptions
+  if ((!optCoursePrice && !optProdPrice) && Array.isArray(master?.promoOptions)) {
+    const optId = item.promoOption?.id || item.selectedPromoOption?.id;
+    const optName = item.promoOption?.name || item.selectedPromoOption?.name;
+    const matchedMasterOpt = master.promoOptions.find(o => 
+      (optId && o.id === optId) || 
+      (optName && (o.name === optName || String(item.name || '').includes(o.name)))
+    );
+    if (matchedMasterOpt) {
+      if (Number(matchedMasterOpt.coursePrice) > 0) optCoursePrice = Number(matchedMasterOpt.coursePrice);
+      if (Number(matchedMasterOpt.productPrice) > 0) optProdPrice = Number(matchedMasterOpt.productPrice);
+    }
+  }
+
+  if (optCoursePrice > 0 || optProdPrice > 0) {
+    let coursePricePerUnit = optCoursePrice;
+    let prodPricePerUnit = optProdPrice;
+
+    if (coursePricePerUnit > 0 && prodPricePerUnit <= 0) {
+      prodPricePerUnit = Math.max(0, unitPrice - coursePricePerUnit);
+    } else if (prodPricePerUnit > 0 && coursePricePerUnit <= 0) {
+      coursePricePerUnit = Math.max(0, unitPrice - prodPricePerUnit);
+    }
+
+    return {
+      courseGross: coursePricePerUnit * qty,
+      prodGross: prodPricePerUnit * qty,
+      hasProductSet: prodPricePerUnit > 0,
+      coursePricePerUnit,
+      prodPricePerUnit,
+      splitReason: `ระบุราคาคอร์ส ฿${coursePricePerUnit.toLocaleString()} + เซตผลิตภัณฑ์ ฿${prodPricePerUnit.toLocaleString()}`
+    };
+  }
+
   // Check explicit credit / product value
   const explicitCredit = Number(
     item.credit || 
