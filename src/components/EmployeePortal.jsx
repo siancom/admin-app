@@ -1122,9 +1122,12 @@ export default function EmployeePortal({
                               <div className="flex justify-between items-center text-rose-600">
                                  <div>
                                     <span>หักยอดค้างชำระสินค้า/คอร์ส</span>
-                                    {payrollEmployee.pendingDebtCourses?.length > 0 && (
+                                    {((payrollEmployee.pendingDebtCourses?.length > 0) || (payrollEmployee.pendingDebtOrders?.length > 0)) && (
                                        <span className="text-[10px] text-rose-400 block font-normal">
-                                          ({payrollEmployee.pendingDebtCourses.map(c => c.computedCourseName || c['ชื่อคอส'] || 'คอร์ส').join(', ')})
+                                          ({[
+                                             ...(payrollEmployee.pendingDebtCourses || []).map(c => c.computedCourseName || c['ชื่อคอส'] || 'คอร์ส'),
+                                             ...(payrollEmployee.pendingDebtOrders || []).map(o => `บิล ${o.orderNo}`)
+                                          ].join(', ')})
                                        </span>
                                     )}
                                  </div>
@@ -1148,14 +1151,38 @@ export default function EmployeePortal({
                         <p className="text-[11px] text-rose-600/90 leading-relaxed">
                            ระบบหักยอดค้างชำระสินค้า/คอร์สจากรายรับสุทธิแบบเรียลไทม์ หากชำระที่ POS เรียบร้อย ยอดรายรับจะอัปเดตคืนทันที
                         </p>
-                        {payrollEmployee.pendingDebtCourses?.length > 0 && (
-                           <div className="bg-white/80 rounded-xl p-2.5 border border-rose-100 space-y-1">
-                              {payrollEmployee.pendingDebtCourses.map((c, i) => (
-                                 <div key={i} className="flex justify-between items-center text-[11px]">
-                                    <span className="font-medium text-slate-700">{c.computedCourseName || c['ชื่อคอส'] || 'คอร์สค้างชำระ'}</span>
-                                    <span className="font-bold text-rose-600">ค้าง ฿{(Number(c.computedPendingAmount) || 0).toLocaleString()}</span>
+                        {((payrollEmployee.pendingDebtCourses?.length > 0) || (payrollEmployee.pendingDebtOrders?.length > 0)) && (
+                           <div className="bg-white/80 rounded-xl p-2.5 border border-rose-100 space-y-2">
+                              {payrollEmployee.pendingDebtCourses?.map((c, i) => (
+                                 <div key={`course-${i}`} className="flex justify-between items-center text-[11px] pb-1 border-b border-rose-50 last:border-0 last:pb-0">
+                                    <div>
+                                       <span className="font-bold text-slate-800">{c.computedCourseName || c['ชื่อคอส'] || 'คอร์สค้างชำระ'}</span>
+                                       <span className="text-[10px] text-slate-400 block">{c['เลขที่ใบคอส'] ? `ใบคอร์ส: ${c['เลขที่ใบคอส']}` : 'คอร์สคงค้าง'}</span>
+                                    </div>
+                                    <span className="font-black text-rose-600">ค้าง ฿{(Number(c.computedPendingAmount) || 0).toLocaleString()}</span>
                                  </div>
                               ))}
+                              {payrollEmployee.pendingDebtOrders?.map((o, i) => {
+                                 let pending = Number(o.pendingAmount ?? o.unpaidAmount ?? 0);
+                                 if (pending <= 0 && o.splitPayment && Number(o.splitPayment.cod) > 0) {
+                                    pending = Number(o.splitPayment.cod);
+                                 }
+                                 if (pending <= 0 && String(o.paymentMethod || '').includes('ค้าง')) {
+                                    const match = String(o.paymentMethod).match(/(?:ค้าง\/COD|ค้าง|COD):\s*([\d.]+)/);
+                                    if (match) pending = parseFloat(match[1]);
+                                 }
+                                 if (pending <= 0) pending = Number(o.price || 0);
+
+                                 return (
+                                    <div key={`order-${i}`} className="flex justify-between items-center text-[11px] pb-1 border-b border-rose-50 last:border-0 last:pb-0">
+                                       <div>
+                                          <span className="font-bold text-slate-800">บิลสินค้า {o.orderNo}: {o.courseName || 'สินค้า'}</span>
+                                          <span className="text-[10px] text-slate-400 block">{o.paymentMethod || 'ค้าง/COD'} • {o.createdAt ? new Date(o.createdAt).toLocaleDateString('th-TH') : '-'}</span>
+                                       </div>
+                                       <span className="font-black text-rose-600">ค้าง ฿{pending.toLocaleString()}</span>
+                                    </div>
+                                 );
+                              })}
                            </div>
                         )}
                      </div>

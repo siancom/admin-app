@@ -303,19 +303,29 @@ export function calculateEmployeeMonthlyPayroll(
   // 🌟 คำนวณยอดค้างชำระสินค้า / คอร์ส ของพนักงาน (Pending Debt)
   const empPhoneClean = String(emp.phone || '').replace(/\D/g, '');
   const empNameLower = String(emp.name || '').trim().toLowerCase();
+  const empNicknameLower = String(emp.nickname || '').trim().toLowerCase();
+  const empId = String(emp.id || '');
+  const linkedCustId = String(emp.linkedCustomerId || '');
 
   const pendingDebtCourses = (courses || []).filter((c) => {
+    if (c.isCancelled || c.status === 'ยกเลิก' || c.status === 'cancelled') return false;
     const pending = Number(c.computedPendingAmount ?? parseNumber(getFuzzyKey(c, ['ยอดค้างชำระ', 'pending', 'col_pending']))) || 0;
     if (pending <= 0) return false;
 
     const cPhoneClean = String(c.cleanPhone || c.computedPhone || getFuzzyKey(c, ['เบอร์โทร', 'col_1', 'col_3']) || '').replace(/\D/g, '');
     const cName = String(c.computedCustomerName || getFuzzyKey(c, ['ผู้ซื้อคอส', 'ชื่อลูกค้า', 'col_9', 'col_2']) || '').trim().toLowerCase();
+    const cEmpId = String(c.employeeId || '');
+    const cCustId = String(c.customerId || c.id || '');
 
-    return (
-      (empPhoneClean && cPhoneClean && empPhoneClean === cPhoneClean) ||
-      (empNameLower && cName && (cName === empNameLower || cName.includes(empNameLower) || empNameLower.includes(cName))) ||
-      (c.employeeId && (c.employeeId === emp.id || c.employeeId === emp.name))
-    );
+    const isDirectMatch = (cEmpId && (cEmpId === empId || cEmpId === emp.name)) ||
+      (linkedCustId && cCustId === linkedCustId);
+
+    const isPhoneMatch = empPhoneClean && cPhoneClean && empPhoneClean === cPhoneClean;
+
+    const isNameMatch = (empNameLower && cName && (cName === empNameLower || cName.includes(empNameLower) || empNameLower.includes(cName))) ||
+      (empNicknameLower && cName && (cName === empNicknameLower || cName.includes(empNicknameLower) || empNicknameLower.includes(cName)));
+
+    return isDirectMatch || isPhoneMatch || isNameMatch;
   });
 
   const rawPendingDebt = pendingDebtCourses.reduce((sum, c) => {
@@ -323,18 +333,45 @@ export function calculateEmployeeMonthlyPayroll(
   }, 0);
 
   const pendingDebtOrders = (orders || []).filter((o) => {
-    const pending = Number(o.pendingAmount ?? o.unpaidAmount ?? 0);
+    if (o.isCancelled || o.status === 'ยกเลิก' || o.status === 'cancelled') return false;
+    let pending = Number(o.pendingAmount ?? o.unpaidAmount ?? 0);
+    if (pending <= 0 && o.splitPayment && Number(o.splitPayment.cod) > 0) {
+      pending = Number(o.splitPayment.cod);
+    }
+    if (pending <= 0 && String(o.paymentMethod || '').includes('ค้าง')) {
+      const match = String(o.paymentMethod).match(/(?:ค้าง\/COD|ค้าง|COD):\s*([\d.]+)/);
+      if (match) pending = parseFloat(match[1]);
+    }
     if (pending <= 0) return false;
-    const oPhoneClean = String(o.customerPhone || '').replace(/\D/g, '');
+
+    const oPhoneClean = String(o.cleanPhone || o.customerPhone || '').replace(/\D/g, '');
     const oName = String(o.customerName || '').trim().toLowerCase();
-    return (
-      (empPhoneClean && oPhoneClean && empPhoneClean === oPhoneClean) ||
-      (empNameLower && oName && (oName === empNameLower || oName.includes(empNameLower) || empNameLower.includes(oName))) ||
-      (o.employeeId && o.employeeId === emp.id)
-    );
+    const oEmpId = String(o.employeeId || '');
+    const oCustId = String(o.customerId || '');
+
+    const isDirectMatch = (oEmpId && (oEmpId === empId || oEmpId === emp.name)) ||
+      (linkedCustId && oCustId === linkedCustId);
+
+    const isPhoneMatch = empPhoneClean && oPhoneClean && empPhoneClean === oPhoneClean;
+
+    const isNameMatch = (empNameLower && oName && (oName === empNameLower || oName.includes(empNameLower) || empNameLower.includes(oName))) ||
+      (empNicknameLower && oName && (oName === empNicknameLower || oName.includes(empNicknameLower) || empNicknameLower.includes(oName)));
+
+    return isDirectMatch || isPhoneMatch || isNameMatch;
   });
 
-  const totalOrderDebt = pendingDebtOrders.reduce((sum, o) => sum + Number(o.pendingAmount ?? o.unpaidAmount ?? 0), 0);
+  const totalOrderDebt = pendingDebtOrders.reduce((sum, o) => {
+    let pending = Number(o.pendingAmount ?? o.unpaidAmount ?? 0);
+    if (pending <= 0 && o.splitPayment && Number(o.splitPayment.cod) > 0) {
+      pending = Number(o.splitPayment.cod);
+    }
+    if (pending <= 0 && String(o.paymentMethod || '').includes('ค้าง')) {
+      const match = String(o.paymentMethod).match(/(?:ค้าง\/COD|ค้าง|COD):\s*([\d.]+)/);
+      if (match) pending = parseFloat(match[1]);
+    }
+    return sum + pending;
+  }, 0);
+
   const autoPendingDebt = rawPendingDebt + totalOrderDebt;
 
   const monthOverride =

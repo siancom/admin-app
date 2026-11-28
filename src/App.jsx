@@ -617,7 +617,11 @@ export default function App() {
     memberCardPhotoPreview: null,
     memberCardPhotoBase64: null,
     irisIntakeData: null,
+    employeeId: '',
+    employeeName: '',
+    employeeBranch: '',
   });
+
   const [isAnalyzingSkin, setIsAnalyzingSkin] = useState(false);
   const [isScanningIdCard, setIsScanningIdCard] = useState(false);
   const [isGeminiKeyModalOpen, setIsGeminiKeyModalOpen] = useState(false);
@@ -665,7 +669,14 @@ export default function App() {
     memberCardPhotoPreview: null,
     memberCardPhotoBase64: null,
     irisIntakeData: null,
+    employeeId: '',
+    employeeName: '',
+    employeeBranch: '',
   });
+
+  // 🤝 สถานะสำหรับ Modal ระบุการจับคู่พนักงาน (Staff Linking Modal)
+  const [employeeLinkModalCustomer, setEmployeeLinkModalCustomer] = useState(null);
+  const [selectedLinkEmployeeId, setSelectedLinkEmployeeId] = useState('');
 
   const editCustomerCameraInputRef = useRef(null);
   const editCustomerFileInputRef = useRef(null);
@@ -5806,6 +5817,9 @@ const flexMessage = {
         "ยอดสะสม": "0", 
         isEmployee: Boolean(newCustomerForm.isEmployee),
         isStaff: Boolean(newCustomerForm.isEmployee),
+        employeeId: newCustomerForm.isEmployee ? (newCustomerForm.employeeId || null) : null,
+        employeeName: newCustomerForm.isEmployee ? (newCustomerForm.employeeName || null) : null,
+        employeeBranch: newCustomerForm.isEmployee ? (newCustomerForm.employeeBranch || null) : null,
         "สถานะสมาชิก": newCustomerForm.isEmployee ? "พนักงาน (สิทธิ์สมาชิก)" : (isVip ? "สมาชิกระดับ VIP" : "ยังไม่สะสมยอด"),
         isApproved: Boolean(newCustomerForm.isEmployee || isVip),
         hasMemberCard: Boolean(newCustomerForm.isEmployee || isVip),
@@ -5818,6 +5832,18 @@ const flexMessage = {
 
       const docRef = await addDoc(getCol('customers'), docData); 
       const createdCustomer = { id: docRef.id, ...docData };
+
+      if (newCustomerForm.isEmployee && newCustomerForm.employeeId) {
+        try {
+          await updateDoc(getDocRef('employees', newCustomerForm.employeeId), {
+            linkedCustomerId: docRef.id,
+            linkedCustomerName: computedName,
+            linkedCustomerPhone: cleanPhone
+          });
+        } catch (linkErr) {
+          console.warn('Failed to link employee doc:', linkErr);
+        }
+      }
 
       if (uploadedMemberCardUrl) {
         try {
@@ -6189,14 +6215,34 @@ const flexMessage = {
             updateData.isEmployee = Boolean(editCustomerData.isEmployee);
             updateData.isStaff = Boolean(editCustomerData.isEmployee);
             if (editCustomerData.isEmployee) {
+              updateData.employeeId = editCustomerData.employeeId || null;
+              updateData.employeeName = editCustomerData.employeeName || null;
+              updateData.employeeBranch = editCustomerData.employeeBranch || null;
               updateData["สถานะสมาชิก"] = "พนักงาน (สิทธิ์สมาชิก)";
               updateData.isApproved = true;
               updateData.hasMemberCard = true;
               updateData.isMemberDiscount = true;
+            } else {
+              updateData.employeeId = null;
+              updateData.employeeName = null;
+              updateData.employeeBranch = null;
             }
           }
 
           await updateDoc(getDocRef('customers', editCustomerData.id), updateData);
+
+          if (editCustomerData.isEmployee && editCustomerData.employeeId) {
+            try {
+              await updateDoc(getDocRef('employees', editCustomerData.employeeId), {
+                linkedCustomerId: editCustomerData.id,
+                linkedCustomerName: computedName,
+                linkedCustomerPhone: cleanPhone
+              });
+            } catch (linkErr) {
+              console.warn('Failed to link employee doc:', linkErr);
+            }
+          }
+
           setIsEditCustomerOpen(false);
           showToast('อัปเดตข้อมูลลูกค้าและสิทธิประโยชน์สำเร็จ!', 'success');
 
@@ -6221,45 +6267,131 @@ const flexMessage = {
       }
   };
 
-  const handleToggleCustomerEmployeeStatus = async (cust) => {
-    if (!cust || !cust.id) return;
-    const isEmp = Boolean(cust.isEmployee || cust.isStaff || (cust.computedMemberStatus && String(cust.computedMemberStatus).includes('พนักงาน')));
-    const nextStatus = !isEmp;
-    const custName = cust.computedName || cust.name || 'ลูกค้ารายนี้';
-    const confirmMsg = nextStatus 
-      ? `ต้องการมอบ "สิทธิ์พนักงาน (ส่วนลดสมาชิก)" ให้กับคุณ ${custName} ใช่หรือไม่?\n\n• รับราคาสมาชิกและส่วนลด VIP ในระบบ POS ทันที\n• หากมีคอร์ส/สินค้าที่ค้างชำระ ยอดจะนำไปแสดงและหักในแดชบอร์ดเงินเดือนเรียลไทม์`
-      : `ต้องการยกเลิก "สิทธิ์พนักงาน" ของคุณ ${custName} ใช่หรือไม่?`;
+  const handleOpenEmployeeLinkModal = (cust) => {
+    if (!cust) return;
+    setEmployeeLinkModalCustomer(cust);
+    const cleanCustPhone = String(cust.computedPhone || cust.phone || cust.เบอร์โทร || cust.col_3 || '').replace(/\D/g, '');
+    const custName = String(cust.computedName || cust.name || cust.col_1 || cust.col_2 || '').trim().toLowerCase();
+    const custNickname = String(cust.nickname || cust.ชื่อเล่น || '').trim().toLowerCase();
 
-    if (!window.confirm(confirmMsg)) return;
+    let matchedEmpId = cust.employeeId || '';
+    if (!matchedEmpId && cleanCustPhone) {
+      const matchByPhone = employees.find(e => {
+        const ePhone = String(e.phone || '').replace(/\D/g, '');
+        return ePhone && ePhone === cleanCustPhone;
+      });
+      if (matchByPhone) matchedEmpId = matchByPhone.id;
+    }
+    if (!matchedEmpId && (custName || custNickname)) {
+      const matchByName = employees.find(e => {
+        const eName = String(e.name || '').trim().toLowerCase();
+        const eNick = String(e.nickname || '').trim().toLowerCase();
+        return (
+          (custName && (eName === custName || eName.includes(custName) || custName.includes(eName))) ||
+          (custNickname && (eNick === custNickname || eName.includes(custNickname)))
+        );
+      });
+      if (matchByName) matchedEmpId = matchByName.id;
+    }
+    setSelectedLinkEmployeeId(matchedEmpId);
+  };
+
+  const handleSaveEmployeeLink = async () => {
+    if (!employeeLinkModalCustomer || !employeeLinkModalCustomer.id) return;
+    const cust = employeeLinkModalCustomer;
+    const selectedEmp = employees.find(e => e.id === selectedLinkEmployeeId);
+    
+    if (!selectedEmp && selectedLinkEmployeeId !== 'custom_staff') {
+      showToast('กรุณาเลือกพนักงานที่ต้องการผูกข้อมูล', 'error');
+      return;
+    }
 
     try {
       const updateData = {
-        isEmployee: nextStatus,
-        isStaff: nextStatus,
+        isEmployee: true,
+        isStaff: true,
+        employeeId: selectedEmp ? selectedEmp.id : null,
+        employeeName: selectedEmp ? selectedEmp.name : 'พนักงาน',
+        employeeBranch: selectedEmp ? selectedEmp.branch : (cust.branch || 'เฉวง'),
+        "สถานะสมาชิก": "พนักงาน (สิทธิ์สมาชิก)",
+        isApproved: true,
+        hasMemberCard: true,
+        isMemberDiscount: true,
         updatedAt: serverTimestamp()
       };
-      if (nextStatus) {
-        updateData["สถานะสมาชิก"] = "พนักงาน (สิทธิ์สมาชิก)";
-        updateData.isApproved = true;
-        updateData.hasMemberCard = true;
-        updateData.isMemberDiscount = true;
-      }
+
       await updateDoc(getDocRef('customers', cust.id), updateData);
-      showToast(nextStatus ? 'มอบสิทธิ์พนักงาน (ส่วนลดสมาชิก) สำเร็จ!' : 'ยกเลิกสิทธิ์พนักงานเรียบร้อย', 'success');
+
+      if (selectedEmp) {
+        await updateDoc(getDocRef('employees', selectedEmp.id), {
+          linkedCustomerId: cust.id,
+          linkedCustomerName: cust.computedName || cust.name || 'พนักงาน',
+          linkedCustomerPhone: cust.computedPhone || cust.phone || ''
+        });
+      }
+
+      showToast(`จับคู่สิทธิ์พนักงานกับคุณ ${selectedEmp ? selectedEmp.name : 'พนักงาน'} สำเร็จ!`, 'success');
+      setEmployeeLinkModalCustomer(null);
 
       if (selectedCustomer && selectedCustomer.id === cust.id) {
         setSelectedCustomer(prev => ({
           ...prev,
           ...updateData,
-          computedMemberStatus: nextStatus ? "พนักงาน (สิทธิ์สมาชิก)" : prev.computedMemberStatus,
-          isApproved: nextStatus ? true : prev.isApproved,
-          hasMemberCard: nextStatus ? true : prev.hasMemberCard,
-          isMemberDiscount: nextStatus ? true : prev.isMemberDiscount
+          computedMemberStatus: "พนักงาน (สิทธิ์สมาชิก)",
+          isApproved: true,
+          hasMemberCard: true,
+          isMemberDiscount: true
         }));
       }
     } catch (err) {
       showToast('เกิดข้อผิดพลาด: ' + err.message, 'error');
     }
+  };
+
+  const handleUnlinkEmployee = async () => {
+    if (!employeeLinkModalCustomer || !employeeLinkModalCustomer.id) return;
+    const cust = employeeLinkModalCustomer;
+    if (!window.confirm(`ต้องการยกเลิกสิทธิ์พนักงานของคุณ ${cust.computedName || cust.name || 'รายนี้'} ใช่หรือไม่?`)) return;
+
+    try {
+      const oldEmpId = cust.employeeId;
+      const updateData = {
+        isEmployee: false,
+        isStaff: false,
+        employeeId: null,
+        employeeName: null,
+        employeeBranch: null,
+        "สถานะสมาชิก": (cust.realAccumulatedAmount >= 5000) ? "สมาชิกระดับ VIP" : "ยังไม่สะสมยอด",
+        isMemberDiscount: false,
+        updatedAt: serverTimestamp()
+      };
+
+      await updateDoc(getDocRef('customers', cust.id), updateData);
+
+      if (oldEmpId) {
+        await updateDoc(getDocRef('employees', oldEmpId), {
+          linkedCustomerId: null
+        });
+      }
+
+      showToast('ยกเลิกสิทธิ์พนักงานเรียบร้อย', 'success');
+      setEmployeeLinkModalCustomer(null);
+
+      if (selectedCustomer && selectedCustomer.id === cust.id) {
+        setSelectedCustomer(prev => ({
+          ...prev,
+          ...updateData,
+          computedMemberStatus: (prev.realAccumulatedAmount >= 5000) ? "สมาชิกระดับ VIP" : "ยังไม่สะสมยอด",
+          isMemberDiscount: false
+        }));
+      }
+    } catch (err) {
+      showToast('เกิดข้อผิดพลาด: ' + err.message, 'error');
+    }
+  };
+
+  const handleToggleCustomerEmployeeStatus = (cust) => {
+    handleOpenEmployeeLinkModal(cust);
   };
 
 
@@ -10675,7 +10807,7 @@ const flexMessage = {
                 
                 {/* แถบเครื่องมือ (ย้ายมาจัดเรียงด้านบนให้ไม่ทับข้อความ) */}
                 <div className="flex justify-end gap-2 mb-6 relative z-10 w-full flex-wrap">
-                    {/* ปุ่มจัดการสิทธิ์พนักงาน (ส่วนลดสมาชิกทันที) */}
+                    {/* ปุ่มจัดการสิทธิ์พนักงาน (ส่วนลดสมาชิกทันที & ระบุคน) */}
                     <button
                       onClick={() => handleToggleCustomerEmployeeStatus(selectedCustomer)}
                       className={`p-2.5 rounded-full transition-all text-white shadow-lg flex items-center gap-1.5 px-4 active:scale-95 cursor-pointer ${
@@ -10683,11 +10815,13 @@ const flexMessage = {
                           ? 'bg-emerald-600 hover:bg-emerald-700 border border-emerald-400'
                           : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 border border-purple-400/50'
                       }`}
-                      title={selectedCustomer.isEmployee ? 'คลิกเพื่อยกเลิกสิทธิ์พนักงาน' : 'ให้สิทธิ์พนักงานเพื่อรับส่วนลดสมาชิกทันที'}
+                      title={selectedCustomer.isEmployee ? 'คลิกเพื่อแก้ไข/ยกเลิกการจับคู่พนักงาน' : 'จับคู่พนักงานเพื่อรับส่วนลดสมาชิกและหักค้างชำระในเงินเดือน'}
                     >
                       {selectedCustomer.isEmployee ? <CheckCircle size={16}/> : <UserCheck size={16}/>}
                       <span className="text-[11px] font-bold tracking-wider">
-                        {selectedCustomer.isEmployee ? '✓ สิทธิ์พนักงาน (ส่วนลดสมาชิก)' : '⭐ ให้สิทธิ์พนักงาน (ส่วนลดสมาชิก)'}
+                        {selectedCustomer.isEmployee
+                          ? (selectedCustomer.employeeName ? `✓ พนักงาน: ${selectedCustomer.employeeName}` : '✓ สิทธิ์พนักงาน')
+                          : '⭐ จับคู่สิทธิ์พนักงาน'}
                       </span>
                     </button>
                     {(!selectedCustomer.isApproved || selectedCustomer.computedMemberStatus !== 'สมาชิกระดับ VIP') && !selectedCustomer.isEmployee && (
@@ -10734,6 +10868,9 @@ const flexMessage = {
                         zipcode: selectedCustomer.zipcode || '',
                         isVipUpgrade: selectedCustomer.isApproved || selectedCustomer.computedMemberStatus === 'สมาชิกระดับ VIP',
                         isEmployee: Boolean(selectedCustomer.isEmployee || selectedCustomer.isStaff || (selectedCustomer.computedMemberStatus && String(selectedCustomer.computedMemberStatus).includes('พนักงาน'))),
+                        employeeId: selectedCustomer.employeeId || '',
+                        employeeName: selectedCustomer.employeeName || '',
+                        employeeBranch: selectedCustomer.employeeBranch || '',
                         hasMemberCard: selectedCustomer.hasMemberCard || !!selectedCustomer.membershipCardNo,
                         memberCardNo: selectedCustomer.membershipCardNo || selectedCustomer.memberCardNo || '',
                         memberCardPhotoFile: null,
@@ -10772,6 +10909,11 @@ const flexMessage = {
                             {selectedCustomer.isEmployee && (
                               <p className="flex items-center bg-emerald-500/80 border border-emerald-300/40 px-3 py-1.5 rounded-xl text-emerald-100 font-bold shadow-sm">
                                 <UserCheck size={16} className="mr-1.5 text-white"/> พนักงาน (สิทธิ์สมาชิก)
+                                {selectedCustomer.employeeName && (
+                                  <span className="ml-1.5 bg-black/20 text-white px-2 py-0.5 rounded-md text-xs font-semibold">
+                                    ผูกกับ: {selectedCustomer.employeeName} {selectedCustomer.employeeBranch ? `(${selectedCustomer.employeeBranch})` : ''}
+                                  </span>
+                                )}
                               </p>
                             )}
                             {selectedCustomer.membershipCardNo && (
@@ -11825,6 +11967,43 @@ const flexMessage = {
                 <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
               </label>
             </div>
+
+            {Boolean(editCustomerData.isEmployee) && (
+              <div className="mt-3 pt-3 border-t border-purple-200/70">
+                <label className="text-[11px] font-bold text-purple-900 block mb-1.5 flex items-center justify-between">
+                  <span>เลือกพนักงานที่ตรงกับลูกค้ารายนี้ (จับคู่บัญชี):</span>
+                  <span className="text-[10px] text-purple-700 font-normal">* หักยอดค้างชำระในเงินเดือน</span>
+                </label>
+                <select
+                  value={editCustomerData.employeeId || ''}
+                  onChange={(e) => {
+                    const empId = e.target.value;
+                    const empObj = employees.find(emp => emp.id === empId);
+                    setEditCustomerData(prev => ({
+                      ...prev,
+                      employeeId: empId,
+                      employeeName: empObj ? empObj.name : '',
+                      employeeBranch: empObj ? empObj.branch : ''
+                    }));
+                  }}
+                  className="w-full text-xs p-2.5 rounded-xl border border-purple-300 bg-white font-bold text-slate-800 focus:outline-none focus:border-purple-600 shadow-2xs"
+                >
+                  <option value="">-- กรุณาเลือกพนักงานในระบบ (employees) --</option>
+                  {employees.map(emp => {
+                    const cleanEmpPhone = String(emp.phone || '').replace(/\D/g, '');
+                    const cleanCustPhone = String(editCustomerData.phone || '').replace(/\D/g, '');
+                    const isPhoneMatch = cleanEmpPhone && cleanCustPhone && cleanEmpPhone === cleanCustPhone;
+                    const isNameMatch = String(emp.name || '').includes(String(editCustomerData.name || editCustomerData.firstName || ''));
+                    return (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name} (สาขา: {emp.branch || 'เฉวง'}{emp.phone ? ` • โทร: ${emp.phone}` : ''})
+                        {isPhoneMatch ? ' ⭐️ (เบอร์ตรงกัน)' : isNameMatch ? ' ⭐️ (ชื่อตรงกัน)' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
           </div>
 
           <button 
@@ -12441,6 +12620,43 @@ const flexMessage = {
                 <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
               </label>
             </div>
+
+            {Boolean(newCustomerForm.isEmployee) && (
+              <div className="mt-3 pt-3 border-t border-purple-200/70">
+                <label className="text-[11px] font-bold text-purple-900 block mb-1.5 flex items-center justify-between">
+                  <span>เลือกพนักงานที่ตรงกับลูกค้ารายนี้ (จับคู่บัญชี):</span>
+                  <span className="text-[10px] text-purple-700 font-normal">* หักยอดค้างชำระในเงินเดือน</span>
+                </label>
+                <select
+                  value={newCustomerForm.employeeId || ''}
+                  onChange={(e) => {
+                    const empId = e.target.value;
+                    const empObj = employees.find(emp => emp.id === empId);
+                    setNewCustomerForm(prev => ({
+                      ...prev,
+                      employeeId: empId,
+                      employeeName: empObj ? empObj.name : '',
+                      employeeBranch: empObj ? empObj.branch : ''
+                    }));
+                  }}
+                  className="w-full text-xs p-2.5 rounded-xl border border-purple-300 bg-white font-bold text-slate-800 focus:outline-none focus:border-purple-600 shadow-2xs"
+                >
+                  <option value="">-- กรุณาเลือกพนักงานในระบบ (employees) --</option>
+                  {employees.map(emp => {
+                    const cleanEmpPhone = String(emp.phone || '').replace(/\D/g, '');
+                    const cleanCustPhone = String(newCustomerForm.phone || '').replace(/\D/g, '');
+                    const isPhoneMatch = cleanEmpPhone && cleanCustPhone && cleanEmpPhone === cleanCustPhone;
+                    const isNameMatch = String(emp.name || '').includes(String(newCustomerForm.name || newCustomerForm.firstName || ''));
+                    return (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name} (สาขา: {emp.branch || 'เฉวง'}{emp.phone ? ` • โทร: ${emp.phone}` : ''})
+                        {isPhoneMatch ? ' ⭐️ (เบอร์ตรงกัน)' : isNameMatch ? ' ⭐️ (ชื่อตรงกัน)' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* 📋 ใบบันทึกประวัติลูกค้า & แฟ้มเอกสาร (IrisPatient) 📋 */}
@@ -12663,6 +12879,152 @@ const flexMessage = {
           } catch(e) { console.error(e); throw e; }
         }}
       />
+
+      {/* 🤝 Modal ระบุการจับคู่พนักงาน (Staff Linking Modal) 🤝 */}
+      {employeeLinkModalCustomer && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-gray-950/70 backdrop-blur-md animate-in fade-in">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-purple-100 flex flex-col">
+            {/* Header */}
+            <div className="p-5 sm:p-6 bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 text-white relative">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-white/20 border border-white/30 flex items-center justify-center text-white shadow-inner">
+                    <UserCheck size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-black tracking-tight">
+                      จับคู่สิทธิ์พนักงาน (Staff Linking)
+                    </h3>
+                    <p className="text-xs text-purple-200">
+                      ระบุพนักงานเพื่อรับส่วนลดสมาชิก และส่งยอดค้างชำระไปแดชบอร์ดเงินเดือน
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEmployeeLinkModalCustomer(null)}
+                  className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 sm:p-6 space-y-4 text-xs">
+              {/* Customer Info Card */}
+              <div className="bg-purple-50/70 border border-purple-200/80 rounded-2xl p-3.5 flex items-center justify-between">
+                <div>
+                  <div className="text-[11px] text-purple-600 font-bold">ข้อมูลลูกค้าที่เลือก</div>
+                  <div className="text-sm font-black text-slate-800">
+                    {employeeLinkModalCustomer.computedName || employeeLinkModalCustomer.name}
+                    {employeeLinkModalCustomer.nickname && (
+                      <span className="text-xs font-normal text-purple-700 ml-1.5">
+                        (ชื่อเล่น: {employeeLinkModalCustomer.nickname})
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    เบอร์โทร: <strong className="text-slate-700">{employeeLinkModalCustomer.computedPhone || employeeLinkModalCustomer.phone || '-'}</strong>
+                  </div>
+                </div>
+                {employeeLinkModalCustomer.isEmployee && (
+                  <span className="px-2.5 py-1 rounded-xl bg-emerald-100 text-emerald-800 font-black text-[10px] border border-emerald-300">
+                    ✓ มีสิทธิ์พนักงานอยู่แล้ว
+                  </span>
+                )}
+              </div>
+
+              {/* Employee Selection Dropdown */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                  <span>เลือกพนักงานที่ต้องการจับคู่:</span>
+                  <span className="text-[10px] text-purple-600 font-normal">* จำเป็นต้องระบุพนักงาน</span>
+                </label>
+                <select
+                  value={selectedLinkEmployeeId}
+                  onChange={(e) => setSelectedLinkEmployeeId(e.target.value)}
+                  className="w-full text-xs sm:text-sm p-3 rounded-2xl border-2 border-purple-200 focus:border-purple-600 focus:outline-none bg-slate-50 font-bold text-slate-800"
+                >
+                  <option value="">-- กรุณาเลือกพนักงานในระบบ (employees) --</option>
+                  {employees.map(emp => {
+                    const cleanEmpPhone = String(emp.phone || '').replace(/\D/g, '');
+                    const cleanCustPhone = String(employeeLinkModalCustomer.computedPhone || employeeLinkModalCustomer.phone || '').replace(/\D/g, '');
+                    const isPhoneMatch = cleanEmpPhone && cleanCustPhone && cleanEmpPhone === cleanCustPhone;
+                    const isNameMatch = String(emp.name || '').includes(String(employeeLinkModalCustomer.computedName || employeeLinkModalCustomer.name || ''));
+                    return (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name} (สาขา: {emp.branch || 'เฉวง'}{emp.phone ? ` • โทร: ${emp.phone}` : ''})
+                        {isPhoneMatch ? ' ⭐️ (เบอร์โทรตรงกัน)' : isNameMatch ? ' ⭐️ (ชื่อตรงกัน)' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Matching hint */}
+              {selectedLinkEmployeeId && (() => {
+                const matched = employees.find(e => e.id === selectedLinkEmployeeId);
+                if (!matched) return null;
+                return (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 text-emerald-800 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <CheckCircle size={14} className="text-emerald-600" />
+                      <span>จับคู่กับ: {matched.name} (สาขา {matched.branch})</span>
+                    </div>
+                    <p className="text-[10px] text-emerald-700 leading-relaxed">
+                      เมื่อสั่งซื้อที่ POS จะได้รับสิทธิ์ราคาสมาชิกทันที และหากมีการซื้อสินค้า/คอร์สแบบค้างชำระ (COD) ยอดหนี้จะถูกนำไปหักในแดชบอร์ดเงินเดือนของ <strong>{matched.name}</strong> อัตโนมัติ
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* Features summary */}
+              <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200/80 space-y-1.5 text-[11px] text-slate-600">
+                <div className="font-bold text-slate-700">สิทธิประโยชน์เมื่อจับคู่พนักงาน:</div>
+                <div className="flex items-start gap-1.5">
+                  <span className="text-purple-600 font-bold">•</span>
+                  <span><strong>ราคาสมาชิก POS ทันที:</strong> พนักงานซื้อสินค้าได้ในราคาต้นทุนสมาชิก VIP</span>
+                </div>
+                <div className="flex items-start gap-1.5">
+                  <span className="text-purple-600 font-bold">•</span>
+                  <span><strong>หักเงินเดือนเรียลไทม์:</strong> หากพนักงานเลือกค้างชำระ ยอดจะไปหักในแดชบอร์ดเงินเดือนของพนักงานคนนั้นทันที</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="p-4 sm:p-5 bg-slate-100/80 border-t border-slate-200 flex items-center justify-between gap-2 flex-wrap">
+              {employeeLinkModalCustomer.isEmployee ? (
+                <button
+                  type="button"
+                  onClick={handleUnlinkEmployee}
+                  className="px-4 py-2.5 rounded-xl text-rose-600 hover:bg-rose-50 border border-rose-200 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  ยกเลิกสิทธิ์พนักงาน
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEmployeeLinkModalCustomer(null)}
+                  className="px-4 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleSaveEmployeeLink}
+                disabled={!selectedLinkEmployeeId}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-xs shadow-md shadow-purple-500/20 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                บันทึกการจับคู่พนักงาน
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 🌟 แบบฟอร์มประวัติลูกค้า & แฟ้มเอกสาร Iris Queen Nature (IrisPatient2) 🌟 */}
       <IrisPatientIntakeModal
