@@ -5171,10 +5171,17 @@ export default function POSSystem({
       setIsMobileCartOpen(false); // Close cart immediately so receipt shows properly
       setActiveTab('products'); // 🌟 ชำระเงินเสร็จให้กลับมาหน้าขายครีมทุกครั้ง
 
+      if (posReturnToStaffAfterCheckout && onReturnToStaffDashboard) {
+        onReturnToStaffDashboard();
+      } else if (posReturnToAppointmentsAfterCheckout && onReturnToAppointments) {
+        onReturnToAppointments();
+      }
+
       if (isOwnerDirectUsage) {
         showToast('✨ บันทึกการใช้คอส (เช็คเบื้องต้น) เรียบร้อยแล้ว!', 'success');
       } else {
-        showToast('⚡ ชำระเงินสำเร็จ!', 'success');
+        const paySummary = total > 0 ? `฿${total.toLocaleString()}` : (isUsageBill ? 'ตัดคอร์สสำเร็จ' : 'สำเร็จ');
+        showToast(`⚡ ชำระเงินสำเร็จ! บิล ${orderNo} (${paySummary}) พร้อมขายบิลถัดไปทันที`, 'success');
       }
 
       // If autoPrint is enabled — open preview immediately so print fires without user action (desktop only, no mobile freezing)
@@ -5350,113 +5357,6 @@ export default function POSSystem({
       setIsProcessing(false);
     }
   };
-
-  // 🌟 Auto-dismiss receipt popup after countdown so cashier can start next sale without waiting
-  const [receiptCountdown, setReceiptCountdown] = useState(null);
-  const receiptTimerRef = useRef(null);
-  const handleQuickNewSaleRef = useRef(null);
-
-  const cancelAutoDismiss = useCallback(() => {
-    if (receiptTimerRef.current) {
-      clearInterval(receiptTimerRef.current);
-      receiptTimerRef.current = null;
-    }
-    setReceiptCountdown(null);
-  }, []);
-
-  // 🌟 เริ่มต้นขายบิลใหม่ทันที (ปุ๊ปปั๊ป ไม่ต้องรอ ล้างข้อมูลเพื่อพร้อมรับลูกค้าคนต่อไปทันที)
-  const handleQuickNewSale = useCallback(() => {
-    if (receiptTimerRef.current) {
-      clearInterval(receiptTimerRef.current);
-      receiptTimerRef.current = null;
-    }
-    setReceiptCountdown(null);
-
-    // ⚡ 1. ปิดหน้าต่างใบเสร็จทันทีใน 0ms ปลดล็อกจอให้กดขายสินค้าชิ้นต่อไปได้ทันที
-    setReceiptData(null);
-
-    // ⚡ 2. เคลียร์ State ต่างๆ ใน Transition เพื่อไม่ให้บล็อก Frame Rate หรือกระตุก
-    startTransition(() => {
-      setCart([]);
-      setAppCreditPaidAmount(0);
-      setActiveCustomerAppOrderIds([]);
-      setSelectedCustomer(null);
-      setCustomerSearch('');
-      setGlobalDiscount(0);
-      setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0, omise_promptpay: 0 });
-      setShippingAddress('');
-      setPosTrackingNo('');
-      setOrderChannel('instore');
-      setActiveWcOrderId(null);
-      setIsMobileCartOpen(false);
-      setActiveTab('products');
-      if (posReturnToStaffAfterCheckout && onReturnToStaffDashboard) {
-        onReturnToStaffDashboard();
-      } else if (posReturnToAppointmentsAfterCheckout && onReturnToAppointments) {
-        onReturnToAppointments();
-      }
-    });
-  }, [posReturnToStaffAfterCheckout, onReturnToStaffDashboard, posReturnToAppointmentsAfterCheckout, onReturnToAppointments]);
-
-  handleQuickNewSaleRef.current = handleQuickNewSale;
-
-  // 🌟 Effect นับถอยหลังปิดป็อปอัพอัตโนมัติ (ใช้ Timestamp แน่นหนา ไม่มีการรีเซ็ตเวลากลับเมื่อ State เบื้องหลังอัปเดต)
-  useEffect(() => {
-    if (!receiptData || showPreviewModal) {
-      if (receiptTimerRef.current) {
-        clearInterval(receiptTimerRef.current);
-        receiptTimerRef.current = null;
-      }
-      setReceiptCountdown(null);
-      return;
-    }
-
-    const durationSec = 2; // ปิดไวใน 2 วินาที พอให้อ่านยอดและบิล แล้วพร้อมขายบิลใหม่ทันที
-    const targetEndTime = Date.now() + (durationSec * 1000);
-    setReceiptCountdown(durationSec);
-
-    if (receiptTimerRef.current) {
-      clearInterval(receiptTimerRef.current);
-    }
-
-    const interval = setInterval(() => {
-      const remainingMs = targetEndTime - Date.now();
-      const remainingSec = Math.ceil(remainingMs / 1000);
-      if (remainingSec <= 0) {
-        clearInterval(interval);
-        receiptTimerRef.current = null;
-        setReceiptCountdown(null);
-        if (handleQuickNewSaleRef.current) {
-          handleQuickNewSaleRef.current();
-        }
-      } else {
-        setReceiptCountdown(remainingSec);
-      }
-    }, 150);
-
-    receiptTimerRef.current = interval;
-    return () => {
-      clearInterval(interval);
-    };
-  }, [receiptData?.orderNo, showPreviewModal]);
-
-  // 🌟 Keyboard Shortcut: กด Enter, Space หรือ Esc เพื่อปิดป็อปอัพและเริ่มขายทันที
-  useEffect(() => {
-    if (!receiptData) return;
-    const handleKey = (e) => {
-      if (showPreviewModal) return;
-      if (e.key === 'Escape' || e.key === ' ' || e.key === 'Enter') {
-        e.preventDefault();
-        if (handleQuickNewSaleRef.current) {
-          handleQuickNewSaleRef.current();
-        }
-      }
-    };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [receiptData?.orderNo, showPreviewModal]);
-
-
 
   const handleSaveA4AsImage = () => {
     const printArea = document.getElementById('eod-a4-content');
@@ -5995,6 +5895,24 @@ export default function POSSystem({
                 <span className="hidden lg:inline text-[9px]">คิว</span>
               </span>
             </button>
+
+            {/* 🖨️ ปุ่มพิมพ์บิลล่าสุด (ไม่ขึ้นป็อปอัพบังจอ ขายต่อได้ทันที หากต้องการพิมพ์บิลสามารถกดตรงนี้ได้ตลอดเวลา) */}
+            {receiptData && (
+              <button 
+                type="button"
+                onClick={() => {
+                  setPrintMode('receipt');
+                  setShowPreviewModal(true);
+                }}
+                className="shrink-0 py-1.5 sm:py-2 px-2.5 sm:px-3 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-300 shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-[0.99] cursor-pointer"
+                title={`พิมพ์ใบเสร็จบิลล่าสุด (${receiptData.orderNo})`}
+              >
+                <Printer size={16} className="text-indigo-600 shrink-0" />
+                <span className="text-xs sm:text-sm font-bold text-slate-800">
+                  <span className="hidden sm:inline">พิมพ์บิล </span>#{receiptData.orderNo}
+                </span>
+              </button>
+            )}
 
             {/* แถบแสดงยอดขายสวยๆ ต่อท้ายป้ายเตียง */}
             <div 
@@ -11518,138 +11436,6 @@ export default function POSSystem({
           
           <div className="text-xs text-slate-400 text-center px-4">
             เมื่อลูกค้าสแกนจ่ายสำเร็จ ระบบจะทำรายการให้โดยอัตโนมัติ ไม่ต้องกดยืนยัน
-          </div>
-        </div>
-      </div>
-    )}
-
-    {/* Receipt & Success Modal */}
-    {receiptData && (
-      <div 
-        onClick={(e) => {
-          if (e.target === e.currentTarget) handleQuickNewSale();
-        }}
-        className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm print:hidden animate-in fade-in duration-150"
-      >
-        <div className="relative bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col items-center">
-          {/* ปุ่มปิด X มุมขวาบน สำหรับกดปิดเพื่อขายต่อทันที */}
-          <button 
-            type="button"
-            onClick={handleQuickNewSale}
-            className="absolute top-4 right-4 p-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-            title="ปิด / ขายบิลถัดไปทันที"
-          >
-            <X size={18} />
-          </button>
-
-          <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-3">
-            <CheckCircle size={32} strokeWidth={2.5} />
-          </div>
-          <h2 className="text-xl font-black text-slate-800 mb-1">
-            {receiptData.isStoreUse || receiptData.items.some(i => i.actionType === 'store_use')
-              ? 'บันทึกเบิกสินค้าใช้ในร้านเรียบร้อย!'
-              : isRequisitionMode 
-                ? 'ทำรายการเบิกสินค้าเรียบร้อย!' 
-                : 'ชำระเงินเรียบร้อย!'}
-          </h2>
-          <p className="text-slate-500 text-xs mb-4 font-mono">
-            เลขที่บิล: {receiptData.orderNo} • ฿{(receiptData.total || 0).toLocaleString()}
-          </p>
-          
-          {/* WooCommerce Sync Status */}
-          {wooSyncStatus.length > 0 && (
-            <div className="w-full mb-4 bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-2">
-              <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">ซิงค์สต๊อกขึ้นเว็บ (WooCommerce)</div>
-              {wooSyncStatus.map((s, i) => (
-                <div key={i} className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-slate-700 truncate flex-1">{s.name}</span>
-                  <span className="text-xs text-slate-400 shrink-0">→ {s.newStock} ชิ้น</span>
-                  {s.status === 'pending' && (
-                    <span className="flex items-center gap-1 text-xs text-amber-500 font-bold shrink-0">
-                      <span className="animate-spin inline-block w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full"></span>
-                      กำลังส่ง...
-                    </span>
-                  )}
-                  {s.status === 'success' && (
-                    <span className="text-xs text-emerald-600 font-bold shrink-0">✅ สำเร็จ</span>
-                  )}
-                  {s.status === 'failed' && (
-                    <span className="text-xs text-rose-500 font-bold shrink-0">❌ ล้มเหลว</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-          
-          <div className="w-full space-y-2.5">
-            {/* 🌟 ปุ่มอันดับ 1 ใหญ่สุดเด่นสุด: พร้อมขายบิลใหม่ทันที (ปุ๊ปปั๊ป ไม่ต้องรอ ล้างจอใน 0ms) */}
-            <button
-               type="button"
-               onClick={handleQuickNewSale}
-               className="w-full py-4 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 active:scale-[0.98] text-white rounded-2xl font-black text-base shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer relative overflow-hidden"
-            >
-               <Zap size={20} className="text-amber-300" />
-               <span>พร้อมขายบิลใหม่ทันที ⚡</span>
-               {receiptCountdown !== null && (
-                 <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full font-bold ml-1 animate-pulse border border-white/30">
-                   {receiptCountdown} วิ
-                 </span>
-               )}
-            </button>
-
-            <button 
-              type="button"
-              onClick={() => {
-                cancelAutoDismiss();
-                setPrintMode('receipt');
-                // Skip preview — print directly after one frame for portal to render
-                requestAnimationFrame(() => {
-                  requestAnimationFrame(() => {
-                    window.print();
-                  });
-                });
-              }}
-              className="w-full py-3 bg-indigo-50 hover:bg-indigo-100 active:scale-[0.98] text-indigo-700 border border-indigo-200/80 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
-            >
-              🖨️ {receiptData?.items.some(i => i.actionType === 'owner_purchase')
-                ? 'พิมพ์ใบสั่งซื้อ (A4)'
-                : receiptData?.items.some(i => i.actionType === 'branch_requisition')
-                  ? 'พิมพ์ใบเบิกสินค้า (A4)'
-                  : (receiptData.isStoreUse || receiptData?.items.some(i => i.actionType === 'store_use'))
-                    ? 'พิมพ์ใบเบิกใช้ในร้าน (80mm)'
-                    : 'พิมพ์ใบเสร็จ (80mm)'}
-            </button>
-            {receiptData.orderChannel !== 'instore' && (
-              <button 
-                type="button"
-                onClick={() => {
-                  cancelAutoDismiss();
-                  setPrintMode('label');
-                  setShowPreviewModal(true);
-                }}
-                className="w-full py-2.5 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
-              >
-                🏷️ พิมพ์ใบแปะหน้า (4x6 นิ้ว)
-              </button>
-            )}
-            {posReturnToStaffAfterCheckout && (
-              <button 
-                type="button"
-                onClick={handleQuickNewSale}
-                className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <span>กลับสู่หน้าหลักพนักงาน</span>
-              </button>
-            )}
-            {posReturnToAppointmentsAfterCheckout && (
-              <button 
-                type="button"
-                onClick={handleQuickNewSale}
-                className="w-full py-3 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <span>กลับสู่หน้าจองคิว</span>
-              </button>
-            )}
           </div>
         </div>
       </div>
