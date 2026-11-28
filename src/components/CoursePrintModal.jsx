@@ -102,8 +102,25 @@ export function CoursePrintSheet({
   if (totalCredit > 0 && !isCashCredit && ((totalCredit <= 20 && totalCredit === totalSessions) || totalCredit < 50)) {
     totalCredit = 0;
   }
-  const usedCredit = totalCredit > 0 ? Number(course.computedUsedCredit || 0) : 0;
-  const remainCredit = totalCredit > 0 ? Number(course.computedRemainCredit || (totalCredit - usedCredit)) : 0;
+  const totalDrawnFromHistories = (validHistories || []).reduce((sum, h) => {
+    const rawProd = String(getFuzzyKey(h, ['สินค้า', 'col_18', 'รายการสินค้า', 'รายการเบิก']) || '').trim();
+    const itemDesc = String(getFuzzyKey(h, ['รายการ', 'สินค้า', 'col_23', 'col_18']) || '').trim();
+    const type = String(getFuzzyKey(h, ['ประเภท', 'col_4']) || '').trim();
+    const amt = parseNumber(getFuzzyKey(h, ['ยอดสินค้า', 'ยอดจัดซื้อ', 'ยอดเงิน', 'ยอดเบิก', 'ยอดหัก', 'ยอดหักเครดิต', 'col_19']));
+    if (amt <= 0) return sum;
+    if (isAddType(type) || type.includes('ซื้อคอส') || type.includes('ซื้อคอร์ส')) return sum;
+    const isDraw =
+      type.match(/(เบิก|หัก|จ่าย|ตัด)/) ||
+      isRealProductRequisition(rawProd) ||
+      itemDesc.startsWith('โอนเครดิต') ||
+      itemDesc.startsWith('หักลดเครดิต') ||
+      itemDesc.includes('เบิกสินค้า') ||
+      itemDesc.includes('เบิกใช้เครดิต') ||
+      isUsageType(type);
+    return isDraw ? sum + amt : sum;
+  }, 0);
+  const usedCredit = totalCredit > 0 ? Math.min(totalCredit, Math.max(Number(course.computedUsedCredit || 0), totalDrawnFromHistories)) : 0;
+  const remainCredit = totalCredit > 0 ? Math.max(0, totalCredit - usedCredit) : 0;
 
   let includedItemsRaw = String(getFuzzyKey(course, ['รายการที่ได้รับ', 'col_11']) || '').trim();
   if (!includedItemsRaw && Array.isArray(masterCourses) && masterCourses.length > 0) {

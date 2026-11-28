@@ -1808,12 +1808,13 @@ export default function App() {
       let creditUsed = courseOldBerq + courseOldAccum;
       if (initialCredit > 0) {
         if (creditUsed === 0) {
-          const remain = parseNumber(getFuzzyKey(crs, ["วงเงินคงเหลือ", "เครดิตคงเหลือ", "คงเหลือ", "col_17"]));
-          if (remain === 0 && initialCredit > 0) {
+          const remainRaw = getFuzzyKey(crs, ["วงเงินคงเหลือ", "เครดิตคงเหลือ", "คงเหลือ", "col_17"]);
+          const hasExplicitZeroRemain = remainRaw !== undefined && remainRaw !== null && String(remainRaw).trim() !== '' && parseNumber(remainRaw) === 0;
+          if (hasExplicitZeroRemain) {
             creditUsed = initialCredit;
           }
         }
-        creditUsed = Math.min(initialCredit, creditUsed > 0 ? creditUsed : initialCredit);
+        creditUsed = Math.min(initialCredit, creditUsed);
       }
 
       if (creditUsed > 0) {
@@ -2126,13 +2127,36 @@ export default function App() {
          return 0;
       });
 
+      let legacyDrawnAmount = 0;
+      let modernDrawnAmount = 0;
       let totalAmountLinkedToCourse = 0; 
       myHistories.forEach(h => {
           if (h.isCancelled || String(getFuzzyKey(h, ["สถานะ", "col_7", "col_8", "col_9"]) || '').trim() === 'ยกเลิก') return;
           const type = String(getFuzzyKey(h, ["ประเภท", "col_4"]) || '').trim();
-          if (type.match(/(เบิก|หัก|จ่าย)/)) { 
-              const amt = parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดรวม", "ยอดเบิก", "ยอดหัก", "จำนวนเงิน", "ราคา", "ยอดหักเครดิต", "col_19"]));
-              if (amt > 0) totalAmountLinkedToCourse += amt;
+          if (isAddType(type) || type.includes('ซื้อคอส') || type.includes('ซื้อคอร์ส') || type.includes('เปิดคอร์ส')) return;
+
+          const rawProd = String(getFuzzyKey(h, ["สินค้า", "col_18", "รายการสินค้า", "รายการเบิก"]) || '').trim();
+          const itemDesc = String(getFuzzyKey(h, ["รายการ", "สินค้า", "col_23", "col_18"]) || '').trim();
+          const amt = parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดรวม", "ยอดเบิก", "ยอดหัก", "จำนวนเงิน", "ราคา", "ยอดหักเครดิต", "col_19"]));
+
+          if (amt <= 0) return;
+
+          const hasProductDraw = 
+            type.match(/(เบิก|หัก|จ่าย|ตัด)/) ||
+            isRealProductRequisition(rawProd) ||
+            itemDesc.startsWith('โอนเครดิต') ||
+            itemDesc.startsWith('หักลดเครดิต') ||
+            itemDesc.includes('เบิกสินค้า') ||
+            itemDesc.includes('เบิกใช้เครดิต') ||
+            isUsageType(type);
+
+          if (hasProductDraw) {
+              totalAmountLinkedToCourse += amt;
+              if (h.courseId || h.courseUpdatedDirectly) {
+                  modernDrawnAmount += amt;
+              } else {
+                  legacyDrawnAmount += amt;
+              }
           }
       });
 
@@ -2338,10 +2362,13 @@ export default function App() {
       const courseOldBerq = parseNumber(getFuzzyKey(course, ["ยอดเบิกดิบ", "เบิกไปแล้ว", "ยอดเบิก", "ใช้เครดิต", "หักเครดิต", "ใช้เครดิตแล้ว", "col_28"]));
       const courseOldAccum = parseNumber(getFuzzyKey(course, ["ยอดสะสมดิบ", "ยอดสะสม", "col_16"]));
       
-      let finalBerqAmount = courseOldBerq + courseOldAccum + totalAmountLinkedToCourse;
-      finalBerqAmount = Math.min(initialCredit, finalBerqAmount);
+      const effectiveLegacyBerq = Math.max(courseOldBerq + courseOldAccum, legacyDrawnAmount);
+      let finalBerqAmount = effectiveLegacyBerq + modernDrawnAmount;
+      if (initialCredit > 0) {
+        finalBerqAmount = Math.min(initialCredit, finalBerqAmount);
+      }
 
-      const remainingCredit = initialCredit - finalBerqAmount; 
+      const remainingCredit = Math.max(0, initialCredit - finalBerqAmount); 
 
       const paidAmt = parseNumber(getFuzzyKey(course, ["ยอดชำระแล้วทั้งหมด", "ยอดชำระแล้ว", "paidAmount"]));
       const rawPending = getFuzzyKey(course, ["ยอดค้างชำระ", "pending", "col_pending"]);
