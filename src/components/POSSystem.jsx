@@ -601,6 +601,7 @@ export default function POSSystem({
   posPreselectedBeforePhotos = [],
   posPreselectedStaffName = '',
   activeStaff = null,
+  user = null,
   posReturnToStaffAfterCheckout = false,
   onReturnToStaffDashboard = () => {},
   posActiveBookingId = null,
@@ -4190,7 +4191,7 @@ export default function POSSystem({
     const hasService = cart.some(i => i.type === 'service' || i.type === 'usage' || i.type === 'claim_item');
     let effectiveStaff = paymentStaff;
     if ((hasService || isStoreUseTransaction) && !effectiveStaff) {
-      effectiveStaff = posPreselectedStaffName || activeStaff?.name || user?.name || (availableStaffList.length > 0 ? availableStaffList[0].name : '');
+      effectiveStaff = posPreselectedStaffName || activeStaff?.name || (availableStaffList.length > 0 ? availableStaffList[0].name : '');
       if (effectiveStaff) {
         setPaymentStaff(effectiveStaff);
       } else {
@@ -4378,7 +4379,7 @@ export default function POSSystem({
             "ยอดเงิน": (item.actionType === 'store_use' || isStoreUseTransaction) ? "0" : String(item.price * item.qty),
             "สาขา": item.actionType === 'owner_purchase' ? 'เฉวง' : String(globalBranch || "เฉวง"),
             "หมายเหตุ": (item.actionType === 'store_use' || isStoreUseTransaction) ? (storeUseReason || "เบิกใช้ภายในคลินิก (POS)") : "",
-            "พนักงาน": effectiveStaff || paymentStaff || user?.name || 'พนักงาน'
+            "พนักงาน": effectiveStaff || paymentStaff || activeStaff?.name || 'พนักงาน'
           });
 
           // 🌟 บันทึก inventory_logs เมื่อเบิกใช้ภายในร้าน เพื่อให้หน้าคลังสินค้าตรวจสอบย้อนหลังได้ครบถ้วน
@@ -4396,7 +4397,7 @@ export default function POSSystem({
               newStock: newStockVal,
               diff: -item.qty,
               reason: storeUseReason || 'เบิกใช้ภายในคลินิก (POS)',
-              createdBy: effectiveStaff || paymentStaff || user?.name || 'พนักงาน',
+              createdBy: effectiveStaff || paymentStaff || activeStaff?.name || 'พนักงาน',
               createdAt: customDateObj.toISOString()
             });
           }
@@ -10878,7 +10879,7 @@ export default function POSSystem({
                     onClick={() => {
                       let staffToUse = paymentStaff;
                       if (!staffToUse) {
-                        staffToUse = posPreselectedStaffName || activeStaff?.name || user?.name || (availableStaffList.length > 0 ? availableStaffList[0].name : '');
+                        staffToUse = posPreselectedStaffName || activeStaff?.name || (availableStaffList.length > 0 ? availableStaffList[0].name : '');
                         if (staffToUse) setPaymentStaff(staffToUse);
                       }
                       if (!staffToUse) return showToast('กรุณาเลือกพนักงานผู้ทำรายการเบิกสินค้า', 'error');

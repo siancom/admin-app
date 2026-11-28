@@ -7573,6 +7573,7 @@ const flexMessage = {
               posPreselectedBeforePhotos={posPreselectedBeforePhotos}
               posPreselectedStaffName={posPreselectedStaffName}
               activeStaff={activeStaff}
+              user={activeStaff}
               posReturnToStaffAfterCheckout={posReturnToStaffAfterCheckout}
               onReturnToStaffDashboard={handleReturnToStaffDashboard}
               onGoToLogin={() => setShowBranchSelectForPos(true)}
