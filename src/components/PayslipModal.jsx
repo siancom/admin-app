@@ -25,9 +25,13 @@ export default function PayslipModal({ employee, payrollMonth, onClose }) {
   const diligenceAllowance = parseNumber(employee.diligenceAllowance);
   const totalAdvances = parseNumber(employee.totalAdvances);
   const totalPendingDebt = parseNumber(employee.totalPendingDebt || 0);
+  const grossEarnings = employee.grossEarnings !== undefined && employee.grossEarnings !== null
+    ? parseNumber(employee.grossEarnings)
+    : (baseSalary + totalCommission + totalServiceFees + totalFoodAllowance + diligenceAllowance);
+  const totalDeductions = absenceDeduction + totalAdvances + totalPendingDebt;
   const totalIncome = employee.totalIncome !== undefined && employee.totalIncome !== null
     ? parseNumber(employee.totalIncome)
-    : (baseSalary + totalCommission + totalServiceFees + totalFoodAllowance + diligenceAllowance - totalAdvances - totalPendingDebt);
+    : (grossEarnings - totalAdvances - totalPendingDebt);
 
   return (
     <div className="fixed inset-0 z-[240] flex items-center justify-center bg-black/50 p-4">
@@ -160,10 +164,22 @@ export default function PayslipModal({ employee, payrollMonth, onClose }) {
           </div>
 
           {/* Totals */}
-          <div className="flex justify-between items-center border-t-2 border-b-2 border-slate-800 py-4 mb-12">
-            <div className="text-lg font-bold">รายรับสุทธิ (Net Pay)</div>
-            <div className="text-2xl font-black text-slate-800">
-              ฿{totalIncome.toLocaleString()}
+          <div className="border-t-2 border-b-2 border-slate-800 py-3 mb-12 space-y-2">
+            <div className="flex justify-between items-center text-sm font-semibold text-slate-600">
+              <span>รวมรายได้ทั้งหมดก่อนหัก (Total Gross Earnings)</span>
+              <span className="font-bold text-slate-800">฿{grossEarnings.toLocaleString()}</span>
+            </div>
+            {totalDeductions > 0 && (
+              <div className="flex justify-between items-center text-sm font-semibold text-rose-600">
+                <span>รวมรายการหักทั้งหมด (Total Deductions)</span>
+                <span className="font-bold">-฿{totalDeductions.toLocaleString()}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center pt-2 border-t border-dashed border-slate-300">
+              <div className="text-lg font-black text-slate-900">รายรับสุทธิคงเหลือจ่าย (Net Pay)</div>
+              <div className="text-2xl font-black text-emerald-700">
+                ฿{totalIncome.toLocaleString()}
+              </div>
             </div>
           </div>
 

@@ -453,11 +453,16 @@ export function calculateEmployeeMonthlyPayroll(
   );
   const dailyRate = totalDaysInMonth > 0 ? (rawBaseSalary / totalDaysInMonth) : 0;
 
+  const currentMonthPrefix = getLocalYYYYMMDD().substring(0, 7);
+  const isCurrentMonth = payrollMonth === currentMonthPrefix;
+  const todayDate = new Date();
+  const currentDay = isCurrentMonth ? Math.min(totalDaysInMonth, todayDate.getDate()) : totalDaysInMonth;
+
   // วันที่ได้รับค่าจ้าง = วันทำงานจริง + สิทธิ์วันหยุด 4 วัน + วันลาที่ได้รับอนุมัติ
   let paidDays = 0;
   let missingDays = 0;
   let autoAbsenceDeduction = 0;
-  let autoBaseSalary = 0;
+  let autoBaseSalary = rawBaseSalary;
 
   if (rawBaseSalary === 0) {
     paidDays = daysWorked;
@@ -465,14 +470,25 @@ export function calculateEmployeeMonthlyPayroll(
     autoAbsenceDeduction = 0;
     autoBaseSalary = 0;
   } else if (daysWorked === 0 && approvedLeaveDays === 0) {
-    // ไม่ได้มาทำงานเลยทั้งเดือน และไม่มีวันลาที่อนุมัติ
-    paidDays = 0;
-    missingDays = totalDaysInMonth;
-    autoAbsenceDeduction = rawBaseSalary;
-    autoBaseSalary = 0;
+    if (isCurrentMonth && currentDay < 5) {
+      paidDays = 0;
+      missingDays = 0;
+      autoAbsenceDeduction = 0;
+      autoBaseSalary = rawBaseSalary;
+    } else {
+      paidDays = 0;
+      missingDays = isCurrentMonth ? Math.max(0, currentDay - allowedDaysOff) : totalDaysInMonth;
+      autoAbsenceDeduction = Math.round(missingDays * dailyRate);
+      autoBaseSalary = Math.max(0, rawBaseSalary - autoAbsenceDeduction);
+    }
   } else {
     paidDays = Math.min(totalDaysInMonth, daysWorked + allowedDaysOff + approvedLeaveDays);
-    missingDays = Math.max(0, totalDaysInMonth - paidDays);
+    if (isCurrentMonth) {
+      // 🌟 Real-time ในระหว่างเดือน: ไม่หักวันในอนาคตที่ยังไม่ถึง
+      missingDays = Math.max(0, currentDay - paidDays);
+    } else {
+      missingDays = Math.max(0, totalDaysInMonth - paidDays);
+    }
     autoAbsenceDeduction = Math.round(missingDays * dailyRate);
     autoBaseSalary = Math.max(0, rawBaseSalary - autoAbsenceDeduction);
   }
@@ -594,14 +610,25 @@ export function calculateEmployeeMonthlyPayroll(
     ? parseNumber(monthOverride.totalPendingDebt)
     : autoPendingDebt;
 
-  const totalIncome =
+  // 🌟 รายได้รวมทั้งหมดก่อนหัก (Gross Total Earnings)
+  const autoGrossEarnings =
+    autoBaseSalary +
+    autoCommission +
+    autoServiceFees +
+    autoFoodAllowance +
+    autoDiligenceAllowance;
+
+  const grossEarnings =
     baseSalary +
     totalCommission +
     totalServiceFees +
     totalFoodAllowance +
-    diligenceAllowance -
-    totalAdvances -
-    totalPendingDebt;
+    diligenceAllowance;
+
+  const totalDeductions = totalAdvances + totalPendingDebt;
+
+  // รายรับสุทธิคงเหลือจ่ายจริง (Net Remaining Payable)
+  const totalIncome = grossEarnings - totalDeductions;
 
   return {
     ...emp,
@@ -615,6 +642,9 @@ export function calculateEmployeeMonthlyPayroll(
     paidDays,
     approvedLeaveDays,
     dailyRate,
+    grossEarnings,
+    autoGrossEarnings,
+    totalDeductions,
     totalCommission,
     totalProductCommission: Math.ceil(rawProductCommission),
     totalCourseCommission: Math.ceil(rawCourseCommission),

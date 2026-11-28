@@ -870,6 +870,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
      let totalService = 0;
      let totalAdv = 0;
      let totalDebt = 0;
+     let totalGross = 0;
      let totalNet = 0;
 
      // Filter employees by branch
@@ -899,6 +900,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
         totalDiligence += p.diligenceAllowance;
         totalAdv += p.totalAdvances;
         totalDebt += (p.totalPendingDebt || 0);
+        totalGross += (p.grossEarnings || 0);
         totalNet += p.totalIncome;
      });
 
@@ -912,6 +914,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
         totalDiligence,
         totalAdv, 
         totalDebt,
+        totalGross,
         totalNet, 
         branchEmployees 
      };
@@ -938,21 +941,23 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
     });
     
     const parts = [
+      `รายได้รวมทั้งหมดก่อนหัก ฿${(p.grossEarnings || 0).toLocaleString()}`,
       `ฐาน ฿${p.baseSalary.toLocaleString()}`,
       `คอม ฿${Number(p.totalCommission || 0).toLocaleString()}`,
       `ค่ามือ ฿${p.totalServiceFees.toLocaleString()}`,
       `อาหาร ฿${p.totalFoodAllowance.toLocaleString()}`,
-      `เบี้ยขยัน ฿${p.diligenceAllowance.toLocaleString()}`,
-      `หักเบิก -฿${p.totalAdvances.toLocaleString()}`
+      `เบี้ยขยัน ฿${p.diligenceAllowance.toLocaleString()}`
     ];
-    if (p.totalPendingDebt > 0) {
-      parts.push(`หักค้างชำระ -฿${p.totalPendingDebt.toLocaleString()}`);
-    }
-    const debugLog = parts.join(', ');
+    if (p.totalAdvances > 0) parts.push(`หักเบิก -฿${p.totalAdvances.toLocaleString()}`);
+    if (p.totalPendingDebt > 0) parts.push(`หักค้างชำระ -฿${p.totalPendingDebt.toLocaleString()}`);
+    parts.push(`คงเหลือจ่ายจริง ฿${p.totalIncome.toLocaleString()}`);
+
+    const debugLog = parts.join(' | ');
     
+    // 🌟 ยอดจ่ายเงินเดือนต้องเป็นยอดรวมทั้งหมด (ก่อนหัก) ตามที่ระบุ
     setExpenseForm({
        ...expenseForm, 
-       amount: p.totalIncome, 
+       amount: p.grossEarnings || p.baseSalary, 
        note: `เงินเดือน ${emp.name} ประจำเดือน ${monthPrefix} | ${debugLog}`
     });
   };
@@ -2595,9 +2600,10 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                              <span className="text-sm font-black text-rose-700">-฿{payrollSummary.totalDebt.toLocaleString()}</span>
                            </div>
                          )}
-                         <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl flex flex-col items-center justify-center text-center col-span-2 lg:col-span-1">
-                           <span className="text-[10px] font-bold text-emerald-600 mb-1">ยอดรวมที่ต้องจ่ายสุทธิ</span>
-                           <span className="text-lg font-black text-emerald-700">฿{payrollSummary.totalNet.toLocaleString(undefined, {maximumFractionDigits:0})}</span>
+                         <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 p-3 rounded-xl flex flex-col items-center justify-center text-center col-span-2 lg:col-span-1 shadow-sm">
+                           <span className="text-[10px] font-extrabold text-emerald-800 mb-0.5">ยอดจ่ายเงินเดือนรวม (ก่อนหัก)</span>
+                           <span className="text-xl font-black text-emerald-700">฿{(payrollSummary.totalGross || 0).toLocaleString(undefined, {maximumFractionDigits:0})}</span>
+                           <span className="text-[9px] font-bold text-slate-500 mt-0.5">คงเหลือจ่ายสุทธิ: ฿{payrollSummary.totalNet.toLocaleString(undefined, {maximumFractionDigits:0})}</span>
                          </div>
                        </div>
                      </div>
@@ -2625,7 +2631,8 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                                   title={`คลิกเพื่อดึงยอดเงินเดือนของ ${emp.name} ประจำเดือน ${payrollSummary.monthPrefix}`}
                                >
                                    <span>{emp.name}</span>
-                                   <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800 font-mono font-bold">฿{p.totalIncome.toLocaleString()}</span>
+                                   <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-mono font-bold">รวม ฿{(p.grossEarnings || 0).toLocaleString()}</span>
+                                   <span className="text-[9px] px-1 py-0.5 rounded-md bg-slate-100 text-slate-600 font-mono font-medium">(สุทธิ ฿{p.totalIncome.toLocaleString()})</span>
                                </button>
                                );
                            })}

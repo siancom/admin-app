@@ -954,17 +954,26 @@ export default function EmployeePortal({
                         </div>
                      </div>
                      
-                     <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-4 rounded-2xl border border-emerald-100 shadow-sm relative overflow-hidden group">
+                     <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-4 rounded-2xl border border-emerald-200 shadow-sm relative overflow-hidden group">
                         <div className="absolute -right-4 -bottom-4 text-emerald-200 opacity-50 group-hover:scale-110 transition-transform duration-500"><DollarSign size={80}/></div>
                         <div className="relative z-10">
-                           <div className="text-emerald-800 font-bold mb-1 text-xs md:text-sm flex items-center gap-2">รายรับสุทธิ (รวมหักลบ)</div>
-                           <div className="text-xl md:text-2xl font-black text-emerald-900">฿{payrollEmployee.netSalary.toLocaleString()}</div>
-                           {payrollEmployee.totalPendingDebt > 0 && (
-                              <div className="text-[11px] font-bold text-rose-600 mt-1 flex items-center gap-1">
-                                 <span>หักหนี้ค้างชำระ:</span>
-                                 <span className="font-black">-฿{payrollEmployee.totalPendingDebt.toLocaleString()}</span>
-                              </div>
-                           )}
+                           <div className="text-emerald-800 font-extrabold mb-1 text-xs md:text-sm flex items-center gap-2">
+                              <Sparkles size={16} className="text-emerald-600" />
+                              <span>รายได้รวมทั้งหมด (ก่อนหัก)</span>
+                           </div>
+                           <div className="text-2xl md:text-3xl font-black text-emerald-900">
+                              ฿{(payrollEmployee.grossEarnings || 0).toLocaleString()}
+                           </div>
+                           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
+                              {(payrollEmployee.totalAdvances > 0 || payrollEmployee.totalPendingDebt > 0) && (
+                                 <span className="text-rose-600 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-100">
+                                    หักเบิก/ค้าง: -฿{((payrollEmployee.totalAdvances || 0) + (payrollEmployee.totalPendingDebt || 0)).toLocaleString()}
+                                 </span>
+                              )}
+                              <span className="text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">
+                                 คงเหลือจ่ายสุทธิ: ฿{(payrollEmployee.netSalary || 0).toLocaleString()}
+                              </span>
+                           </div>
                         </div>
                      </div>
                   </div>
@@ -1256,6 +1265,24 @@ export default function EmployeePortal({
                               <span>เบี้ยขยัน</span>
                               <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-emerald-600 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>+ ฿{(payrollEmployee.diligenceAllowance || 0).toLocaleString()}</span>
                            </div>
+
+                           {/* 🌟 ยอดรวมรายได้ทั้งหมด (ก่อนหัก) */}
+                           <div className="bg-emerald-50/80 border border-emerald-200 p-3 rounded-xl flex justify-between items-center my-2 shadow-xs">
+                              <div className="flex items-center gap-1.5 text-emerald-800 font-extrabold text-xs md:text-sm">
+                                 <Sparkles size={16} className="text-emerald-600" />
+                                 <span>รวมรายได้ทั้งหมด (ก่อนหัก)</span>
+                              </div>
+                              <span className="font-black text-emerald-700 text-base md:text-lg">
+                                 ฿{(payrollEmployee.grossEarnings || (
+                                    (payrollEmployee.baseSalary || 0) +
+                                    (payrollEmployee.totalCommission || 0) +
+                                    (payrollEmployee.totalServiceFees || 0) +
+                                    (payrollEmployee.totalFoodAllowance || 0) +
+                                    (payrollEmployee.diligenceAllowance || 0)
+                                 )).toLocaleString()}
+                              </span>
+                           </div>
+
                            <div className="flex justify-between items-center text-slate-600">
                               <span>หักเบิกล่วงหน้า</span>
                               <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-rose-500 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>- ฿{(payrollEmployee.totalAdvances || 0).toLocaleString()}</span>
@@ -1276,9 +1303,12 @@ export default function EmployeePortal({
                                  <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-rose-600 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>- ฿{(payrollEmployee.totalPendingDebt || 0).toLocaleString()}</span>
                               </div>
                            )}
-                           <div className="border-t border-dashed border-slate-200 pt-2 mt-2 flex justify-between items-center">
-                              <span className="font-black text-slate-800">รายรับสุทธิ</span>
-                              <span className="font-black text-emerald-600 text-base">฿{(payrollEmployee.netSalary || 0).toLocaleString()}</span>
+                           <div className="border-t border-dashed border-slate-200 pt-2.5 mt-2 flex justify-between items-center">
+                              <div>
+                                 <span className="font-black text-slate-800 text-sm md:text-base">ยอดคงเหลือรับสุทธิ</span>
+                                 <span className="text-[10px] text-slate-400 block font-normal">(หลังหักเบิกเงินและยอดค้างชำระ)</span>
+                              </div>
+                              <span className="font-black text-indigo-700 text-lg md:text-xl">฿{(payrollEmployee.netSalary || 0).toLocaleString()}</span>
                            </div>
                         </div>
                      )}
@@ -1903,14 +1933,19 @@ export default function EmployeePortal({
                               <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white rounded-3xl p-6 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                                  <div>
                                     <div className="flex items-center gap-2 text-indigo-300 font-bold text-xs uppercase tracking-wider mb-1">
-                                       <Receipt size={16} /> สรุปเงินเดือนและรายรับสุทธิ ({formatMonthLabel(payrollMonth)})
+                                       <Receipt size={16} /> สรุปรายได้รวมประจำเดือน ({formatMonthLabel(payrollMonth)})
                                     </div>
-                                    <h4 className="text-2xl md:text-3xl font-black text-white">
-                                       ฿{(payrollEmployee.totalIncome ?? 0).toLocaleString()}
+                                    <h4 className="text-2xl md:text-3xl font-black text-white flex items-baseline gap-2">
+                                       <span>฿{(payrollEmployee.grossEarnings ?? payrollEmployee.totalIncome ?? 0).toLocaleString()}</span>
+                                       <span className="text-xs text-emerald-400 font-bold">(รายได้รวมก่อนหัก)</span>
                                     </h4>
                                     <p className="text-xs text-slate-300 mt-1.5 font-medium leading-relaxed">
-                                       ฐานเงินเดือน ฿{(payrollEmployee.baseSalary ?? 0).toLocaleString()} • ค่าอาหาร ฿{(payrollEmployee.totalFoodAllowance ?? 0).toLocaleString()} (มาทำงาน {payrollEmployee.daysWorked ?? 0} วัน) • เบี้ยขยัน ฿{(payrollEmployee.diligenceAllowance ?? 0).toLocaleString()}{payrollEmployee.totalAdvances > 0 ? ` • หักเบิกเงิน -฿${payrollEmployee.totalAdvances.toLocaleString()}` : ''}
+                                       ฐาน ฿{(payrollEmployee.baseSalary ?? 0).toLocaleString()} • ค่าอาหาร ฿{(payrollEmployee.totalFoodAllowance ?? 0).toLocaleString()} • ค่าคอม+ค่ามือ ฿{((payrollEmployee.totalCommission || 0) + (payrollEmployee.totalServiceFees || 0)).toLocaleString()}{payrollEmployee.totalAdvances > 0 ? ` • เบิกล่วงหน้า -฿${payrollEmployee.totalAdvances.toLocaleString()}` : ''}{payrollEmployee.totalPendingDebt > 0 ? ` • หักค้างชำระ -฿${payrollEmployee.totalPendingDebt.toLocaleString()}` : ''}
                                     </p>
+                                    <div className="mt-2 text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                                       <span>ยอดคงเหลือรับสุทธิ:</span>
+                                       <span className="text-emerald-400 font-black font-mono text-sm">฿{(payrollEmployee.totalIncome ?? 0).toLocaleString()}</span>
+                                    </div>
                                  </div>
                                  <button
                                     type="button"

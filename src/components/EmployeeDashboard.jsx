@@ -1401,6 +1401,10 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                     <span className="text-slate-500 text-xs font-bold mb-1">รวมหักยอดค้างชำระ</span>
                     <span className="text-lg font-black text-rose-600">-฿{payrollData.reduce((sum, emp) => sum + (emp.totalPendingDebt || 0), 0).toLocaleString()}</span>
                 </div>
+                <div className="bg-gradient-to-br from-teal-50 to-emerald-50 p-4 rounded-2xl shadow-sm border border-teal-200 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
+                    <span className="text-teal-800 text-xs font-extrabold mb-1">รวมรายได้ทั้งหมด (ก่อนหัก)</span>
+                    <span className="text-xl font-black text-teal-700">฿{payrollData.reduce((sum, emp) => sum + (emp.grossEarnings || emp.totalIncome || 0), 0).toLocaleString()}</span>
+                </div>
                 <div className="bg-emerald-50 p-4 rounded-2xl shadow-sm border border-emerald-100 flex flex-col items-center justify-center text-center col-span-2 md:col-span-1 ring-1 ring-emerald-500/20 hover:shadow-md transition-shadow">
                     <span className="text-emerald-700 text-xs font-bold mb-1">ยอดรวมจ่ายสุทธิ</span>
                     <span className="text-xl font-black text-emerald-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalIncome || 0), 0).toLocaleString()}</span>
@@ -1421,6 +1425,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                      <th className="px-6 py-4 text-right">เบี้ยขยัน</th>
                      <th className="px-6 py-4 text-right">ค่ามือ</th>
                      <th className="px-6 py-4 text-right">ค่าคอมมิชชั่น</th>
+                     <th className="px-6 py-4 text-right text-teal-700 font-extrabold bg-teal-50/50">รายได้รวมก่อนหัก</th>
                      <th className="px-6 py-4 text-right">เบิกเงินล่วงหน้า</th>
                      <th className="px-6 py-4 text-right">ยอดค้างชำระ (หักหนี้)</th>
                      <th className="px-6 py-4 text-right">ให้บริการ (ครั้ง)</th>
@@ -1453,6 +1458,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                        <td className="px-6 py-4 text-right font-medium text-teal-600">฿{(emp.diligenceAllowance || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right font-medium text-pink-600">฿{(emp.totalServiceFees || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right font-medium text-indigo-600">฿{(emp.totalCommission || 0).toLocaleString()}</td>
+                       <td className="px-6 py-4 text-right font-black text-teal-800 bg-teal-50/30">฿{(emp.grossEarnings || emp.totalIncome || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right font-medium text-rose-600">฿{(emp.totalAdvances || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right font-medium text-rose-600">฿{(emp.totalPendingDebt || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right text-slate-500">{emp.serviceCount + (emp.serviceLogCount || 0)}</td>
