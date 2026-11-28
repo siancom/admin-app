@@ -388,8 +388,6 @@ export default function SmartQueueCheckInModal({
     }
   };
 
-  if (!isOpen) return null;
-
   // Filter available customer courses (Memoized for high performance)
   const customerPhoneClean = selectedBooking ? String(selectedBooking.customerPhone || '').replace(/\D/g, '') : '';
   const customerAvailableCourses = useMemo(() => {
@@ -410,6 +408,8 @@ export default function SmartQueueCheckInModal({
     selectedBooking?.source === 'LIFF' || 
     (!selectedBooking?.isAdminCreated && !selectedBooking?.isWalkIn && selectedBooking?.source !== 'POS' && selectedBooking?.source !== 'admin')
   );
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm print:hidden animate-in fade-in duration-150">
