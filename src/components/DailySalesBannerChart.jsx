@@ -12,9 +12,23 @@ import {
   DollarSign,
   BarChart3,
   Award,
-  FileText
+  FileText,
+  CheckCircle,
+  Clock,
+  X,
+  Printer,
+  Download,
+  Eye,
+  PieChart,
+  ShoppingBag,
+  ArrowDownRight,
+  Layers,
+  Receipt,
+  Image as ImageIcon
 } from 'lucide-react';
 import DailySalesPreviewModal from './DailySalesPreviewModal';
+import MonthlyEodPrintModal from './MonthlyEodPrintModal';
+import { isExpensePaid } from './FinancialDashboard';
 import { 
   parseNumber, 
   getLocalYYYYMMDD, 
@@ -22,6 +36,11 @@ import {
   parseThaiDate 
 } from '../utils/parse';
 import { getFuzzyKey } from '../utils/fuzzy';
+
+const THAI_MONTHS_FULL = [
+  'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+];
 
 const THAI_MONTH_MAP = {
   'ม.ค.': 1, 'มกราคม': 1,
@@ -203,6 +222,7 @@ const THAI_MONTHS_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.',
 export default function DailySalesBannerChart({
   dailySales = [],
   orders = [],
+  expenses = [],
   branches = [],
   globalBranch = '',
   onNavigateToTab = () => {}
@@ -211,6 +231,12 @@ export default function DailySalesBannerChart({
   const [dayRange, setDayRange] = useState(14); // 7, 14, 30
   const [hoveredDay, setHoveredDay] = useState(null);
   const [previewModalDate, setPreviewModalDate] = useState(null);
+  const [showEodReportModal, setShowEodReportModal] = useState(false);
+  const [showGrossProfitModal, setShowGrossProfitModal] = useState(false);
+  const [showMonthlyEodPrint, setShowMonthlyEodPrint] = useState(false);
+  const [previewReceiptImage, setPreviewReceiptImage] = useState(null);
+  const [gpReportTab, setGpReportTab] = useState('summary'); // 'summary' | 'daily' | 'expenses'
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = useState('all');
 
   // Sync if globalBranch changes
   React.useEffect(() => {
@@ -504,6 +530,114 @@ export default function DailySalesBannerChart({
     };
   }, [orders, dailySales, selectedBranch, dayRange, todayIso]);
 
+  // --- EOD Submissions & Store Expenses Computations ---
+  const currentMonthDate = new Date();
+  const currentMonthPrefix = todayIso.substring(0, 7);
+  const currentMonthNameThai = THAI_MONTHS_FULL[currentMonthDate.getMonth()] || '';
+  const currentYearThai = currentMonthDate.getFullYear() + 543;
+
+  // รายการส่งยอดประจำเดือน (EODs)
+  const monthlyEods = useMemo(() => {
+    return (dailySales || []).filter(ds => {
+      if (selectedBranch && selectedBranch !== 'ทั้งหมด') {
+        const dsBranch = normalizeBranchName(ds.branch || 'เฉวง');
+        const sBranch = normalizeBranchName(selectedBranch);
+        if (dsBranch !== sBranch) return false;
+      }
+      const dateIso = extractIsoDate(ds.date) || extractIsoDate(ds.createdAt);
+      return Boolean(dateIso && dateIso.startsWith(currentMonthPrefix));
+    }).sort((a, b) => {
+      const da = extractIsoDate(a.date) || extractIsoDate(a.createdAt) || '';
+      const db = extractIsoDate(b.date) || extractIsoDate(b.createdAt) || '';
+      return db.localeCompare(da);
+    });
+  }, [dailySales, selectedBranch, currentMonthPrefix]);
+
+  // ค่าใช้จ่ายในร้านทั้งหมดประจำเดือน (เฉพาะรายการที่จ่ายแล้ว)
+  const monthlyExpenses = useMemo(() => {
+    return (expenses || []).filter(e => {
+      if (!isExpensePaid(e)) return false;
+      if (e?.type === 'treasury' || e?.category === 'เงินทุนตั้งต้น' || e?.category === 'รับเงินกู้ยืม' || e?.category === 'เงินสด' || e?.category === 'ทองคำ') return false;
+      if (selectedBranch && selectedBranch !== 'ทั้งหมด') {
+        const eb = normalizeBranchName(e.branch || '');
+        const sb = normalizeBranchName(selectedBranch);
+        if (eb && sb && eb !== sb) return false;
+      }
+      const dateIso = extractIsoDate(e.date) || extractIsoDate(e.createdAt);
+      return Boolean(dateIso && dateIso.startsWith(currentMonthPrefix));
+    }).sort((a, b) => {
+      const da = extractIsoDate(a.date) || extractIsoDate(a.createdAt) || '';
+      const db = extractIsoDate(b.date) || extractIsoDate(b.createdAt) || '';
+      return db.localeCompare(da);
+    });
+  }, [expenses, selectedBranch, currentMonthPrefix]);
+
+  const mtdExpensesTotal = useMemo(() => {
+    return monthlyExpenses.reduce((sum, e) => sum + parseNumber(e.amount), 0);
+  }, [monthlyExpenses]);
+
+  // สรุปค่าใช้จ่ายแยกตามหมวดหมู่
+  const expensesByCategory = useMemo(() => {
+    const map = {};
+    monthlyExpenses.forEach(e => {
+      const cat = e.category || 'ค่าอุปกรณ์/เบิกจิปาถะ';
+      map[cat] = (map[cat] || 0) + parseNumber(e.amount);
+    });
+    return Object.entries(map).map(([category, amount]) => ({
+      category,
+      amount,
+      percent: mtdExpensesTotal > 0 ? Math.round((amount / mtdExpensesTotal) * 100) : 0
+    })).sort((a, b) => b.amount - a.amount);
+  }, [monthlyExpenses, mtdExpensesTotal]);
+
+  // ยอดขายรวมทั้งสิ้น & กำไรขาดทุนขั้นต้น (Gross Profit)
+  const totalSalesRevenue = useMemo(() => {
+    return mtdPosTotal > 0 ? mtdPosTotal : mtdEodTotal;
+  }, [mtdPosTotal, mtdEodTotal]);
+
+  const grossProfit = useMemo(() => {
+    return totalSalesRevenue - mtdExpensesTotal;
+  }, [totalSalesRevenue, mtdExpensesTotal]);
+
+  const grossMarginPercent = useMemo(() => {
+    return totalSalesRevenue > 0 ? Math.round((grossProfit / totalSalesRevenue) * 100) : 0;
+  }, [grossProfit, totalSalesRevenue]);
+
+  // ตารางเปรียบเทียบผลประกอบการรายวัน (Daily P&L)
+  const dailyPnLList = useMemo(() => {
+    const expByDay = {};
+    monthlyExpenses.forEach(e => {
+      const d = extractIsoDate(e.date) || extractIsoDate(e.createdAt);
+      if (d) expByDay[d] = (expByDay[d] || 0) + parseNumber(e.amount);
+    });
+
+    const daysSet = new Set();
+    chartData.forEach(d => {
+      if (d.dateStr && d.dateStr.startsWith(currentMonthPrefix)) {
+        daysSet.add(d.dateStr);
+      }
+    });
+    Object.keys(expByDay).forEach(d => daysSet.add(d));
+
+    return Array.from(daysSet).sort((a, b) => b.localeCompare(a)).map(dStr => {
+      const chartItem = chartData.find(c => c.dateStr === dStr);
+      const sales = chartItem?.total || 0;
+      const posSales = chartItem?.posTotal ?? sales;
+      const shopeeSales = chartItem?.shopeeTotal || 0;
+      const exp = expByDay[dStr] || 0;
+      const profit = sales - exp;
+      return {
+        dateStr: dStr,
+        fullLabel: chartItem?.fullLabel || dStr,
+        sales,
+        posSales,
+        shopeeSales,
+        expense: exp,
+        profit
+      };
+    });
+  }, [chartData, monthlyExpenses, currentMonthPrefix]);
+
   // Comparison with yesterday
   const diffFromYesterday = todayStats.total - yesterdayStats.total;
   const pctFromYesterday = yesterdayStats.total > 0 
@@ -629,7 +763,7 @@ export default function DailySalesBannerChart({
       </div>
 
       {/* 📊 Key Metrics KPI Cards Row 📊 */}
-      <div className="relative z-10 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 my-6">
+      <div className="relative z-10 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4 my-6">
         {/* KPI 1: ยอดขายวันนี้ */}
         <div className="bg-slate-800/50 hover:bg-slate-800/70 p-4 sm:p-5 rounded-2xl border border-indigo-500/20 backdrop-blur-md transition-all">
           <div className="flex items-center justify-between mb-1.5">
@@ -770,19 +904,27 @@ export default function DailySalesBannerChart({
                 </div>
               </div>
 
-              {/* บรรทัด 3: ยอดส่งยอด (EOD) */}
-              <div className="flex items-center justify-between bg-slate-900/70 px-2.5 py-1.5 sm:py-2 rounded-xl border border-purple-500/30">
+              {/* บรรทัด 3: ยอดส่งยอด (EOD) - คลิกเพื่อดูรายงานยอดส่ง */}
+              <div 
+                onClick={() => setShowEodReportModal(true)}
+                className="flex items-center justify-between bg-slate-900/70 px-2.5 py-1.5 sm:py-2 rounded-xl border border-purple-500/30 cursor-pointer hover:bg-purple-950/50 hover:border-purple-400/70 transition-all group"
+                title="คลิกเพื่อดูรายงานสรุปยอดส่งประจำเดือนนี้"
+              >
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-purple-400 shadow-xs shadow-purple-400/50" />
-                  <span className="text-[11px] sm:text-xs font-bold text-purple-300">ยอดส่งยอด</span>
+                  <span className="w-2 h-2 rounded-full bg-purple-400 shadow-xs shadow-purple-400/50 group-hover:scale-125 transition-transform" />
+                  <span className="text-[11px] sm:text-xs font-bold text-purple-300 group-hover:text-purple-200 flex items-center gap-1">
+                    ยอดส่งยอด
+                    <span className="text-[9px] font-normal text-purple-400/80 underline group-hover:text-purple-300">(แตะดูรายงาน)</span>
+                  </span>
                 </div>
                 <div className="text-right flex items-baseline gap-1">
-                  <span className="text-base sm:text-lg font-black text-purple-200 tracking-tight">
+                  <span className="text-base sm:text-lg font-black text-purple-200 tracking-tight group-hover:text-white">
                     ฿{mtdEodTotal.toLocaleString()}
                   </span>
                   <span className="text-[10px] text-slate-400 font-medium">
                     ({mtdEodDaysCount} วัน)
                   </span>
+                  <ChevronRight size={13} className="text-purple-400 group-hover:translate-x-0.5 transition-transform" />
                 </div>
               </div>
             </div>
@@ -807,7 +949,58 @@ export default function DailySalesBannerChart({
           </div>
         </div>
 
-        {/* KPI 4: วันที่ขายดีที่สุดในรอบช่วงเวลา */}
+        {/* KPI 4: รายงานกำไรขาดทุนขั้นต้น (Gross Profit MTD) */}
+        <div 
+          onClick={() => setShowGrossProfitModal(true)}
+          className="bg-slate-800/50 hover:bg-slate-800/80 p-3.5 sm:p-5 rounded-2xl border border-indigo-500/20 hover:border-emerald-500/50 backdrop-blur-md transition-all cursor-pointer group flex flex-col justify-between"
+          title="คลิกเพื่อดูรายงานกำไรขาดทุนขั้นต้นประจำเดือน"
+        >
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                <TrendingUp size={14} className={grossProfit >= 0 ? "text-emerald-400" : "text-rose-400"} />
+                กำไรขาดทุนขั้นต้น
+              </span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold border flex items-center gap-1 ${
+                grossProfit >= 0 
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
+                  : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+              }`}>
+                <span>{grossProfit >= 0 ? 'กำไร' : 'ขาดทุน'}</span>
+                <ChevronRight size={10} className="group-hover:translate-x-0.5 transition-transform" />
+              </span>
+            </div>
+
+            <div className={`text-2xl sm:text-3xl font-black tracking-tight ${
+              grossProfit >= 0 ? 'text-emerald-300' : 'text-rose-400'
+            }`}>
+              {grossProfit >= 0 ? '+' : ''}฿{grossProfit.toLocaleString()}
+            </div>
+
+            {/* Mini Sales vs Expenses comparison */}
+            <div className="mt-2 space-y-1 text-[11px] sm:text-xs">
+              <div className="flex items-center justify-between text-slate-300">
+                <span className="text-slate-400">ยอดขายรวม:</span>
+                <span className="font-bold text-white">฿{totalSalesRevenue.toLocaleString()}</span>
+              </div>
+              <div className="flex items-center justify-between text-slate-300">
+                <span className="text-slate-400">ค่าใช้จ่ายร้าน:</span>
+                <span className="font-bold text-rose-300">-฿{mtdExpensesTotal.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-2.5 pt-2 border-t border-slate-700/60 flex items-center justify-between text-[11px] text-slate-400">
+            <span>
+              อัตรากำไร: <strong className={grossProfit >= 0 ? "text-emerald-400" : "text-rose-400"}>{grossMarginPercent}%</strong>
+            </span>
+            <span className="text-[10px] text-emerald-300/90 underline font-medium flex items-center gap-0.5">
+              แตะดูรายงาน <ChevronRight size={10} />
+            </span>
+          </div>
+        </div>
+
+        {/* KPI 5: วันที่ขายดีที่สุดในรอบช่วงเวลา */}
         <div className="bg-slate-800/50 hover:bg-slate-800/70 p-4 sm:p-5 rounded-2xl border border-indigo-500/20 backdrop-blur-md transition-all">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-xs font-bold text-slate-400 flex items-center gap-1">
@@ -1139,6 +1332,580 @@ export default function DailySalesBannerChart({
         dailySales={dailySales}
         branch={selectedBranch === 'ทั้งหมด' ? (globalBranch || 'เฉวง') : selectedBranch}
       />
+
+      {/* 📋 Official Monthly EOD Print Modal (A4) 📋 */}
+      <MonthlyEodPrintModal
+        isOpen={showMonthlyEodPrint}
+        onClose={() => setShowMonthlyEodPrint(false)}
+        month={currentMonthDate.getMonth()}
+        year={currentMonthDate.getFullYear()}
+        eods={dailySales}
+        filterBranch={selectedBranch}
+        branchOptions={['ทั้งหมด', ...branches.map(b => b.name || b.id)]}
+        orders={orders}
+        expenses={expenses}
+      />
+
+      {/* 📊 รายงานยอดส่งประจำเดือน (Monthly EOD Submissions Report Modal) 📊 */}
+      {showEodReportModal && (
+        <div className="fixed inset-0 z-[200] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200" onClick={() => setShowEodReportModal(false)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden text-white" onClick={e => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="p-4 sm:p-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 gap-3">
+              <div className="flex items-center gap-3">
+                <span className="p-2.5 rounded-2xl bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                  <Store size={22} />
+                </span>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
+                    รายงานสรุปยอดส่งประจำเดือน (EOD)
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    เดือน {currentMonthNameThai} {currentYearThai} • สาขา: <span className="text-purple-300 font-bold">{selectedBranch}</span>
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMonthlyEodPrint(true)}
+                  className="px-3.5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-purple-900/40 active:scale-95 transition-all cursor-pointer"
+                  title="พิมพ์เอกสารสรุปยอดส่งประจำเดือนแบบทางการ (A4)"
+                >
+                  <Printer size={15} />
+                  <span className="hidden sm:inline">พิมพ์รายงานทางการ (A4)</span>
+                  <span className="sm:hidden">พิมพ์ A4</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowEodReportModal(false)}
+                  className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 custom-scrollbar">
+              {/* Summary KPIs */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="bg-slate-800/70 p-3.5 rounded-2xl border border-purple-500/20">
+                  <span className="text-[11px] font-bold text-purple-300 block mb-1">ยอดส่งยอดสะสม</span>
+                  <span className="text-xl sm:text-2xl font-black text-white">฿{mtdEodTotal.toLocaleString()}</span>
+                  <span className="text-[10px] text-slate-400 block mt-1">ส่งแล้ว {mtdEodDaysCount} วัน</span>
+                </div>
+                <div className="bg-slate-800/70 p-3.5 rounded-2xl border border-emerald-500/20">
+                  <span className="text-[11px] font-bold text-emerald-300 block mb-1">ยอดนำฝากจริง (Deposit)</span>
+                  <span className="text-xl sm:text-2xl font-black text-emerald-300">฿{mtdDepositTotal.toLocaleString()}</span>
+                  <span className="text-[10px] text-slate-400 block mt-1">เงินสด + โอนเข้าบัญชีร้าน</span>
+                </div>
+                <div className="bg-slate-800/70 p-3.5 rounded-2xl border border-cyan-500/20">
+                  <span className="text-[11px] font-bold text-cyan-300 block mb-1">ยอดบิลขาย POS</span>
+                  <span className="text-xl sm:text-2xl font-black text-cyan-300">฿{mtdPosTotal.toLocaleString()}</span>
+                  <span className="text-[10px] text-slate-400 block mt-1">{mtdPosOrdersCount} บิลขายในระบบ</span>
+                </div>
+                <div className="bg-slate-800/70 p-3.5 rounded-2xl border border-slate-700">
+                  <span className="text-[11px] font-bold text-slate-400 block mb-1">ส่วนต่าง (POS vs ส่งยอด)</span>
+                  <span className={`text-xl sm:text-2xl font-black ${Math.abs(inStoreDiff) === 0 ? 'text-emerald-400' : inStoreDiff > 0 ? 'text-amber-300' : 'text-rose-400'}`}>
+                    ฿{Math.abs(inStoreDiff).toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block mt-1">
+                    {Math.abs(inStoreDiff) === 0 ? '✓ ยอดตรงกันสมบูรณ์' : inStoreDiff > 0 ? 'POS มากกว่าส่งยอด' : 'ส่งยอดมากกว่า POS'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Submissions Table */}
+              <div className="bg-slate-800/40 rounded-2xl border border-slate-800 overflow-hidden">
+                <div className="p-3.5 bg-slate-800/80 border-b border-slate-700 flex items-center justify-between">
+                  <h4 className="text-xs sm:text-sm font-bold text-slate-200 flex items-center gap-2">
+                    <Calendar size={15} className="text-purple-400" />
+                    ประวัติการส่งยอดรายวัน ({monthlyEods.length} รายการ)
+                  </h4>
+                  <span className="text-[11px] text-slate-400 font-medium">แตะ "ดูใบ A4" เพื่อดูเอกสารรายวัน</span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-900/90 text-slate-400 border-b border-slate-700/80">
+                        <th className="py-3 px-3.5 font-bold">วันที่</th>
+                        <th className="py-3 px-3 font-bold text-right">ยอดส่งรวม</th>
+                        <th className="py-3 px-3 font-bold text-right">โอนเงิน</th>
+                        <th className="py-3 px-3 font-bold text-right">เงินสด</th>
+                        <th className="py-3 px-3 font-bold text-right">ยอดคอร์ส</th>
+                        <th className="py-3 px-3 font-bold text-right">ยอดสินค้า</th>
+                        <th className="py-3 px-3 font-bold text-right">นำฝาก</th>
+                        <th className="py-3 px-3 font-bold">ผู้ส่งยอด</th>
+                        <th className="py-3 px-3 font-bold text-center">สถานะ</th>
+                        <th className="py-3 px-3.5 font-bold text-center">เอกสาร A4</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {monthlyEods.length === 0 ? (
+                        <tr>
+                          <td colSpan="10" className="py-8 text-center text-slate-500 font-bold">
+                            ไม่มีรายการส่งยอดในเดือนนี้
+                          </td>
+                        </tr>
+                      ) : (
+                        monthlyEods.map((eod, idx) => {
+                          const dateIso = extractIsoDate(eod.date) || extractIsoDate(eod.createdAt);
+                          const tSales = parseNumber(eod.totalSales);
+                          const manualTransfer = parseNumber(eod.manualTransfer || 0);
+                          const diff = parseNumber(eod.difference || 0);
+                          const baseSales = tSales > 0 ? tSales : (parseNumber(eod.cashSales) + parseNumber(eod.transferSales) + manualTransfer);
+                          const dayTotal = Math.max(0, baseSales + diff);
+
+                          return (
+                            <tr key={idx} className="hover:bg-slate-800/60 transition-colors">
+                              <td className="py-3 px-3.5 font-bold text-slate-200 whitespace-nowrap">
+                                {eod.date || dateIso}
+                              </td>
+                              <td className="py-3 px-3 text-right font-black text-purple-300">
+                                ฿{dayTotal.toLocaleString()}
+                              </td>
+                              <td className="py-3 px-3 text-right text-cyan-300 font-medium">
+                                ฿{parseNumber(eod.transferSales || eod.totalTransfer || 0).toLocaleString()}
+                              </td>
+                              <td className="py-3 px-3 text-right text-emerald-300 font-medium">
+                                ฿{parseNumber(eod.cashSales || eod.totalCash || 0).toLocaleString()}
+                              </td>
+                              <td className="py-3 px-3 text-right text-pink-300 font-medium">
+                                ฿{parseNumber(eod.courseSales || 0).toLocaleString()}
+                              </td>
+                              <td className="py-3 px-3 text-right text-indigo-300 font-medium">
+                                ฿{parseNumber(eod.productSales || 0).toLocaleString()}
+                              </td>
+                              <td className="py-3 px-3 text-right text-emerald-400 font-bold">
+                                ฿{parseNumber(eod.totalDeposit || eod.expectedDeposit || 0).toLocaleString()}
+                              </td>
+                              <td className="py-3 px-3 text-slate-300 whitespace-nowrap">
+                                {eod.staffName || eod.employeeName || eod.updatedBy || 'ไม่ระบุ'}
+                              </td>
+                              <td className="py-3 px-3 text-center whitespace-nowrap">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  eod.status === 'อนุมัติแล้ว' || eod.status === 'เรียบร้อย'
+                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                }`}>
+                                  {eod.status || 'ส่งยอดแล้ว'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3.5 text-center whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPreviewModalDate(dateIso);
+                                  }}
+                                  className="px-2.5 py-1 bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 hover:text-white rounded-lg border border-teal-500/30 font-bold text-[10px] transition-all cursor-pointer inline-flex items-center gap-1 active:scale-95"
+                                >
+                                  <FileText size={11} /> ดูใบ A4
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between">
+              <span className="text-xs text-slate-400">
+                รวมส่งยอดทั้งหมด <strong className="text-white">฿{mtdEodTotal.toLocaleString()}</strong> ({mtdEodDaysCount} วัน)
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowEodReportModal(false)}
+                className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                ปิดหน้าต่าง
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 💎 รายงานกำไร-ขาดทุนขั้นต้น (Gross Profit & Loss Report Modal) 💎 */}
+      {showGrossProfitModal && (
+        <div className="fixed inset-0 z-[200] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200" onClick={() => setShowGrossProfitModal(false)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-4xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden text-white" onClick={e => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="p-4 sm:p-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 gap-3">
+              <div className="flex items-center gap-3">
+                <span className={`p-2.5 rounded-2xl border ${grossProfit >= 0 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border-rose-500/30'}`}>
+                  <TrendingUp size={22} />
+                </span>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
+                    รายงานกำไร-ขาดทุนขั้นต้น (Gross Profit & Loss)
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    คำนวณจากยอดขายทั้งหมด หักค่าใช้จ่ายในร้านทั้งหมด • เดือน {currentMonthNameThai} {currentYearThai} ({selectedBranch})
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-900/40 active:scale-95 transition-all cursor-pointer"
+                  title="พิมพ์รายงานสรุปกำไรขาดทุน"
+                >
+                  <Printer size={15} />
+                  <span className="hidden sm:inline">พิมพ์รายงาน</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowGrossProfitModal(false)}
+                  className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 custom-scrollbar">
+              {/* 3 Main Hero KPI Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
+                {/* 1. Total Revenue */}
+                <div className="bg-gradient-to-br from-slate-800/90 to-slate-800/50 p-4 sm:p-5 rounded-2xl border border-cyan-500/30 shadow-md">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                      <Store size={15} /> ยอดขายรวมทั้งสิ้น
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-200 font-bold border border-cyan-500/30">
+                      รายรับ
+                    </span>
+                  </div>
+                  <div className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                    ฿{totalSalesRevenue.toLocaleString()}
+                  </div>
+                  <div className="mt-2.5 pt-2 border-t border-slate-700/60 space-y-1 text-[11px] text-slate-300 font-medium">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">POS หน้าร้าน:</span>
+                      <span>฿{mtdInStorePosTotal.toLocaleString()} ({mtdInStorePosOrdersCount} บิล)</span>
+                    </div>
+                    {mtdShopeeTotal > 0 && (
+                      <div className="flex justify-between text-orange-300">
+                        <span>Shopee:</span>
+                        <span>฿{mtdShopeeTotal.toLocaleString()} ({mtdShopeeOrdersCount} บิล)</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. Total Store Expenses */}
+                <div className="bg-gradient-to-br from-slate-800/90 to-slate-800/50 p-4 sm:p-5 rounded-2xl border border-rose-500/30 shadow-md">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
+                      <ShoppingBag size={15} /> ค่าใช้จ่ายในร้านทั้งหมด
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-200 font-bold border border-rose-500/30">
+                      รายจ่าย
+                    </span>
+                  </div>
+                  <div className="text-2xl sm:text-3xl font-black text-rose-300 tracking-tight">
+                    -฿{mtdExpensesTotal.toLocaleString()}
+                  </div>
+                  <div className="mt-2.5 pt-2 border-t border-slate-700/60 space-y-1 text-[11px] text-slate-300 font-medium">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">รายการที่จ่ายแล้ว:</span>
+                      <span>{monthlyExpenses.length} รายการ</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">หักเข้าต้นทุนร้าน:</span>
+                      <span className="text-rose-400 font-bold">100% เรียลไทม์</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Gross Profit / Loss */}
+                <div className={`bg-gradient-to-br p-4 sm:p-5 rounded-2xl border shadow-md ${
+                  grossProfit >= 0 
+                    ? 'from-emerald-950/60 to-slate-900 border-emerald-500/40 text-emerald-200' 
+                    : 'from-rose-950/60 to-slate-900 border-rose-500/40 text-rose-200'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold flex items-center gap-1.5">
+                      <TrendingUp size={15} /> กำไร/ขาดทุนขั้นต้นสุทธิ
+                    </span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                      grossProfit >= 0 
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
+                        : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                    }`}>
+                      {grossProfit >= 0 ? 'กำไรสุทธิ' : 'ขาดทุนสุทธิ'}
+                    </span>
+                  </div>
+                  <div className={`text-2xl sm:text-3xl font-black tracking-tight ${
+                    grossProfit >= 0 ? 'text-emerald-300' : 'text-rose-400'
+                  }`}>
+                    {grossProfit >= 0 ? '+' : ''}฿{grossProfit.toLocaleString()}
+                  </div>
+                  <div className="mt-2.5 pt-2 border-t border-slate-700/60 space-y-1 text-[11px] font-medium">
+                    <div className="flex justify-between">
+                      <span className="opacity-75">อัตรากำไร (Gross Margin):</span>
+                      <span className="font-extrabold text-white">{grossMarginPercent}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="opacity-75">สถานะผลประกอบการ:</span>
+                      <span className="font-bold">{grossProfit >= 0 ? '✓ ดำเนินการมีกำไร' : '⚠️ ค่าใช้จ่ายเกินรายรับ'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Navigation Tabs inside modal */}
+              <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setGpReportTab('summary')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    gpReportTab === 'summary'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <PieChart size={14} /> สรุปสัดส่วนค่าใช้จ่าย ({expensesByCategory.length} หมวด)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGpReportTab('daily')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    gpReportTab === 'daily'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <Calendar size={14} /> เปรียบเทียบรายวัน ({dailyPnLList.length} วัน)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGpReportTab('expenses')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    gpReportTab === 'expenses'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-xs'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <ShoppingBag size={14} /> รายการค่าใช้จ่ายทั้งหมด ({monthlyExpenses.length} รายการ)
+                </button>
+              </div>
+
+              {/* Tab 1: หมวดหมู่ค่าใช้จ่าย */}
+              {gpReportTab === 'summary' && (
+                <div className="space-y-4">
+                  <div className="bg-slate-800/40 p-4 sm:p-5 rounded-2xl border border-slate-800">
+                    <h4 className="text-xs sm:text-sm font-bold text-slate-200 mb-4 flex items-center gap-2">
+                      <PieChart size={15} className="text-emerald-400" />
+                      สัดส่วนค่าใช้จ่ายในร้านแยกตามหมวดหมู่ (ยอดรวม: ฿{mtdExpensesTotal.toLocaleString()})
+                    </h4>
+
+                    {expensesByCategory.length === 0 ? (
+                      <div className="py-8 text-center text-slate-500 font-bold text-xs">
+                        ยังไม่มีรายการค่าใช้จ่ายในเดือนนี้
+                      </div>
+                    ) : (
+                      <div className="space-y-3.5">
+                        {expensesByCategory.map((cat, idx) => (
+                          <div key={idx} className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-200 flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                                {cat.category}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-black text-white">฿{cat.amount.toLocaleString()}</span>
+                                <span className="text-[10px] text-slate-400 font-bold px-1.5 py-0.5 rounded-md bg-slate-800">
+                                  {cat.percent}%
+                                </span>
+                              </div>
+                            </div>
+                            <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                              <div
+                                className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-500"
+                                style={{ width: `${cat.percent}%` }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-slate-800/50 border border-slate-700/60 text-xs text-slate-300 leading-relaxed">
+                    💡 <strong>หมายเหตุสูตรคำนวณ:</strong> กำไรขาดทุนขั้นต้น = ยอดขายรวมทั้งสิ้น (POS + Shopee) หักลบด้วยค่าใช้จ่ายทั้งหมดในร้านที่ชำระแล้ว โดยรายการค้างจ่ายที่ยังไม่กด "จ่ายแล้ว" จะยังไม่ถูกนำมาหักจนกว่าจะจ่ายจริง
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 2: เปรียบเทียบผลประกอบการรายวัน */}
+              {gpReportTab === 'daily' && (
+                <div className="bg-slate-800/40 rounded-2xl border border-slate-800 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-slate-900/90 text-slate-400 border-b border-slate-700/80">
+                          <th className="py-3 px-3.5 font-bold">วันที่</th>
+                          <th className="py-3 px-3 font-bold text-right">ยอดขายประจำวัน</th>
+                          <th className="py-3 px-3 font-bold text-right">ค่าใช้จ่ายร้าน</th>
+                          <th className="py-3 px-3.5 font-bold text-right">กำไร/ขาดทุนประจำวัน</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800">
+                        {dailyPnLList.length === 0 ? (
+                          <tr>
+                            <td colSpan="4" className="py-8 text-center text-slate-500 font-bold">
+                              ไม่มีข้อมูลรายวันในเดือนนี้
+                            </td>
+                          </tr>
+                        ) : (
+                          dailyPnLList.map((day, idx) => (
+                            <tr key={idx} className="hover:bg-slate-800/60 transition-colors">
+                              <td className="py-2.5 px-3.5 font-bold text-slate-200">
+                                {day.fullLabel}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-bold text-cyan-300">
+                                ฿{day.sales.toLocaleString()}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-medium text-rose-300">
+                                {day.expense > 0 ? `-฿${day.expense.toLocaleString()}` : '฿0'}
+                              </td>
+                              <td className={`py-2.5 px-3.5 text-right font-black ${
+                                day.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                              }`}>
+                                {day.profit >= 0 ? '+' : ''}฿{day.profit.toLocaleString()}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 3: รายการค่าใช้จ่ายทั้งหมด */}
+              {gpReportTab === 'expenses' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-xs text-slate-400 font-bold">กรองตามหมวดหมู่:</span>
+                    <select
+                      value={expenseCategoryFilter}
+                      onChange={e => setExpenseCategoryFilter(e.target.value)}
+                      className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-200 focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value="all">ทั้งหมด ({monthlyExpenses.length})</option>
+                      {expensesByCategory.map((c, i) => (
+                        <option key={i} value={c.category}>{c.category}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="bg-slate-800/40 rounded-2xl border border-slate-800 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="bg-slate-900/90 text-slate-400 border-b border-slate-700/80">
+                            <th className="py-3 px-3.5 font-bold">วันที่</th>
+                            <th className="py-3 px-3 font-bold">รายการ / ชื่อสินค้า</th>
+                            <th className="py-3 px-3 font-bold">หมวดหมู่</th>
+                            <th className="py-3 px-3 font-bold">ผู้บันทึก / ร้านค้า</th>
+                            <th className="py-3 px-3 font-bold text-right">จำนวนเงิน</th>
+                            <th className="py-3 px-3 font-bold text-center">สถานะ</th>
+                            <th className="py-3 px-3.5 font-bold text-center">ใบเสร็จ</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800">
+                          {monthlyExpenses
+                            .filter(e => expenseCategoryFilter === 'all' || e.category === expenseCategoryFilter)
+                            .map((exp, idx) => (
+                              <tr key={idx} className="hover:bg-slate-800/60 transition-colors">
+                                <td className="py-2.5 px-3.5 text-slate-300 font-medium whitespace-nowrap">
+                                  {exp.date || extractIsoDate(exp.createdAt)}
+                                </td>
+                                <td className="py-2.5 px-3 font-bold text-white">
+                                  {exp.title || exp.itemName || exp.note || 'ไม่ระบุชื่อ'}
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-300">
+                                  <span className="px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-[10px] font-bold text-slate-300">
+                                    {exp.category}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-400">
+                                  {exp.employeeName || exp.vendor || exp.branch || '-'}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-black text-rose-300">
+                                  ฿{parseNumber(exp.amount).toLocaleString()}
+                                </td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                    จ่ายแล้ว
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3.5 text-center">
+                                  {exp.receiptUrl ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setPreviewReceiptImage(exp.receiptUrl)}
+                                      className="px-2 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 rounded-lg border border-indigo-500/30 font-bold text-[10px] transition-all cursor-pointer inline-flex items-center gap-1 active:scale-95"
+                                    >
+                                      <ImageIcon size={11} /> ดูสลิป
+                                    </button>
+                                  ) : (
+                                    <span className="text-slate-600">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between">
+              <span className="text-xs text-slate-400">
+                กำไรขั้นต้นสุทธิ: <strong className={grossProfit >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                  {grossProfit >= 0 ? '+' : ''}฿{grossProfit.toLocaleString()}
+                </strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowGrossProfitModal(false)}
+                className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                ปิดหน้าต่าง
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🖼️ Receipt Slip Zoom Modal 🖼️ */}
+      {previewReceiptImage && (
+        <div className="fixed inset-0 z-[250] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setPreviewReceiptImage(null)}>
+          <div className="relative max-w-2xl max-h-[90vh] bg-slate-900 rounded-3xl overflow-hidden shadow-2xl p-2 border border-slate-700" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setPreviewReceiptImage(null)}
+              className="absolute top-4 right-4 z-10 w-9 h-9 bg-slate-900/80 hover:bg-slate-950 text-white rounded-full flex items-center justify-center transition-colors border border-slate-700 cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+            <img src={previewReceiptImage} alt="Receipt preview" className="max-w-full max-h-[85vh] object-contain rounded-2xl mx-auto" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

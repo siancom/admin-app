@@ -7906,6 +7906,7 @@ const flexMessage = {
               <DailySalesBannerChart
                 dailySales={dailySales}
                 orders={orders}
+                expenses={expenses}
                 branches={branches}
                 globalBranch={globalBranch}
                 onNavigateToTab={(tab) => setActiveTab(tab)}
