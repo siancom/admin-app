@@ -1,6 +1,6 @@
 import { getFuzzyKey } from './fuzzy';
-import { parseNumber, getLocalYYYYMMDD } from './parse';
-import { isInPayrollMonth } from './dateUtils';
+import { parseNumber, parseQty, getLocalYYYYMMDD } from './parse';
+import { isInPayrollMonth, getOrderStatus } from './dateUtils';
 
 export function isHistoryValidForCommission(h) {
   if (!h || h.isCancelled) return false;
@@ -572,7 +572,7 @@ export function calculateEmployeeCommissionDetails(emp, payrollMonth, { historie
   });
 
   // Check orders to catch any POS orders not present in histories
-  (orders || []).forEach((o, oIdx) => {
+  (orders || []).forEach((o) => {
     if (!o.createdAt || getOrderStatus(o) === 'ยกเลิก') return;
     if (!isInPayrollMonth(o, payrollMonth)) return;
 
