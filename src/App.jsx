@@ -3611,13 +3611,6 @@ export default function App() {
           }
       });
 
-      if (totalPendingCount > prevPendingCount.current && prevPendingCount.current !== -1) {
-          triggerToast('🔔 แจ้งเตือนใหม่!', `มีรายการรอตรวจสอบเพิ่มขึ้น (รวม ${totalPendingCount} รายการ)`, 'alert');
-          if (adminNotifConfig.soundAlert !== false) {
-             playNotificationSound();
-          }
-      }
-
       prevPendingCount.current = totalPendingCount;
       prevBookingsRef.current = JSON.parse(JSON.stringify(bookings));
   }, [bookings, totalPendingCount, isDbConnected, isCloudLoading, adminNotifConfig.soundAlert]);
@@ -7319,13 +7312,15 @@ const flexMessage = {
           <span className="font-bold text-sm">{toastMessage}</span>
         </div>
       )}
-      <div className={`fixed top-6 left-0 right-0 z-[999999] pointer-events-none flex justify-center transition-all duration-500 ease-[cubic-bezier(0.2,1,0.3,1)] ${notifToast.show ? 'translate-y-0 opacity-100' : '-translate-y-24 opacity-0'}`}>
-         <div className={`bg-white border-b-4 ${notifToast.type === 'alert' ? 'border-rose-500 shadow-[0_20px_50px_rgba(244,63,94,0.4)]' : 'border-blue-500 shadow-[0_20px_50px_rgba(59,130,246,0.4)]'} text-gray-800 px-6 py-4 rounded-2xl flex items-center min-w-[340px] max-w-md pointer-events-auto border border-gray-100`}>
-             <div className={`w-12 h-12 rounded-full flex items-center justify-center mr-4 shrink-0 relative ${notifToast.type === 'alert' ? 'bg-rose-100 text-rose-600' : 'bg-blue-100 text-blue-600'}`}><Bell size={24} className="animate-pulse" /></div>
-             <div className="flex-1"><p className={`font-black text-base leading-tight ${notifToast.type === 'alert' ? 'text-rose-600' : 'text-blue-600'}`}>{notifToast.title}</p><p className="text-sm font-bold mt-1 text-gray-700">{notifToast.message}</p></div>
-             <button onClick={() => setNotifToast({ show: false, title: '', message: '', type: 'info' })} className="ml-4 p-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-500 transition-colors"><X size={20} /></button>
-         </div>
-      </div>
+      {activeTab !== 'pos' && (
+        <div className={`fixed top-6 left-0 right-0 z-[999999] pointer-events-none flex justify-center transition-all duration-500 ease-[cubic-bezier(0.2,1,0.3,1)] ${notifToast.show ? 'translate-y-0 opacity-100' : '-translate-y-24 opacity-0'}`}>
+           <div className={`bg-white border-b-4 ${notifToast.type === 'alert' ? 'border-rose-500 shadow-[0_20px_50px_rgba(244,63,94,0.4)]' : 'border-blue-500 shadow-[0_20px_50px_rgba(59,130,246,0.4)]'} text-gray-800 px-6 py-4 rounded-2xl flex items-center min-w-[340px] max-w-md pointer-events-auto border border-gray-100`}>
+               <div className={`w-12 h-12 rounded-full flex items-center justify-center mr-4 shrink-0 relative ${notifToast.type === 'alert' ? 'bg-rose-100 text-rose-600' : 'bg-blue-100 text-blue-600'}`}><Bell size={24} className="animate-pulse" /></div>
+               <div className="flex-1"><p className={`font-black text-base leading-tight ${notifToast.type === 'alert' ? 'text-rose-600' : 'text-blue-600'}`}>{notifToast.title}</p><p className="text-sm font-bold mt-1 text-gray-700">{notifToast.message}</p></div>
+               <button onClick={() => setNotifToast({ show: false, title: '', message: '', type: 'info' })} className="ml-4 p-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-500 transition-colors"><X size={20} /></button>
+           </div>
+        </div>
+      )}
 
       {/* 🌟 จุดสีแสดงสถานะการซิงค์ข้อมูลมุมขวาบน (Mobile / Floating Top-Right Sync Dot) 🌟 */}
       {activeTab !== 'pos' && (
