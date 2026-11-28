@@ -234,19 +234,14 @@ export default function DailySalesBannerChart({
     mtdInStorePosOrdersCount = 0,
     mtdShopeeTotal = 0,
     mtdShopeeOrdersCount = 0,
+    shopeeDateIso = '',
     mtdEodTotal,
     mtdEodDaysCount,
     mtdDepositTotal,
     mtdDaysCount, 
     peakDay 
   } = useMemo(() => {
-    // Generate dates for current range
-    const dates = [];
-    for (let i = dayRange - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      dates.push(getLocalYYYYMMDD(d));
-    }
+    const currentMonthPrefix = todayIso.substring(0, 7);
 
     // Filter orders by branch & validity
     const validOrders = orders.filter(o => {
@@ -262,7 +257,7 @@ export default function DailySalesBannerChart({
     // Group orders by ISO date
     const ordersByDate = {};
     validOrders.forEach(o => {
-      const dateIso = extractIsoDate(o.createdAt || o.date || o['วันที่']);
+      const dateIso = o.orderDateIso || extractIsoDate(o.createdAt || o.date || o['วันที่']);
       if (!dateIso) return;
       if (!ordersByDate[dateIso]) {
         ordersByDate[dateIso] = {
@@ -333,6 +328,21 @@ export default function DailySalesBannerChart({
       };
     });
 
+    // Generate dates for current range
+    const dateSet = new Set();
+    for (let i = dayRange - 1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      dateSet.add(getLocalYYYYMMDD(d));
+    }
+    // ดึงวันที่ในเดือนปัจจุบันที่มีออเดอร์/Shopee อัพเดตเข้ามาแล้ว (เช่น วันสิ้นเดือน 30 พ.ย.) เข้ามาแสดงบนชาร์ต
+    Object.keys(ordersByDate).forEach(dStr => {
+      if (dStr.startsWith(currentMonthPrefix) && (ordersByDate[dStr].total > 0 || ordersByDate[dStr].shopeeTotal > 0)) {
+        dateSet.add(dStr);
+      }
+    });
+    const dates = Array.from(dateSet).sort();
+
     // Build chart array
     let maxVal = 0;
     let peak = { date: '', total: 0 };
@@ -391,9 +401,7 @@ export default function DailySalesBannerChart({
       total: 0, posTotal: 0, inStoreTotal: 0, shopeeTotal: 0, eodTotal: 0, cash: 0, transfer: 0, shopee: 0, orderCount: 0, inStoreOrderCount: 0, shopeeOrderCount: 0
     };
 
-    // Month-to-date calculation (all days from 1st of current month up to today)
-    const currentMonthPrefix = todayIso.substring(0, 7);
-
+    // Month-to-date calculation (all days from 1st of current month up to today + Shopee monthly uploads)
     // 1. ยอดสะสมจริงจาก POS (บิลขายหน้าร้าน + Shopee)
     let mtdPosSum = 0;
     let mtdPosOrdersCount = 0;
@@ -402,18 +410,31 @@ export default function DailySalesBannerChart({
     let mtdShopeeOrdersCount = 0;
     let mtdInStorePosSum = 0;
     let mtdInStorePosOrdersCount = 0;
+    let latestShopeeDate = '';
 
     Object.entries(ordersByDate).forEach(([dStr, val]) => {
-      if (dStr.startsWith(currentMonthPrefix) && dStr <= todayIso) {
-        mtdPosSum += val.total;
-        mtdPosOrdersCount += val.orderCount;
-        mtdShopeeSum += (val.shopeeTotal || 0);
-        mtdShopeeOrdersCount += (val.shopeeOrderCount || 0);
-        mtdInStorePosSum += (val.inStoreTotal || 0);
-        mtdInStorePosOrdersCount += (val.inStoreOrderCount || 0);
-        if (val.total > 0) mtdPosDaysCount++;
+      if (dStr.startsWith(currentMonthPrefix)) {
+        // ยอด Shopee: ดึงยอดมาแสดงทันทีเมื่อมีการอัพยอดแล้วในเดือนนี้ แม้จะลงบันทึกเป็นวันสิ้นเดือน
+        if (val.shopeeTotal > 0 || val.shopeeOrderCount > 0) {
+          mtdShopeeSum += (val.shopeeTotal || 0);
+          mtdShopeeOrdersCount += (val.shopeeOrderCount || 0);
+          if (!latestShopeeDate || dStr > latestShopeeDate) {
+            latestShopeeDate = dStr;
+          }
+        }
+
+        // ยอดขาย POS หน้าร้าน: นับเฉพาะวันที่ผ่านมาจนถึงวันนี้
+        if (dStr <= todayIso) {
+          mtdInStorePosSum += (val.inStoreTotal || 0);
+          mtdInStorePosOrdersCount += (val.inStoreOrderCount || 0);
+          if (val.inStoreTotal > 0) mtdPosDaysCount++;
+        }
       }
     });
+
+    // ยอดรวม POS ประจำเดือน = หน้าร้านสะสม + Shopee
+    mtdPosSum = mtdInStorePosSum + mtdShopeeSum;
+    mtdPosOrdersCount = mtdInStorePosOrdersCount + mtdShopeeOrdersCount;
 
     // 2. ยอดสะสมจากการส่งยอด (ใบส่งยอดประจำวัน EOD)
     let mtdEodSum = 0;
@@ -442,9 +463,14 @@ export default function DailySalesBannerChart({
     let mtdCombinedSum = 0;
     let mtdCombinedCount = 0;
     Object.entries(ordersByDate).forEach(([dStr, val]) => {
-      if (dStr.startsWith(currentMonthPrefix) && dStr <= todayIso) {
-        mtdCombinedSum += val.total;
-        if (val.total > 0) mtdCombinedCount++;
+      if (dStr.startsWith(currentMonthPrefix)) {
+        if (dStr <= todayIso) {
+          mtdCombinedSum += val.total;
+          if (val.total > 0) mtdCombinedCount++;
+        } else if (val.shopeeTotal > 0) {
+          // รวมยอด Shopee ที่ลงไว้ ณ วันสิ้นเดือนเข้ายอดสะสมเดือนนี้ด้วย
+          mtdCombinedSum += val.shopeeTotal;
+        }
       }
     });
     Object.entries(eodByDate).forEach(([dStr, eod]) => {
@@ -469,6 +495,7 @@ export default function DailySalesBannerChart({
       mtdInStorePosOrdersCount,
       mtdShopeeTotal: mtdShopeeSum,
       mtdShopeeOrdersCount,
+      shopeeDateIso: latestShopeeDate || '',
       mtdEodTotal: mtdEodSum,
       mtdEodDaysCount,
       mtdDepositTotal: mtdDepositSum,
@@ -720,7 +747,15 @@ export default function DailySalesBannerChart({
               </div>
 
               {/* บรรทัด 2: ยอด Shopee (ช้อปปี้) */}
-              <div className="flex items-center justify-between bg-slate-900/70 px-2.5 py-1.5 sm:py-2 rounded-xl border border-orange-500/30">
+              <div 
+                onClick={() => {
+                  if (mtdShopeeTotal > 0 && shopeeDateIso) {
+                    setPreviewModalDate(shopeeDateIso);
+                  }
+                }}
+                className={`flex items-center justify-between bg-slate-900/70 px-2.5 py-1.5 sm:py-2 rounded-xl border border-orange-500/30 ${mtdShopeeTotal > 0 && shopeeDateIso ? 'cursor-pointer hover:bg-orange-950/40 hover:border-orange-500/60 transition-all' : ''}`}
+                title={mtdShopeeTotal > 0 && shopeeDateIso ? 'คลิกเพื่อดูรายการบิล Shopee ประจำเดือนนี้' : ''}
+              >
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-orange-500 shadow-xs shadow-orange-500/50" />
                   <span className="text-[11px] sm:text-xs font-bold text-orange-400">ยอด Shopee</span>
@@ -767,7 +802,7 @@ export default function DailySalesBannerChart({
               )}
             </span>
             <span className="text-slate-300 font-medium">
-              เฉลี่ย: <strong className="text-white">฿{Math.round((mtdPosTotal || mtdEodTotal) / (mtdDaysCount || 1)).toLocaleString()}</strong>/วัน
+              เฉลี่ย: <strong className="text-white">฿{Math.round((mtdInStorePosTotal || mtdPosTotal || mtdEodTotal) / (mtdDaysCount || 1)).toLocaleString()}</strong>/วัน
             </span>
           </div>
         </div>
