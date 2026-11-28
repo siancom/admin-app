@@ -387,18 +387,30 @@ export default function App() {
     setActiveTab('pos');
   };
 
-  const handleReturnToStaffDashboard = () => {
+  const handleReturnToStaffDashboard = useCallback(() => {
     setPosReturnToStaffAfterCheckout(false);
     setPosPreselectedUsageCourses([]);
     setPosPreselectedBeforePhotos([]);
     setPosPreselectedStaffName('');
     setActiveTab('dashboard');
     setStaffDashboardTab('used_course');
-  };
+  }, []);
 
   const [smartCheckInBooking, setSmartCheckInBooking] = useState(null);
   const [posActiveBookingId, setPosActiveBookingId] = useState(null);
   const [posReturnToAppointmentsAfterCheckout, setPosReturnToAppointmentsAfterCheckout] = useState(false);
+
+  const handleReturnToAppointments = useCallback(() => {
+    setPosActiveBookingId(null);
+    setPosReturnToAppointmentsAfterCheckout(false);
+    setFilterBookingStatus("today_upcoming");
+    setActiveTab('bookings');
+  }, []);
+
+  const handleGoToBookings = useCallback(() => {
+    setFilterBookingStatus("today_upcoming");
+    setActiveTab('bookings');
+  }, []);
 
   // ✂️ เปิด POS ตัดคอร์สจากคิวนัดหมาย (ส่งลูกค้า, คอร์สที่เลือก, รูป Before)
   const handleGoToPosCutCourse = (booking) => {
@@ -7619,16 +7631,8 @@ const flexMessage = {
               onClearInitialTab={() => setPosInitialTab(null)}
               posActiveBookingId={posActiveBookingId}
               posReturnToAppointmentsAfterCheckout={posReturnToAppointmentsAfterCheckout}
-              onReturnToAppointments={() => {
-                setPosActiveBookingId(null);
-                setPosReturnToAppointmentsAfterCheckout(false);
-                setFilterBookingStatus("today_upcoming");
-                setActiveTab('bookings');
-              }}
-              onGoToBookings={() => {
-                setFilterBookingStatus("today_upcoming");
-                setActiveTab('bookings');
-              }}
+              onReturnToAppointments={handleReturnToAppointments}
+              onGoToBookings={handleGoToBookings}
               bookingBadgeCount={bookingStats.badgeCount}
               onViewCourseDetails={(c) => {
                 const fullCourse = processedCourses.find(pc => pc.id === c.id || (c.courseRefKey && pc.courseRefKey === c.courseRefKey)) || c;

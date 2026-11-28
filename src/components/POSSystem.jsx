@@ -5351,9 +5351,10 @@ export default function POSSystem({
     }
   };
 
-  // 🌟 Auto-dismiss receipt popup after 3 seconds so cashier can start next sale without waiting
+  // 🌟 Auto-dismiss receipt popup after countdown so cashier can start next sale without waiting
   const [receiptCountdown, setReceiptCountdown] = useState(null);
   const receiptTimerRef = useRef(null);
+  const handleQuickNewSaleRef = useRef(null);
 
   const cancelAutoDismiss = useCallback(() => {
     if (receiptTimerRef.current) {
@@ -5397,33 +5398,47 @@ export default function POSSystem({
     });
   }, [posReturnToStaffAfterCheckout, onReturnToStaffDashboard, posReturnToAppointmentsAfterCheckout, onReturnToAppointments]);
 
-  // 🌟 Effect นับถอยหลัง 3 วินาที ปิดป็อปอัพอัตโนมัติ เพื่อให้เริ่มขายบิลต่อไปได้ทันทีโดยไม่ต้องเอื้อมมือกด
+  handleQuickNewSaleRef.current = handleQuickNewSale;
+
+  // 🌟 Effect นับถอยหลังปิดป็อปอัพอัตโนมัติ (ใช้ Timestamp แน่นหนา ไม่มีการรีเซ็ตเวลากลับเมื่อ State เบื้องหลังอัปเดต)
   useEffect(() => {
-    if (receiptData && !showPreviewModal) {
-      setReceiptCountdown(3);
-      const interval = setInterval(() => {
-        setReceiptCountdown(prev => {
-          if (prev === null || prev <= 1) {
-            clearInterval(interval);
-            receiptTimerRef.current = null;
-            handleQuickNewSale();
-            return null;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      receiptTimerRef.current = interval;
-      return () => {
-        clearInterval(interval);
-      };
-    } else {
+    if (!receiptData || showPreviewModal) {
       if (receiptTimerRef.current) {
         clearInterval(receiptTimerRef.current);
         receiptTimerRef.current = null;
       }
       setReceiptCountdown(null);
+      return;
     }
-  }, [receiptData, showPreviewModal, handleQuickNewSale]);
+
+    const durationSec = 2; // ปิดไวใน 2 วินาที พอให้อ่านยอดและบิล แล้วพร้อมขายบิลใหม่ทันที
+    const targetEndTime = Date.now() + (durationSec * 1000);
+    setReceiptCountdown(durationSec);
+
+    if (receiptTimerRef.current) {
+      clearInterval(receiptTimerRef.current);
+    }
+
+    const interval = setInterval(() => {
+      const remainingMs = targetEndTime - Date.now();
+      const remainingSec = Math.ceil(remainingMs / 1000);
+      if (remainingSec <= 0) {
+        clearInterval(interval);
+        receiptTimerRef.current = null;
+        setReceiptCountdown(null);
+        if (handleQuickNewSaleRef.current) {
+          handleQuickNewSaleRef.current();
+        }
+      } else {
+        setReceiptCountdown(remainingSec);
+      }
+    }, 150);
+
+    receiptTimerRef.current = interval;
+    return () => {
+      clearInterval(interval);
+    };
+  }, [receiptData?.orderNo, showPreviewModal]);
 
   // 🌟 Keyboard Shortcut: กด Enter, Space หรือ Esc เพื่อปิดป็อปอัพและเริ่มขายทันที
   useEffect(() => {
@@ -5432,12 +5447,14 @@ export default function POSSystem({
       if (showPreviewModal) return;
       if (e.key === 'Escape' || e.key === ' ' || e.key === 'Enter') {
         e.preventDefault();
-        handleQuickNewSale();
+        if (handleQuickNewSaleRef.current) {
+          handleQuickNewSaleRef.current();
+        }
       }
     };
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  }, [receiptData, showPreviewModal, handleQuickNewSale]);
+  }, [receiptData?.orderNo, showPreviewModal]);
 
 
 
