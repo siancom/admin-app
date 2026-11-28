@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback, startTransition } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle,
   Scissors, Search, Info, ShoppingCart, Package, Layers, User, Trash2, UserPlus,
@@ -5350,28 +5350,93 @@ export default function POSSystem({
     }
   };
 
-  // 🌟 เริ่มต้นขายบิลใหม่ทันที (ปุ๊ปปั๊ป ไม่ต้องรอ ล้างข้อมูลเพื่อพร้อมรับลูกค้าคนต่อไปทันที)
-  const handleQuickNewSale = () => {
-    setReceiptData(null);
-    setCart([]);
-    setAppCreditPaidAmount(0);
-    setActiveCustomerAppOrderIds([]);
-    setSelectedCustomer(null);
-    setCustomerSearch('');
-    setGlobalDiscount(0);
-    setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0, omise_promptpay: 0 });
-    setShippingAddress('');
-    setPosTrackingNo('');
-    setOrderChannel('instore');
-    setActiveWcOrderId(null);
-    setIsMobileCartOpen(false);
-    setActiveTab('products');
-    if (posReturnToStaffAfterCheckout && onReturnToStaffDashboard) {
-      onReturnToStaffDashboard();
-    } else if (posReturnToAppointmentsAfterCheckout && onReturnToAppointments) {
-      onReturnToAppointments();
+  // 🌟 Auto-dismiss receipt popup after 3 seconds so cashier can start next sale without waiting
+  const [receiptCountdown, setReceiptCountdown] = useState(null);
+  const receiptTimerRef = useRef(null);
+
+  const cancelAutoDismiss = useCallback(() => {
+    if (receiptTimerRef.current) {
+      clearInterval(receiptTimerRef.current);
+      receiptTimerRef.current = null;
     }
-  };
+    setReceiptCountdown(null);
+  }, []);
+
+  // 🌟 เริ่มต้นขายบิลใหม่ทันที (ปุ๊ปปั๊ป ไม่ต้องรอ ล้างข้อมูลเพื่อพร้อมรับลูกค้าคนต่อไปทันที)
+  const handleQuickNewSale = useCallback(() => {
+    if (receiptTimerRef.current) {
+      clearInterval(receiptTimerRef.current);
+      receiptTimerRef.current = null;
+    }
+    setReceiptCountdown(null);
+
+    // ⚡ 1. ปิดหน้าต่างใบเสร็จทันทีใน 0ms ปลดล็อกจอให้กดขายสินค้าชิ้นต่อไปได้ทันที
+    setReceiptData(null);
+
+    // ⚡ 2. เคลียร์ State ต่างๆ ใน Transition เพื่อไม่ให้บล็อก Frame Rate หรือกระตุก
+    startTransition(() => {
+      setCart([]);
+      setAppCreditPaidAmount(0);
+      setActiveCustomerAppOrderIds([]);
+      setSelectedCustomer(null);
+      setCustomerSearch('');
+      setGlobalDiscount(0);
+      setSplitPayment({ cash: 0, transfer: 0, cod: 0, credit: 0, omise_promptpay: 0 });
+      setShippingAddress('');
+      setPosTrackingNo('');
+      setOrderChannel('instore');
+      setActiveWcOrderId(null);
+      setIsMobileCartOpen(false);
+      setActiveTab('products');
+      if (posReturnToStaffAfterCheckout && onReturnToStaffDashboard) {
+        onReturnToStaffDashboard();
+      } else if (posReturnToAppointmentsAfterCheckout && onReturnToAppointments) {
+        onReturnToAppointments();
+      }
+    });
+  }, [posReturnToStaffAfterCheckout, onReturnToStaffDashboard, posReturnToAppointmentsAfterCheckout, onReturnToAppointments]);
+
+  // 🌟 Effect นับถอยหลัง 3 วินาที ปิดป็อปอัพอัตโนมัติ เพื่อให้เริ่มขายบิลต่อไปได้ทันทีโดยไม่ต้องเอื้อมมือกด
+  useEffect(() => {
+    if (receiptData && !showPreviewModal) {
+      setReceiptCountdown(3);
+      const interval = setInterval(() => {
+        setReceiptCountdown(prev => {
+          if (prev === null || prev <= 1) {
+            clearInterval(interval);
+            receiptTimerRef.current = null;
+            handleQuickNewSale();
+            return null;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      receiptTimerRef.current = interval;
+      return () => {
+        clearInterval(interval);
+      };
+    } else {
+      if (receiptTimerRef.current) {
+        clearInterval(receiptTimerRef.current);
+        receiptTimerRef.current = null;
+      }
+      setReceiptCountdown(null);
+    }
+  }, [receiptData, showPreviewModal, handleQuickNewSale]);
+
+  // 🌟 Keyboard Shortcut: กด Enter, Space หรือ Esc เพื่อปิดป็อปอัพและเริ่มขายทันที
+  useEffect(() => {
+    if (!receiptData) return;
+    const handleKey = (e) => {
+      if (showPreviewModal) return;
+      if (e.key === 'Escape' || e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        handleQuickNewSale();
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [receiptData, showPreviewModal, handleQuickNewSale]);
 
 
 
@@ -11499,19 +11564,25 @@ export default function POSSystem({
           )}
           
           <div className="w-full space-y-2.5">
-            {/* 🌟 ปุ่มอันดับ 1 ใหญ่สุดเด่นสุด: พร้อมขายบิลใหม่ทันที (ปุ๊ปปั๊ป ไม่ต้องรอ) */}
+            {/* 🌟 ปุ่มอันดับ 1 ใหญ่สุดเด่นสุด: พร้อมขายบิลใหม่ทันที (ปุ๊ปปั๊ป ไม่ต้องรอ ล้างจอใน 0ms) */}
             <button
                type="button"
                onClick={handleQuickNewSale}
-               className="w-full py-4 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 active:scale-[0.98] text-white rounded-2xl font-black text-base shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
+               className="w-full py-4 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 active:scale-[0.98] text-white rounded-2xl font-black text-base shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer relative overflow-hidden"
             >
                <Zap size={20} className="text-amber-300" />
                <span>พร้อมขายบิลใหม่ทันที ⚡</span>
+               {receiptCountdown !== null && (
+                 <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full font-bold ml-1 animate-pulse border border-white/30">
+                   {receiptCountdown} วิ
+                 </span>
+               )}
             </button>
 
             <button 
               type="button"
               onClick={() => {
+                cancelAutoDismiss();
                 setPrintMode('receipt');
                 // Skip preview — print directly after one frame for portal to render
                 requestAnimationFrame(() => {
@@ -11534,6 +11605,7 @@ export default function POSSystem({
               <button 
                 type="button"
                 onClick={() => {
+                  cancelAutoDismiss();
                   setPrintMode('label');
                   setShowPreviewModal(true);
                 }}

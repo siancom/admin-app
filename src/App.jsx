@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense, lazy } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense, lazy, startTransition } from 'react';
 import { 
   Upload, Search, Home, FileText, User, Users, Settings, 
   Plus, Eye, CheckCircle, Clock, QrCode, LogOut, Menu, X, 
@@ -1511,33 +1511,69 @@ export default function App() {
     fetchWooProducts(false);
 
     const unsubCourses = onSnapshot(getCol('courses'), (s) => { 
-      setCourses(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+      const mapped = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      startTransition(() => {
+        setCourses(mapped); 
+      });
       markCollectionLoaded('courses', 'คอร์สลูกค้า'); 
     }, makeTier2ErrHandler('courses', 'คอร์สลูกค้า'));
 
     const unsubCustomers = onSnapshot(getCol('customers'), (s) => { 
-      setCustomersRaw(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+      const mapped = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      startTransition(() => {
+        setCustomersRaw(mapped); 
+      });
       markCollectionLoaded('customers', 'ฐานข้อมูลลูกค้า'); 
     }, makeTier2ErrHandler('customers', 'ฐานข้อมูลลูกค้า'));
 
     const unsubHistories = onSnapshot(getCol('histories'), (s) => { 
-      setHistories(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+      const mapped = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      startTransition(() => {
+        setHistories(mapped); 
+      });
       markCollectionLoaded('histories', 'ประวัติการบริการ'); 
     }, makeTier2ErrHandler('histories', 'ประวัติการบริการ'));
 
     const unsubOrders = onSnapshot(getCol('orders'), (s) => { 
-      setOrders(s.docs.map(d => ({ id: d.id, ...d.data() }))); 
+      const mapped = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      startTransition(() => {
+        setOrders(mapped); 
+      });
       markCollectionLoaded('orders', 'ประวัติบิลออเดอร์'); 
     }, makeTier2ErrHandler('orders', 'ประวัติบิลออเดอร์'));
 
-    const unsubLeaves = onSnapshot(getCol('employee_leaves'), (s) => { setEmployeeLeaves(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsubReqs = onSnapshot(getCol('employee_requisitions'), (s) => { setEmployeeRequisitions(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsubJobs = onSnapshot(getCol('jobApplications'), (s) => { setJobApplications(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsubAdvance = onSnapshot(getCol('advance_payments'), (s) => { setAdvancePayments(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsubExpenses = onSnapshot(getCol('expenses'), (s) => { setExpenses(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsubLogs = onSnapshot(getCol('service_logs'), (s) => { setServiceLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsubInvLogs = onSnapshot(getCol('inventory_logs'), (s) => { setInventoryLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
-    const unsubActiveServices = onSnapshot(getCol('active_services'), (s) => { setActiveServices(s.docs.map(d => ({ id: d.id, ...d.data() }))); }, errHandler);
+    const unsubLeaves = onSnapshot(getCol('employee_leaves'), (s) => { 
+      const mapped = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      startTransition(() => { setEmployeeLeaves(mapped); }); 
+    }, errHandler);
+    const unsubReqs = onSnapshot(getCol('employee_requisitions'), (s) => { 
+      const mapped = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      startTransition(() => { setEmployeeRequisitions(mapped); }); 
+    }, errHandler);
+    const unsubJobs = onSnapshot(getCol('jobApplications'), (s) => { 
+      const mapped = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      startTransition(() => { setJobApplications(mapped); }); 
+    }, errHandler);
+    const unsubAdvance = onSnapshot(getCol('advance_payments'), (s) => { 
+      const mapped = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      startTransition(() => { setAdvancePayments(mapped); }); 
+    }, errHandler);
+    const unsubExpenses = onSnapshot(getCol('expenses'), (s) => { 
+      const mapped = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      startTransition(() => { setExpenses(mapped); }); 
+    }, errHandler);
+    const unsubLogs = onSnapshot(getCol('service_logs'), (s) => { 
+      const mapped = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      startTransition(() => { setServiceLogs(mapped); }); 
+    }, errHandler);
+    const unsubInvLogs = onSnapshot(getCol('inventory_logs'), (s) => { 
+      const mapped = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      startTransition(() => { setInventoryLogs(mapped); }); 
+    }, errHandler);
+    const unsubActiveServices = onSnapshot(getCol('active_services'), (s) => { 
+      const mapped = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      startTransition(() => { setActiveServices(mapped); }); 
+    }, errHandler);
 
     return () => { 
       clearTimeout(safetyTimerTier2);
