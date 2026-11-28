@@ -4421,6 +4421,7 @@ export default function POSSystem({
 
           // Find employee IDs for service_logs
           const staffList = paymentStaff ? paymentStaff.split('/').map(s => s.trim()).filter(Boolean) : [];
+          const staffCount = Math.max(1, staffList.length);
           staffList.forEach(sName => {
              const emp = employees.find(e => e.name === sName);
              if (emp) {
@@ -4428,7 +4429,10 @@ export default function POSSystem({
                 batch.set(serviceLogRef, {
                   date: getLocalYYYYMMDD(customDateObj),
                   type: item.name,
-                  amount: item.price * item.qty,
+                  amount: Math.round((item.price * item.qty) / staffCount),
+                  staffCount: staffCount,
+                  totalBillAmount: item.price * item.qty,
+                  sharedWith: staffList.length > 1 ? paymentStaff : null,
                   note: `POS: ${orderNo}`,
                   employeeId: emp.id,
                   employeeName: emp.name,

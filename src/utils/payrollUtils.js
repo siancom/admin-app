@@ -13,6 +13,7 @@ export function isHistoryValidForCommission(h) {
 
 export function calculateServiceLogFee(s) {
   if (!s) return 0;
+  if (s.isCancelled || s.status === 'ยกเลิก' || s.status === 'cancelled') return 0;
   const typeName = String(s.type || '').toLowerCase();
   let rawAmount = parseNumber(s.amount);
   const isPOS = typeof s.note === 'string' && s.note.startsWith('POS:');
@@ -155,7 +156,7 @@ export function calculateEmployeeMonthlyPayroll(
   });
 
   const empServiceLogs = (serviceLogs || []).filter(
-    (s) => s.employeeId === emp.id && isInPayrollMonth(s, payrollMonth)
+    (s) => s.employeeId === emp.id && isInPayrollMonth(s, payrollMonth) && !s.isCancelled && s.status !== 'ยกเลิก' && s.status !== 'cancelled'
   );
   let rawServiceFees = 0;
   empServiceLogs.forEach((s) => {

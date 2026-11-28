@@ -230,6 +230,22 @@ export default function SalesHistoryModal({
         coursesSnap.docs.forEach(docSnap => {
            batch.update(doc(getCol('courses'), docSnap.id), { "สถานะ": "ยกเลิก" });
         });
+
+        // 🌟 ยกเลิกรายการค่ามือใน service_logs ที่ผูกกับบิลนี้ด้วย
+        try {
+          const srvLogsQuery = query(getCol('service_logs'), where('note', '==', `POS: ${order.orderNo}`));
+          const srvLogsSnap = await getDocs(srvLogsQuery);
+          srvLogsSnap.docs.forEach(docSnap => {
+             batch.update(doc(getCol('service_logs'), docSnap.id), { 
+               "สถานะ": "ยกเลิก", 
+               status: "ยกเลิก", 
+               isCancelled: true,
+               cancelledAt: new Date().toISOString()
+             });
+          });
+        } catch (srvErr) {
+          console.warn("Could not cancel linked service logs:", srvErr);
+        }
       }
 
       await batch.commit();

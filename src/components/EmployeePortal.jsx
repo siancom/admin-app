@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Clock, Calendar, CheckCircle, UserCheck, UserMinus, X, User, LogOut, Send, Check, XCircle, History, DollarSign, Wallet, ShoppingCart, Lock, Trash2, FileText, ShieldAlert, Gift, Percent, Edit3, RotateCcw, ArrowRight } from 'lucide-react';
+import { Clock, Calendar, CheckCircle, UserCheck, UserMinus, X, User, LogOut, Send, Check, XCircle, History, DollarSign, Wallet, ShoppingCart, Lock, Trash2, FileText, ShieldAlert, Gift, Percent, Edit3, RotateCcw, ArrowRight, Receipt, Printer, ExternalLink, ChevronRight, AlertCircle, Eye, Users } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import PayslipModal from './PayslipModal';
@@ -38,6 +38,7 @@ export default function EmployeePortal({
   const [calendarSelection, setCalendarSelection] = useState([]);
   const [showPayslip, setShowPayslip] = useState(false);
   const [showClockOutSummary, setShowClockOutSummary] = useState(false);
+  const [selectedPosReceipt, setSelectedPosReceipt] = useState(null);
   const [leaveForm, setLeaveForm] = useState({ leaveType: 'ลาป่วย', startDate: '', endDate: '', reason: '', dates: [], replacementDate: '' });
   const [advanceForm, setAdvanceForm] = useState({ amount: '', reason: '' });
   const [suppliesForm, setSuppliesForm] = useState({ itemName: '', quantity: '', reason: '' });
@@ -286,9 +287,14 @@ export default function EmployeePortal({
      let branchSales = 0;
      let courseSales = 0;
      let productSales = 0;
+     let hasOrderSales = false;
+
+     const UNPAID_ORDER_STATUSES = ['รอชำระเงิน', 'รอตรวจสอบ', 'รอตรวจสอบยอดโอน', 'รอดำเนินการ', 'รอประเมินราคา', 'ยกเลิก', 'cancelled', 'canceled'];
 
      orders.forEach(o => {
-       if (!o.createdAt || (o.status && getOrderStatus(o) !== 'อนุมัติแล้ว')) return;
+       if (!o.createdAt) return;
+       const oStatus = String(o.status || '').trim();
+       if (UNPAID_ORDER_STATUSES.includes(oStatus) || (o.status && getOrderStatus(o) === 'ยกเลิก')) return;
        const d = new Date(o.createdAt);
        const isSameMonth = d.getMonth() === currentMonth && d.getFullYear() === currentYear;
        const oClean = String(o.branch || '').replace('สาขา', '').trim();
@@ -296,7 +302,8 @@ export default function EmployeePortal({
        if (isSameMonth && isSameBranch) {
          const isPO = o.transactionType === 'owner_purchase' || (o.courseName || '').includes('[ซื้อเข้า');
          const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
-         if (!isPO && !isReq) {
+         const isStore = o.transactionType === 'store_use' || o.isStoreUse || (o.courseName || '').includes('[เบิกใช้');
+         if (!isPO && !isReq && !isStore && o.source !== 'POS_Parked' && !o.mergedIntoPosOrderNo) {
            let p = parseNumber(o.price);
            if (o.orderChannel === 'shopee' && o.shopeeNetReceived !== undefined) {
              p = parseNumber(o.shopeeNetReceived);
@@ -312,6 +319,7 @@ export default function EmployeePortal({
            }
            const actualSales = Math.max(0, p - debtPaymentAmt);
            branchSales += actualSales;
+           hasOrderSales = true;
            if (cSales === 0 && pSales === 0 && actualSales > 0) cSales = actualSales;
            const totalCP = cSales + pSales;
            if (totalCP > 0) {
@@ -322,29 +330,32 @@ export default function EmployeePortal({
        }
      });
 
-     dailySales.forEach(d => {
-       if (!d || d.manualTransfer === undefined) return;
-       const dClean = String(d.branch || '').replace('สาขา', '').trim();
-       const isSameBranch = d.branch === empBranch || d.branch === altBranch || (cleanBranch && dClean === cleanBranch);
-       if (!isSameBranch) return;
-       let iso = '';
-       if (d.date && d.date.includes('/')) {
-         const parts = d.date.split('/');
-         if (parts.length === 3) {
-           let [day, month, year] = parts;
-           year = String(parseInt(year) > 2500 ? parseInt(year) - 543 : year);
-           iso = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+     // เฉพาะกรณีที่ไม่มีข้อมูล orders ของสาขานี้เลย (เช่น ข้อมูลเดือนเก่าก่อนมีระบบ POS) จึงใช้ข้อมูลจาก dailySales แทน เพื่อไม่ให้เกิดการนับยอดซ้ำซ้อน
+     if (!hasOrderSales) {
+       dailySales.forEach(d => {
+         if (!d || d.manualTransfer === undefined) return;
+         const dClean = String(d.branch || '').replace('สาขา', '').trim();
+         const isSameBranch = d.branch === empBranch || d.branch === altBranch || (cleanBranch && dClean === cleanBranch);
+         if (!isSameBranch) return;
+         let iso = '';
+         if (d.date && d.date.includes('/')) {
+           const parts = d.date.split('/');
+           if (parts.length === 3) {
+             let [day, month, year] = parts;
+             year = String(parseInt(year) > 2500 ? parseInt(year) - 543 : year);
+             iso = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+           }
+         } else if (d.createdAt) {
+           const dt = new Date(d.createdAt);
+           if (!isNaN(dt.getTime())) {
+             iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+           }
          }
-       } else if (d.createdAt) {
-         const dt = new Date(d.createdAt);
-         if (!isNaN(dt.getTime())) {
-           iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+         if (iso.startsWith(currentMonthStr)) {
+           branchSales += parseNumber(d.manualTransfer || 0) + parseNumber(d.difference || 0);
          }
-       }
-       if (iso.startsWith(currentMonthStr)) {
-         branchSales += parseNumber(d.manualTransfer || 0) + parseNumber(d.difference || 0);
-       }
-     });
+       });
+     }
      
      const target = resolveTarget(appSettings?.branchTargets);
      const courseTarget = resolveTarget(appSettings?.courseTargets);
@@ -1253,17 +1264,38 @@ export default function EmployeePortal({
                            <div className="py-8 text-center text-slate-400 font-bold">ไม่มีประวัติการบันทึกค่ามือ</div>
                         ) : serviceLogs.filter(s => s.employeeId === employee.id)
                             .sort((a,b) => new Date(b.date) - new Date(a.date))
-                            .map(log => (
-                           <div key={log.id} className="p-4 rounded-2xl border border-slate-100 bg-slate-50 flex flex-col gap-2">
+                            .map(log => {
+                               const posMatch = String(log.note || '').match(/POS:?\s*(POS[A-Za-z0-9_-]+)/i) || String(log.note || '').match(/(POS\d+)/i);
+                               const posNo = posMatch ? posMatch[1] : (log.orderNo || null);
+                               const linkedOrder = posNo ? orders.find(o => o.orderNo === posNo || o.id === posNo) : null;
+                               const isCancelled = log.isCancelled || log.status === 'ยกเลิก' || log.status === 'cancelled' || (linkedOrder && (linkedOrder.status === 'ยกเลิก' || linkedOrder.status === 'cancelled'));
+                               const fee = isCancelled ? 0 : Math.ceil(calculateServiceLogFee(log));
+
+                               return (
+                           <div key={log.id} className={`p-4 rounded-2xl border transition-all ${isCancelled ? 'border-rose-100 bg-rose-50/30' : 'border-slate-100 bg-slate-50'} flex flex-col gap-2`}>
                               <div className="flex justify-between items-start">
                                  <div>
-                                    <h4 className="font-black text-pink-600 text-lg">
-                                       ฿{Number(log.amount).toLocaleString()} 
-                                       <span className="text-sm font-bold text-emerald-500 ml-2">
-                                          (ได้ ฿{Math.ceil(calculateServiceLogFee(log)).toLocaleString()})
-                                       </span>
-                                    </h4>
+                                    {isCancelled ? (
+                                       <h4 className="font-black text-slate-400 text-lg flex items-center gap-2 flex-wrap">
+                                          <span className="line-through">฿{Number(log.amount).toLocaleString()}</span>
+                                          <span className="text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                                             ❌ บิลยกเลิก (ได้ ฿0)
+                                          </span>
+                                       </h4>
+                                    ) : (
+                                       <h4 className="font-black text-pink-600 text-lg flex items-center gap-2 flex-wrap">
+                                          ฿{Number(log.amount).toLocaleString()} 
+                                          <span className="text-sm font-bold text-emerald-500">
+                                             (ได้ ฿{fee.toLocaleString()})
+                                          </span>
+                                       </h4>
+                                    )}
                                     <p className="text-xs font-bold text-slate-500 mt-0.5">{new Date(log.date).toLocaleDateString('th-TH')} - {log.type}</p>
+                                    {(log.staffCount > 1 || log.sharedWith) && (
+                                       <div className="text-[11px] font-bold text-indigo-600 bg-indigo-50/70 px-2 py-0.5 rounded-md border border-indigo-100 inline-flex items-center gap-1 mt-1">
+                                          <Users size={12}/> ทำร่วมกัน {log.staffCount || 2} คน (ยอดบิลเต็ม ฿{Number(log.totalBillAmount || (log.amount * (log.staffCount || 2))).toLocaleString()})
+                                       </div>
+                                    )}
                                  </div>
                                  <button 
                                     onClick={() => {
@@ -1277,9 +1309,52 @@ export default function EmployeePortal({
                                     <Trash2 size={16} />
                                  </button>
                               </div>
-                              {log.note && <p className="text-sm text-slate-600 bg-white p-2 rounded-xl border border-slate-100">{log.note}</p>}
+                              
+                              {posNo ? (
+                                 <button 
+                                    type="button"
+                                    onClick={() => {
+                                       setSelectedPosReceipt(linkedOrder || {
+                                          orderNo: posNo,
+                                          branch: log.branch || employee.branch,
+                                          createdAt: log.createdAt || log.date,
+                                          price: log.totalBillAmount || log.amount,
+                                          status: isCancelled ? 'ยกเลิก' : 'สำเร็จ',
+                                          paymentStaff: log.sharedWith || log.employeeName || employee.name,
+                                          courseName: log.type,
+                                          cartItems: [{ name: log.type, qty: 1, price: log.totalBillAmount || log.amount, type: 'service' }]
+                                       });
+                                    }}
+                                    className="w-full mt-1.5 flex items-center justify-between p-2.5 rounded-xl bg-white hover:bg-indigo-50/80 border border-slate-200 hover:border-indigo-300 transition-all group shadow-sm text-left"
+                                 >
+                                    <div className="flex items-center gap-2.5">
+                                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isCancelled ? 'bg-rose-50 text-rose-500 border border-rose-100' : 'bg-indigo-50 text-indigo-600 border border-indigo-100 group-hover:bg-indigo-600 group-hover:text-white transition-colors'}`}>
+                                          <Receipt size={16} />
+                                       </div>
+                                       <div>
+                                          <div className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                             <span>POS: {posNo}</span>
+                                             {isCancelled ? (
+                                                <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">บิลยกเลิก</span>
+                                             ) : (
+                                                <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">สำเร็จ</span>
+                                             )}
+                                          </div>
+                                          <div className="text-[10px] text-slate-400 font-medium">แตะเพื่อดูใบเสร็จและรายการย้อนหลัง</div>
+                                       </div>
+                                    </div>
+                                    <div className="flex items-center gap-1 text-xs font-bold text-indigo-600 group-hover:translate-x-0.5 transition-transform shrink-0">
+                                       <FileText size={13} />
+                                       <span className="text-[11px]">ดูใบเสร็จ</span>
+                                       <ChevronRight size={14} className="text-slate-400 group-hover:text-indigo-600" />
+                                    </div>
+                                 </button>
+                              ) : log.note ? (
+                                 <p className="text-sm text-slate-600 bg-white p-2 rounded-xl border border-slate-100 mt-1">{log.note}</p>
+                              ) : null}
                            </div>
-                        ))}
+                               );
+                            })}
                      </div>
                   </div>
                </div>
@@ -1821,6 +1896,160 @@ export default function EmployeePortal({
             if (onGoToPOS) onGoToPOS();
           }}
         />
+      )}
+
+      {/* 🧾 POS Receipt Viewer Modal */}
+      {selectedPosReceipt && (
+        <div className="fixed inset-0 z-[9999] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-100 flex flex-col">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80 rounded-t-3xl">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
+                  <Receipt size={20} />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-800 text-base">ใบเสร็จรับเงิน / รายการ POS</h3>
+                  <p className="text-[11px] font-bold text-slate-400">บิล #{selectedPosReceipt.orderNo}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedPosReceipt(null)}
+                className="w-8 h-8 rounded-full bg-slate-200/70 hover:bg-slate-300 text-slate-600 flex items-center justify-center transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body / Receipt Ticket */}
+            <div className="p-6 space-y-4">
+              {/* Status Banner */}
+              {selectedPosReceipt.status === 'ยกเลิก' ? (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-2.5 text-rose-700 text-xs font-bold">
+                  <AlertCircle size={18} className="text-rose-500 shrink-0" />
+                  <div>
+                    <div>บิลนี้ถูกยกเลิกแล้ว (Cancelled)</div>
+                    <div className="text-[10px] font-medium text-rose-600">รายการขายและค่ามือทั้งหมดในบิลนี้ถือเป็นโมฆะ ไม่นำมาคิดรายได้</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between text-emerald-800 text-xs font-bold">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle size={16} className="text-emerald-600" /> ชำระเงินเรียบร้อยแล้ว
+                  </span>
+                  <span className="bg-emerald-100/80 text-emerald-700 px-2 py-0.5 rounded-md text-[10px]">
+                    {selectedPosReceipt.orderChannel || 'หน้าร้าน POS'}
+                  </span>
+                </div>
+              )}
+
+              {/* Clinic & Order Info Box */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2 text-xs">
+                <div className="flex justify-between items-center text-slate-500">
+                  <span>สาขา:</span>
+                  <span className="font-bold text-slate-700">{selectedPosReceipt.branch || 'เฉวง'}</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-500">
+                  <span>วันที่-เวลา:</span>
+                  <span className="font-bold text-slate-700">
+                    {selectedPosReceipt.createdAt ? new Date(selectedPosReceipt.createdAt).toLocaleString('th-TH') : (selectedPosReceipt.date || '-')}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-500">
+                  <span>ลูกค้า:</span>
+                  <span className="font-bold text-slate-800">
+                    {selectedPosReceipt.customerName || selectedPosReceipt.customer || 'ลูกค้าทั่วไป / Walk-in'}
+                    {selectedPosReceipt.customerPhone ? ` (${selectedPosReceipt.customerPhone})` : ''}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-500">
+                  <span>ผู้ให้บริการ / บันทึกบิล:</span>
+                  <span className="font-bold text-indigo-600">
+                    {selectedPosReceipt.paymentStaff || selectedPosReceipt.staffName || employee.name}
+                  </span>
+                </div>
+              </div>
+
+              {/* Items List */}
+              <div>
+                <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">รายการสินค้า / บริการ</div>
+                <div className="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100 bg-white">
+                  {selectedPosReceipt.cartItems && selectedPosReceipt.cartItems.length > 0 ? (
+                    selectedPosReceipt.cartItems.map((item, idx) => (
+                      <div key={idx} className="p-3 flex justify-between items-start text-xs hover:bg-slate-50/50">
+                        <div className="flex-1 pr-2">
+                          <div className="font-bold text-slate-800">{item.name || item.courseName || 'รายการ'}</div>
+                          <div className="text-[11px] text-slate-400">
+                            จำนวน: {item.qty || 1} {item.price ? `x ฿${Number(item.price).toLocaleString()}` : ''}
+                          </div>
+                        </div>
+                        <div className="font-black text-slate-800 text-right shrink-0">
+                          ฿{((Number(item.price) || 0) * (Number(item.qty) || 1)).toLocaleString()}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-3 flex justify-between items-center text-xs">
+                      <span className="font-bold text-slate-800">{selectedPosReceipt.courseName || 'บริการจี้ไฝ / ค่ามือ'}</span>
+                      <span className="font-black text-slate-800">฿{Number(selectedPosReceipt.price || 0).toLocaleString()}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Payment & Total Summary */}
+              <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-2">
+                <div className="flex justify-between items-center text-slate-400 text-xs">
+                  <span>ช่องทางชำระเงิน</span>
+                  <span className="font-bold text-slate-200">{selectedPosReceipt.paymentMethod || 'โอนเงิน / เงินสด'}</span>
+                </div>
+                {Number(selectedPosReceipt.transferTip) > 0 && (
+                  <div className="flex justify-between items-center text-amber-400 text-xs">
+                    <span>ทิปโอนจากลูกค้า</span>
+                    <span className="font-bold">+฿{Number(selectedPosReceipt.transferTip).toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="border-t border-slate-800 pt-2 flex justify-between items-center">
+                  <span className="text-sm font-bold text-slate-300">ยอดรวมทั้งสิ้น</span>
+                  <span className={`text-xl font-black ${selectedPosReceipt.status === 'ยกเลิก' ? 'line-through text-rose-400' : 'text-emerald-400'}`}>
+                    ฿{Number(selectedPosReceipt.price || 0).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Shared Hand Fee info if multiple staff */}
+              {selectedPosReceipt.paymentStaff && selectedPosReceipt.paymentStaff.includes('/') && (
+                <div className="p-3 rounded-2xl bg-indigo-50/80 border border-indigo-100 text-xs space-y-1">
+                  <div className="font-bold text-indigo-800 flex items-center gap-1.5">
+                    <Users size={14} className="text-indigo-600" /> รายการนี้ทำร่วมกันหลายคน ({selectedPosReceipt.paymentStaff})
+                  </div>
+                  <p className="text-[11px] text-indigo-700 leading-relaxed">
+                    ระบบแบ่งยอดคิดค่ามือตามจำนวนพนักงานที่ร่วมให้บริการ ({selectedPosReceipt.paymentStaff.split('/').length} คน) เพื่อคำนวณค่ามือเฉลี่ยให้อย่างถูกต้อง
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex gap-2 rounded-b-3xl">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="flex-1 py-3 bg-white hover:bg-slate-100 text-slate-700 rounded-xl font-bold border border-slate-200 text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+              >
+                <Printer size={15} /> พิมพ์ใบเสร็จ
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedPosReceipt(null)}
+                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-md shadow-indigo-600/20"
+              >
+                ปิดหน้าต่าง
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
