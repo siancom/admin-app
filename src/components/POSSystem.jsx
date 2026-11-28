@@ -5896,24 +5896,6 @@ export default function POSSystem({
               </span>
             </button>
 
-            {/* 🖨️ ปุ่มพิมพ์บิลล่าสุด (ไม่ขึ้นป็อปอัพบังจอ ขายต่อได้ทันที หากต้องการพิมพ์บิลสามารถกดตรงนี้ได้ตลอดเวลา) */}
-            {receiptData && (
-              <button 
-                type="button"
-                onClick={() => {
-                  setPrintMode('receipt');
-                  setShowPreviewModal(true);
-                }}
-                className="shrink-0 py-1.5 sm:py-2 px-2.5 sm:px-3 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-300 shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-[0.99] cursor-pointer"
-                title={`พิมพ์ใบเสร็จบิลล่าสุด (${receiptData.orderNo})`}
-              >
-                <Printer size={16} className="text-indigo-600 shrink-0" />
-                <span className="text-xs sm:text-sm font-bold text-slate-800">
-                  <span className="hidden sm:inline">พิมพ์บิล </span>#{receiptData.orderNo}
-                </span>
-              </button>
-            )}
-
             {/* แถบแสดงยอดขายสวยๆ ต่อท้ายป้ายเตียง */}
             <div 
               onClick={() => setShowSalesHistory(true)}
