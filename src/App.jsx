@@ -1828,7 +1828,34 @@ export default function App() {
       }
     });
 
-    return customersRaw.map(c => {
+    // 🌟 Deduplicate customersRaw by cleanPhone or normalized full name
+    const seenCustMap = new Map();
+    customersRaw.forEach(c => {
+      const isWalkIn = Boolean(c.isWalkIn) || String(getFuzzyKey(c, ["ชื่อ", "col_1"]) || '').toLowerCase().includes('walk-in');
+      if (isWalkIn) {
+        seenCustMap.set(`walkin_${c.id || Math.random()}`, c);
+        return;
+      }
+      
+      const cleanPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone", "cleanPhone"]) || c.phone || '').replace(/\D/g, '');
+      const cleanName = String(getFuzzyKey(c, ["ชื่อ", "col_1", "computedName"]) || '').trim().replace(/\s+/g, '').toLowerCase();
+      
+      // Determine deduplication key: prefer valid phone (9-10 digits), else full name
+      const key = (cleanPhone && cleanPhone.length >= 9 && cleanPhone !== '0000000000') 
+        ? `phone_${cleanPhone}` 
+        : (cleanName && cleanName.length >= 4 ? `name_${cleanName}` : `id_${c.id}`);
+
+      if (!seenCustMap.has(key)) {
+        seenCustMap.set(key, c);
+      } else {
+        const existing = seenCustMap.get(key);
+        seenCustMap.set(key, { ...existing, ...c });
+      }
+    });
+
+    const uniqueCustomers = Array.from(seenCustMap.values());
+
+    return uniqueCustomers.map(c => {
       const oldAmount = parseNumber(getFuzzyKey(c, ["ยอดสะสม", "col_13"]));
       const posName = String(getFuzzyKey(c, ["ชื่อ", "col_1"]) || '').trim();
       
@@ -1947,7 +1974,7 @@ export default function App() {
         const match = (displayName || posName).match(/\(([^)]+)\)/);
         if (match && match[1]) {
           const candidate = match[1].trim();
-          if (!['vip', 'member', 'walk-in', 'วอคอิน', 'เฉวง', 'ละไม', 'แม่น้ำ'].includes(candidate.toLowerCase())) {
+          if (!['vip', 'member', 'walk-in', 'วอคอิน', 'เฉวง', 'ละไม', 'แม่น้ำ', 'ชาย', 'หญิง', 'เพศชาย', 'เพศหญิง', 'mr', 'ms', 'mrs'].includes(candidate.toLowerCase())) {
             rawNickname = candidate;
           }
         }
@@ -5642,6 +5669,18 @@ const flexMessage = {
       });
       if (isDuplicate) {
         showToast(`เบอร์โทรศัพท์ ${cleanPhone} มีในระบบแล้ว`, 'error');
+        return;
+      }
+
+      // ตรวจสอบชื่อ-นามสกุลซ้ำ เพื่อป้องกันการพิมพ์เบอร์ผิดแล้วสร้างลูกค้าซ้ำ
+      const normInputName = computedName.replace(/\s+/g, '').toLowerCase();
+      const existingCustByName = customers.find(c => {
+        if (c.isWalkIn) return false;
+        const cName = String(c.computedName || c.name || getFuzzyKey(c, ["ชื่อ", "col_1"]) || '').replace(/\s+/g, '').toLowerCase();
+        return cName && cName.length >= 4 && cName === normInputName;
+      });
+      if (existingCustByName) {
+        showToast(`⚠️ พบลูกค้าชื่อ "${existingCustByName.computedName}" ในระบบแล้ว (เบอร์ ${existingCustByName.computedPhone || '-'}) กรุณาตรวจสอบว่าพิมพ์เบอร์โทรผิดหรือไม่`, 'error');
         return;
       }
 
