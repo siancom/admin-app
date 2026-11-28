@@ -71,6 +71,10 @@ export function calculateEmployeeMonthlyPayroll(
   if (!emp) return null;
 
   let rawCommission = 0;
+  let rawProductCommission = 0;
+  let rawCourseCommission = 0;
+  let rawProductSales = 0;
+  let rawCourseSales = 0;
   let serviceCount = 0;
 
   histories.forEach((h) => {
@@ -111,7 +115,10 @@ export function calculateEmployeeMonthlyPayroll(
       if (isCourseDeduction) {
         // 🌟 ตัดคอร์ส / รับบริการ / เบิกของแถม: พนักงานไม่ได้ค่าขายคอร์ส (คิดเฉพาะค่ามือ DF ใน serviceLogs)
       } else if (typeStr.includes('ซื้อสินค้า')) {
-        rawCommission += (price * ((parseFloat(emp.productCommissionRate) || 0) / 100)) / shareCount;
+        const comm = (price * ((parseFloat(emp.productCommissionRate) || 0) / 100)) / shareCount;
+        rawCommission += comm;
+        rawProductCommission += comm;
+        rawProductSales += price / shareCount;
       } else if (typeStr.includes('บริการ') || typeStr.includes('จี้') || itemStr.includes('จี้') || h.isService || h.noCourseCommission || h.type === 'service') {
         // 🌟 รายการจี้ / หัตถการรายครั้ง: คิดเป็นค่ามือ (DF) ตามบิล ไม่คำนวณเป็นค่าคอมคอร์ส
       } else if (typeStr.includes('ซื้อคอส') || typeStr.includes('ซื้อคอร์ส') || typeStr.includes('ซื้อเพิ่ม') || typeStr.includes('อัพคอร์ส') || typeStr.includes('เปิดคอร์ส') || (!typeStr && price > 0)) {
@@ -121,8 +128,13 @@ export function calculateEmployeeMonthlyPayroll(
         const prodBase = parseNumber(h.productCommissionBase ?? (h.productPrice ? parseNumber(h.productPrice) * parseQty(h['จำนวน'] || 1) : null));
 
         if (courseBase > 0 || prodBase > 0) {
-          rawCommission += (courseBase * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
-          rawCommission += (prodBase * ((parseFloat(emp.productCommissionRate) || 0) / 100)) / shareCount;
+          const cComm = (courseBase * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
+          const pComm = (prodBase * ((parseFloat(emp.productCommissionRate) || 0) / 100)) / shareCount;
+          rawCommission += (cComm + pComm);
+          rawCourseCommission += cComm;
+          rawProductCommission += pComm;
+          rawCourseSales += courseBase / shareCount;
+          rawProductSales += prodBase / shareCount;
         } else {
           // Dynamic fallback for courses with product sets
           const cleanItemStr = (itemStr || '').toLowerCase();
@@ -141,13 +153,24 @@ export function calculateEmployeeMonthlyPayroll(
             if (baseCoursePrice > 0 && price > baseCoursePrice) {
               const cPart = baseCoursePrice;
               const pPart = price - baseCoursePrice;
-              rawCommission += (cPart * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
-              rawCommission += (pPart * ((parseFloat(emp.productCommissionRate) || 0) / 100)) / shareCount;
+              const cComm = (cPart * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
+              const pComm = (pPart * ((parseFloat(emp.productCommissionRate) || 0) / 100)) / shareCount;
+              rawCommission += (cComm + pComm);
+              rawCourseCommission += cComm;
+              rawProductCommission += pComm;
+              rawCourseSales += cPart / shareCount;
+              rawProductSales += pPart / shareCount;
             } else {
-              rawCommission += (price * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
+              const cComm = (price * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
+              rawCommission += cComm;
+              rawCourseCommission += cComm;
+              rawCourseSales += price / shareCount;
             }
           } else {
-            rawCommission += (price * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
+            const cComm = (price * ((parseFloat(emp.commissionRate) || 0) / 100)) / shareCount;
+            rawCommission += cComm;
+            rawCourseCommission += cComm;
+            rawCourseSales += price / shareCount;
           }
         }
       }
@@ -306,6 +329,10 @@ export function calculateEmployeeMonthlyPayroll(
     approvedLeaveDays,
     dailyRate,
     totalCommission,
+    totalProductCommission: Math.ceil(rawProductCommission),
+    totalCourseCommission: Math.ceil(rawCourseCommission),
+    totalProductSales: Math.round(rawProductSales),
+    totalCourseSales: Math.round(rawCourseSales),
     totalServiceFees,
     totalFoodAllowance,
     diligenceAllowance,
@@ -324,5 +351,263 @@ export function calculateEmployeeMonthlyPayroll(
     daysWorked,
     serviceCount,
     serviceLogCount: empServiceLogs.length,
+  };
+}
+
+/**
+ * Returns itemized lists of product commission items and course commission items for an employee.
+ */
+export function calculateEmployeeCommissionDetails(emp, payrollMonth, { histories = [], orders = [] } = {}) {
+  if (!emp) {
+    return {
+      productItems: [],
+      courseItems: [],
+      totalProductCommission: 0,
+      totalCourseCommission: 0,
+      totalProductSales: 0,
+      totalCourseSales: 0,
+    };
+  }
+
+  const productItems = [];
+  const courseItems = [];
+  let totalProductCommission = 0;
+  let totalCourseCommission = 0;
+  let totalProductSales = 0;
+  let totalCourseSales = 0;
+
+  const processedKeys = new Set();
+  const rateCourse = parseFloat(emp.commissionRate) || 0;
+  const rateProduct = parseFloat(emp.productCommissionRate) || 0;
+
+  (histories || []).forEach((h, idx) => {
+    if (!isInPayrollMonth(h, payrollMonth)) return;
+    if (!isHistoryValidForCommission(h)) return;
+
+    const sName = String(
+      getFuzzyKey(h, ['ชื่อเจ้าหน้าที่', 'ชื่อพนักงาน', 'staffName', 'ผู้ให้บริการ', 'เจ้าหน้าที่', 'พนักงาน', 'paymentStaff']) || ''
+    );
+    if (!sName) return;
+
+    const staffNames = sName.split(/[,/]|และ|กับ/).map((s) => s.trim()).filter(Boolean);
+    if (!staffNames.includes(emp.name)) return;
+
+    const price = parseNumber(getFuzzyKey(h, ['ราคา', 'price', 'จำนวนเงิน', 'ยอดเงิน']) || 0);
+    const typeStr = String(getFuzzyKey(h, ['ประเภท', 'col_4']) || '');
+    const itemStr = String(getFuzzyKey(h, ['สินค้า', 'รายการ', 'col_18']) || '');
+    const actionType = String(h.actionType || '');
+    const shareCount = staffNames.length || 1;
+    const orderNo = String(getFuzzyKey(h, ['หมายเลขคำสั่งซื้อ', 'orderNo', 'refNo', 'col_5', 'col_6']) || '').trim();
+    const dateStr = String(getFuzzyKey(h, ['วันที่', 'date', 'col_1']) || '');
+    const timeStr = String(getFuzzyKey(h, ['เวลา', 'time']) || '');
+    const custName = String(getFuzzyKey(h, ['ชื่อลูกค้า', 'customerName', 'col_2']) || 'ลูกค้าทั่วไป');
+    const custPhone = String(getFuzzyKey(h, ['เบอร์โทร', 'phone', 'col_3']) || '');
+
+    const isCourseDeduction = 
+      typeStr.includes('ใช้คอส') ||
+      typeStr.includes('ใช้คอร์ส') ||
+      typeStr.includes('ตัดคอส') ||
+      typeStr.includes('ตัดคอร์ส') ||
+      typeStr.includes('รับบริการ') ||
+      typeStr.includes('เบิก') ||
+      typeStr.includes('เคลม') ||
+      actionType === 'usage' ||
+      actionType === 'claim_item' ||
+      h.isUsage ||
+      h.noCourseCommission;
+
+    if (isCourseDeduction) return;
+
+    const itemKey = `${orderNo || 'NO_ORD'}_${itemStr}_${price}_${idx}`;
+    processedKeys.add(itemKey);
+
+    if (typeStr.includes('ซื้อสินค้า')) {
+      const salesShare = price / shareCount;
+      const comm = (price * (rateProduct / 100)) / shareCount;
+      totalProductCommission += comm;
+      totalProductSales += salesShare;
+      productItems.push({
+        id: h.id || `h_prod_${idx}`,
+        orderNo,
+        date: dateStr,
+        time: timeStr,
+        itemName: itemStr || 'สินค้า',
+        customerName: custName,
+        customerPhone: custPhone,
+        price,
+        salesShare,
+        shareCount,
+        staffNames,
+        rate: rateProduct,
+        commission: comm,
+        branch: h.branch || emp.branch,
+        rawRecord: h
+      });
+    } else if (typeStr.includes('บริการ') || typeStr.includes('จี้') || itemStr.includes('จี้') || h.isService || h.noCourseCommission || h.type === 'service') {
+      // Hand fee (handled in serviceLogs)
+    } else if (typeStr.includes('ซื้อคอส') || typeStr.includes('ซื้อคอร์ส') || typeStr.includes('ซื้อเพิ่ม') || typeStr.includes('อัพคอร์ส') || typeStr.includes('เปิดคอร์ส') || (!typeStr && price > 0)) {
+      const courseBase = parseNumber(h.courseCommissionBase ?? (h.coursePrice ? parseNumber(h.coursePrice) * parseQty(h['จำนวน'] || 1) : null));
+      const prodBase = parseNumber(h.productCommissionBase ?? (h.productPrice ? parseNumber(h.productPrice) * parseQty(h['จำนวน'] || 1) : null));
+
+      let effectiveCourseBase = price;
+      let effectiveProdBase = 0;
+
+      if (courseBase > 0 || prodBase > 0) {
+        effectiveCourseBase = courseBase;
+        effectiveProdBase = prodBase;
+      } else {
+        const cleanItemStr = (itemStr || '').toLowerCase();
+        const isBundle = 
+          cleanItemStr.includes('รวมผลิตภัณฑ์') || 
+          cleanItemStr.includes('เซตผลิตภัณฑ์') || 
+          cleanItemStr.includes('ชุดรักษา') || 
+          (cleanItemStr.includes('activeskin') && cleanItemStr.includes('set'));
+
+        if (isBundle) {
+          let baseCoursePrice = 0;
+          if (cleanItemStr.includes('1999') || price === 1999) baseCoursePrice = 899;
+          else if (cleanItemStr.includes('1199') || price === 1199) baseCoursePrice = 899;
+          else if (price > 899) baseCoursePrice = 899;
+
+          if (baseCoursePrice > 0 && price > baseCoursePrice) {
+            effectiveCourseBase = baseCoursePrice;
+            effectiveProdBase = price - baseCoursePrice;
+          }
+        }
+      }
+
+      if (effectiveCourseBase > 0) {
+        const salesShare = effectiveCourseBase / shareCount;
+        const comm = (effectiveCourseBase * (rateCourse / 100)) / shareCount;
+        totalCourseCommission += comm;
+        totalCourseSales += salesShare;
+        courseItems.push({
+          id: h.id || `h_crs_${idx}`,
+          orderNo,
+          date: dateStr,
+          time: timeStr,
+          itemName: itemStr || 'คอร์สทรีทเม้นท์',
+          customerName: custName,
+          customerPhone: custPhone,
+          price: effectiveCourseBase,
+          totalBillPrice: price,
+          salesShare,
+          shareCount,
+          staffNames,
+          rate: rateCourse,
+          commission: comm,
+          branch: h.branch || emp.branch,
+          rawRecord: h
+        });
+      }
+
+      if (effectiveProdBase > 0) {
+        const salesShare = effectiveProdBase / shareCount;
+        const comm = (effectiveProdBase * (rateProduct / 100)) / shareCount;
+        totalProductCommission += comm;
+        totalProductSales += salesShare;
+        productItems.push({
+          id: `${h.id || `h_prod_bundle_${idx}`}_bundle`,
+          orderNo,
+          date: dateStr,
+          time: timeStr,
+          itemName: `${itemStr} (เซตผลิตภัณฑ์คู่คอร์ส)`,
+          customerName: custName,
+          customerPhone: custPhone,
+          price: effectiveProdBase,
+          salesShare,
+          shareCount,
+          staffNames,
+          rate: rateProduct,
+          commission: comm,
+          isBundle: true,
+          branch: h.branch || emp.branch,
+          rawRecord: h
+        });
+      }
+    }
+  });
+
+  // Check orders to catch any POS orders not present in histories
+  (orders || []).forEach((o, oIdx) => {
+    if (!o.createdAt || getOrderStatus(o) === 'ยกเลิก') return;
+    if (!isInPayrollMonth(o, payrollMonth)) return;
+
+    const staffStr = String(o.paymentStaff || o.staffName || o.seller || o.employeeName || o.cashier || '');
+    const staffList = staffStr.split(/[,/]|และ|กับ/).map((s) => s.trim()).filter(Boolean);
+    if (!staffList.includes(emp.name)) return;
+
+    const shareCount = staffList.length || 1;
+    const orderNo = String(o.orderNo || o.id || '').trim();
+    const dateStr = getLocalYYYYMMDD(o.createdAt);
+    const timeStr = new Date(o.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    const custName = o.customerName || 'ลูกค้าทั่วไป';
+    const custPhone = o.customerPhone || '';
+
+    if (Array.isArray(o.cartItems) && o.cartItems.length > 0) {
+      o.cartItems.forEach((it, itIdx) => {
+        const itemKey = `${orderNo}_${it.name}_${it.price}_${itIdx}`;
+        if (processedKeys.has(itemKey)) return;
+        processedKeys.add(itemKey);
+
+        const itPrice = parseNumber(it.price) * (Number(it.qty) || 1);
+        if (itPrice <= 0) return;
+
+        if (it.type === 'product') {
+          const salesShare = itPrice / shareCount;
+          const comm = (itPrice * (rateProduct / 100)) / shareCount;
+          totalProductCommission += comm;
+          totalProductSales += salesShare;
+          productItems.push({
+            id: `ord_${orderNo}_p_${itIdx}`,
+            orderNo,
+            date: dateStr,
+            time: timeStr,
+            itemName: it.name || 'สินค้า',
+            customerName: custName,
+            customerPhone: custPhone,
+            price: itPrice,
+            salesShare,
+            shareCount,
+            staffNames: staffList,
+            rate: rateProduct,
+            commission: comm,
+            branch: o.branch || emp.branch,
+            linkedOrder: o
+          });
+        } else if (it.type === 'course' || it.type === 'single_course') {
+          const salesShare = itPrice / shareCount;
+          const comm = (itPrice * (rateCourse / 100)) / shareCount;
+          totalCourseCommission += comm;
+          totalCourseSales += salesShare;
+          courseItems.push({
+            id: `ord_${orderNo}_c_${itIdx}`,
+            orderNo,
+            date: dateStr,
+            time: timeStr,
+            itemName: it.name || 'คอร์สทรีทเม้นท์',
+            customerName: custName,
+            customerPhone: custPhone,
+            price: itPrice,
+            salesShare,
+            shareCount,
+            staffNames: staffList,
+            rate: rateCourse,
+            commission: comm,
+            branch: o.branch || emp.branch,
+            linkedOrder: o
+          });
+        }
+      });
+    }
+  });
+
+  return {
+    productItems,
+    courseItems,
+    totalProductCommission: Math.ceil(totalProductCommission),
+    totalCourseCommission: Math.ceil(totalCourseCommission),
+    totalProductSales: Math.round(totalProductSales),
+    totalCourseSales: Math.round(totalCourseSales),
   };
 }

@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Clock, Calendar, CheckCircle, UserCheck, UserMinus, X, User, LogOut, Send, Check, XCircle, History, DollarSign, Wallet, ShoppingCart, Lock, Trash2, FileText, ShieldAlert, Gift, Percent, Edit3, RotateCcw, ArrowRight, Receipt, Printer, ExternalLink, ChevronRight, AlertCircle, Eye, Users } from 'lucide-react';
+import { Clock, Calendar, CheckCircle, UserCheck, UserMinus, X, User, LogOut, Send, Check, XCircle, History, DollarSign, Wallet, ShoppingCart, Lock, Trash2, FileText, ShieldAlert, Gift, Percent, Edit3, RotateCcw, ArrowRight, Receipt, Printer, ExternalLink, ChevronRight, AlertCircle, Eye, Users, TrendingUp, Package, Sparkles, BarChart3, PieChart, ShoppingBag, Layers, Award, Coins, ArrowUpRight } from 'lucide-react';
 import { db, getCol } from '../config/firebase';
 import { addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import PayslipModal from './PayslipModal';
 import { parseNumber, getLocalYYYYMMDD, normalizeBranchName, parseThaiDate } from '../utils/parse';
-import { getOrderStatus } from '../utils/dateUtils';
-import { calculateEmployeeMonthlyPayroll, calculateServiceLogFee } from '../utils/payrollUtils';
+import { getOrderStatus, isInPayrollMonth } from '../utils/dateUtils';
+import { calculateEmployeeMonthlyPayroll, calculateServiceLogFee, calculateEmployeeCommissionDetails } from '../utils/payrollUtils';
 import EmploymentContractModal from './EmploymentContractModal';
 import ClockOutSummaryModal from './ClockOutSummaryModal';
 
@@ -33,6 +33,7 @@ export default function EmployeePortal({
   const [activeTab, setActiveTab] = useState('dashboard');
   const [scheduleSubTab, setScheduleSubTab] = useState('schedule');
   const [requestsSubTab, setRequestsSubTab] = useState('leave');
+  const [incomeSubTab, setIncomeSubTab] = useState('summary'); // 'summary' | 'service' | 'product' | 'course'
   const [scheduleMonth, setScheduleMonth] = useState(getLocalYYYYMMDD().substring(0, 7));
   const [payrollMonth, setPayrollMonth] = useState(getLocalYYYYMMDD().substring(0, 7));
   const [calendarSelection, setCalendarSelection] = useState([]);
@@ -189,6 +190,26 @@ export default function EmployeePortal({
         localOverrides
      });
   }, [histories, serviceLogs, advancePayments, attendance, leaves, employee, payrollMonth, localOverrides]);
+
+  const commissionDetails = useMemo(() => {
+    return calculateEmployeeCommissionDetails(employee, payrollMonth, {
+      histories,
+      orders
+    });
+  }, [employee, payrollMonth, histories, orders]);
+
+  const myFilteredServiceLogs = useMemo(() => {
+    return (serviceLogs || [])
+      .filter(s => s.employeeId === employee.id && isInPayrollMonth(s, payrollMonth))
+      .sort((a,b) => new Date(b.date) - new Date(a.date));
+  }, [serviceLogs, employee.id, payrollMonth]);
+
+  const totalFilteredServiceFees = useMemo(() => {
+    return myFilteredServiceLogs.reduce((sum, s) => {
+      const isCancelled = s.isCancelled || s.status === 'ยกเลิก' || s.status === 'cancelled';
+      return sum + (isCancelled ? 0 : Math.ceil(calculateServiceLogFee(s)));
+    }, 0);
+  }, [myFilteredServiceLogs]);
 
   const handleStartEditPayroll = () => {
     if (!isAdmin && !isOwnerPayrollUnlocked) {
@@ -633,7 +654,7 @@ export default function EmployeePortal({
                { id: 'dashboard', icon: Clock, label: 'ลงเวลา' },
                { id: 'requests_group', icon: Send, label: 'คำร้อง (ลา/เบิก)' },
                ...((isActiveShift || isAdmin) ? [
-                  { id: 'service', icon: UserCheck, label: 'บันทึกค่ามือ' },
+                  { id: 'service', icon: Wallet, label: 'ดูรายได้' },
                   { id: 'schedule_group', icon: Calendar, label: 'ตาราง & ประวัติ' },
                   { id: 'settings', icon: Lock, label: 'ตั้งค่า' }
                ] : [])
@@ -1226,139 +1247,780 @@ export default function EmployeePortal({
                </div>
             )}
 
-            {/* Service Fees View */}
-            {activeTab === 'service' && (
-               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col h-fit">
-                     <h3 className="text-lg md:text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><UserCheck className="text-pink-500" /> บันทึกค่ามือ / ค่าจี้ไฝ</h3>
-                     <form onSubmit={handleSubmitService} className="space-y-4">
-                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">วันที่ทำงาน</label>
-                            <input required type="date" value={serviceForm.date} onChange={e => setServiceForm({...serviceForm, date: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:border-indigo-500 outline-none text-slate-700" />
-                         </div>
-                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">ประเภท</label>
-                            <select required value={serviceForm.type} onChange={e => setServiceForm({...serviceForm, type: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:border-indigo-500 outline-none text-slate-700">
-                               <option value="ค่ามือ">ค่ามือ</option>
-                               <option value="ค่าจี้ไฝ">ค่าจี้ไฝ</option>
-                            </select>
-                         </div>
-                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">จำนวนเงิน (บาท)</label>
-                            <input required type="number" min="0" step="any" value={serviceForm.amount} onChange={e => setServiceForm({...serviceForm, amount: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:border-indigo-500 outline-none text-slate-700 text-lg" placeholder="ระบุจำนวนเงิน..." />
-                         </div>
-                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1">รายละเอียด (ไม่บังคับ)</label>
-                            <textarea rows="2" value={serviceForm.note} onChange={e => setServiceForm({...serviceForm, note: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:border-indigo-500 outline-none text-slate-700" placeholder="ระบุรายละเอียดเพิ่มเติม..."></textarea>
-                         </div>
-                         <button type="submit" disabled={isSubmittingService} className="w-full py-4 bg-pink-500 hover:bg-pink-600 text-white rounded-2xl font-black shadow-xl shadow-pink-500/30 transition-transform active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 mt-4">
-                           <Check size={18} /> บันทึกยอด
-                         </button>
-                     </form>
-                  </div>
+            {/* Income & Commissions Dashboard View */}
+            {activeTab === 'service' && (() => {
+               const totalAllIncome = totalFilteredServiceFees + commissionDetails.totalProductCommission + commissionDetails.totalCourseCommission;
+               const pctService = totalAllIncome > 0 ? Math.round((totalFilteredServiceFees / totalAllIncome) * 100) : 0;
+               const pctProduct = totalAllIncome > 0 ? Math.round((commissionDetails.totalProductCommission / totalAllIncome) * 100) : 0;
+               const pctCourse = totalAllIncome > 0 ? Math.max(0, 100 - pctService - pctProduct) : 0;
 
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col h-fit">
-                     <h3 className="text-lg md:text-xl font-black text-slate-800 mb-6">ประวัติการบันทึกค่ามือ</h3>
-                     <div className="space-y-3">
-                        {serviceLogs.filter(s => s.employeeId === employee.id).length === 0 ? (
-                           <div className="py-8 text-center text-slate-400 font-bold">ไม่มีประวัติการบันทึกค่ามือ</div>
-                        ) : serviceLogs.filter(s => s.employeeId === employee.id)
-                            .sort((a,b) => new Date(b.date) - new Date(a.date))
-                            .map(log => {
-                               const posMatch = String(log.note || '').match(/POS:?\s*(POS[A-Za-z0-9_-]+)/i) || String(log.note || '').match(/(POS\d+)/i);
-                               const posNo = posMatch ? posMatch[1] : (log.orderNo || null);
-                               const linkedOrder = posNo ? orders.find(o => o.orderNo === posNo || o.id === posNo) : null;
-                               const isCancelled = log.isCancelled || log.status === 'ยกเลิก' || log.status === 'cancelled' || (linkedOrder && (linkedOrder.status === 'ยกเลิก' || linkedOrder.status === 'cancelled'));
-                               const fee = isCancelled ? 0 : Math.ceil(calculateServiceLogFee(log));
+               const formatMonthLabel = (ym) => {
+                  if (!ym) return '';
+                  const [y, m] = ym.split('-').map(Number);
+                  const thaiMonths = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+                  return `${thaiMonths[(m || 1) - 1]} ${(y || 2026) + 543}`;
+               };
 
-                               return (
-                           <div key={log.id} className={`p-4 rounded-2xl border transition-all ${isCancelled ? 'border-rose-100 bg-rose-50/30' : 'border-slate-100 bg-slate-50'} flex flex-col gap-2`}>
-                              <div className="flex justify-between items-start">
+               return (
+                  <div className="flex flex-col gap-6">
+                     {/* 1. Header & Month Selector */}
+                     <div className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                           <div className="flex items-center gap-2.5">
+                              <span className="p-2.5 rounded-2xl bg-indigo-50 text-indigo-600">
+                                 <Wallet size={22} />
+                              </span>
+                              <div>
+                                 <h2 className="text-xl md:text-2xl font-black text-slate-800">ดูรายได้และค่าตอบแทน</h2>
+                                 <p className="text-xs font-bold text-slate-500 mt-0.5">
+                                    พนักงาน: <span className="text-slate-800 font-extrabold">{employee.name}</span> ({employee.branch || 'สาขาหลัก'}) • คอมคอร์ส <span className="text-indigo-600 font-extrabold">{employee.commissionRate || 0}%</span> • คอมสินค้า <span className="text-amber-600 font-extrabold">{employee.productCommissionRate || 0}%</span>
+                                 </p>
+                              </div>
+                           </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 self-start md:self-auto">
+                           <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2 text-xs font-bold text-slate-700">
+                              <Calendar size={15} className="text-slate-400" />
+                              <span className="text-slate-400">เดือน:</span>
+                              <input 
+                                 type="month" 
+                                 value={payrollMonth} 
+                                 onChange={e => setPayrollMonth(e.target.value)} 
+                                 className="bg-transparent font-black text-slate-800 outline-none cursor-pointer"
+                              />
+                           </div>
+                           {payrollMonth !== getLocalYYYYMMDD().substring(0, 7) && (
+                              <button 
+                                 type="button"
+                                 onClick={() => setPayrollMonth(getLocalYYYYMMDD().substring(0, 7))}
+                                 className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-2 rounded-2xl transition-colors shrink-0"
+                              >
+                                 เดือนนี้
+                              </button>
+                           )}
+                        </div>
+                     </div>
+
+                     {/* 2. Sub-tabs Navigation */}
+                     <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200 gap-1.5 overflow-x-auto no-scrollbar">
+                        {[
+                           { 
+                              id: 'summary', 
+                              icon: BarChart3, 
+                              label: 'สรุปยอดแต่ละประเภท', 
+                              badge: `฿${totalAllIncome.toLocaleString()}`, 
+                              badgeColor: 'bg-emerald-100 text-emerald-800' 
+                           },
+                           { 
+                              id: 'service', 
+                              icon: UserCheck, 
+                              label: 'ค่ามือ / ค่าบริการ', 
+                              badge: `฿${totalFilteredServiceFees.toLocaleString()}`, 
+                              badgeColor: 'bg-pink-100 text-pink-700' 
+                           },
+                           { 
+                              id: 'product', 
+                              icon: Package, 
+                              label: 'คอมสินค้า', 
+                              badge: `฿${commissionDetails.totalProductCommission.toLocaleString()}`, 
+                              badgeColor: 'bg-amber-100 text-amber-800' 
+                           },
+                           { 
+                              id: 'course', 
+                              icon: Sparkles, 
+                              label: 'คอมคอส', 
+                              badge: `฿${commissionDetails.totalCourseCommission.toLocaleString()}`, 
+                              badgeColor: 'bg-indigo-100 text-indigo-800' 
+                           },
+                        ].map(tab => (
+                           <button
+                              key={tab.id}
+                              onClick={() => setIncomeSubTab(tab.id)}
+                              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm whitespace-nowrap transition-all ${
+                                 incomeSubTab === tab.id
+                                    ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80 font-black'
+                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                              }`}
+                           >
+                              <tab.icon size={16} className={incomeSubTab === tab.id ? 'text-indigo-600' : 'text-slate-400'} />
+                              <span>{tab.label}</span>
+                              <span className={`text-[10px] md:text-xs font-black px-2 py-0.5 rounded-full ${tab.badgeColor}`}>
+                                 {tab.badge}
+                              </span>
+                           </button>
+                        ))}
+                     </div>
+
+                     {/* 3. Sub-tab Content: summary (สรุปยอดแต่ละประเภท) */}
+                     {incomeSubTab === 'summary' && (
+                        <div className="space-y-6">
+                           {/* 4 Cards Overview */}
+                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                              <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-5 rounded-3xl shadow-lg shadow-indigo-600/20 flex flex-col justify-between">
                                  <div>
-                                    {isCancelled ? (
-                                       <h4 className="font-black text-slate-400 text-lg flex items-center gap-2 flex-wrap">
-                                          <span className="line-through">฿{Number(log.amount).toLocaleString()}</span>
-                                          <span className="text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
-                                             ❌ บิลยกเลิก (ได้ ฿0)
-                                          </span>
-                                       </h4>
-                                    ) : (
-                                       <h4 className="font-black text-pink-600 text-lg flex items-center gap-2 flex-wrap">
-                                          ฿{Number(log.amount).toLocaleString()} 
-                                          <span className="text-sm font-bold text-emerald-500">
-                                             (ได้ ฿{fee.toLocaleString()})
-                                          </span>
-                                       </h4>
-                                    )}
-                                    <p className="text-xs font-bold text-slate-500 mt-0.5">{new Date(log.date).toLocaleDateString('th-TH')} - {log.type}</p>
-                                    {(log.staffCount > 1 || log.sharedWith) && (
-                                       <div className="text-[11px] font-bold text-indigo-600 bg-indigo-50/70 px-2 py-0.5 rounded-md border border-indigo-100 inline-flex items-center gap-1 mt-1">
-                                          <Users size={12}/> ทำร่วมกัน {log.staffCount || 2} คน (ยอดบิลเต็ม ฿{Number(log.totalBillAmount || (log.amount * (log.staffCount || 2))).toLocaleString()})
-                                       </div>
-                                    )}
+                                    <div className="flex items-center justify-between mb-2">
+                                       <span className="text-xs font-bold text-indigo-200 uppercase tracking-wider">รายได้รวมทั้งหมด</span>
+                                       <span className="p-1.5 rounded-xl bg-white/10 text-white"><Coins size={16} /></span>
+                                    </div>
+                                    <h3 className="text-2xl md:text-3xl font-black">฿{totalAllIncome.toLocaleString()}</h3>
                                  </div>
-                                 <button 
-                                    onClick={() => {
-                                       if (window.confirm('ต้องการลบประวัติค่ามือนี้หรือไม่?')) {
-                                          internalDeleteServiceLog(log.id);
-                                       }
-                                    }}
-                                    className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors flex-shrink-0 ml-2"
-                                    title="ลบข้อมูล"
+                                 <p className="text-[11px] text-indigo-200 font-medium mt-3 pt-3 border-t border-white/10">
+                                    ค่ามือ + คอมสินค้า + คอมคอร์ส
+                                 </p>
+                              </div>
+
+                              <div className="bg-white p-5 rounded-3xl border border-pink-200/80 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+                                 <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                       <span className="text-xs font-bold text-pink-600 uppercase tracking-wider flex items-center gap-1.5">
+                                          <UserCheck size={14} /> ค่ามือ / ค่าบริการ (DF)
+                                       </span>
+                                       <span className="text-[10px] font-bold text-pink-700 bg-pink-50 px-2 py-0.5 rounded-full border border-pink-100">
+                                          {pctService}%
+                                       </span>
+                                    </div>
+                                    <h3 className="text-2xl font-black text-pink-600">฿{totalFilteredServiceFees.toLocaleString()}</h3>
+                                    <p className="text-xs font-bold text-slate-500 mt-1">
+                                       {myFilteredServiceLogs.filter(s => !s.isCancelled && s.status !== 'ยกเลิก').length} รายการ
+                                    </p>
+                                 </div>
+                                 <button
+                                    onClick={() => setIncomeSubTab('service')}
+                                    className="mt-3 pt-3 border-t border-slate-100 text-xs font-bold text-pink-600 hover:text-pink-700 flex items-center justify-between"
                                  >
-                                    <Trash2 size={16} />
+                                    <span>บันทึก & ดูประวัติค่ามือ</span>
+                                    <ArrowRight size={14} />
                                  </button>
                               </div>
-                              
-                              {posNo ? (
-                                 <button 
-                                    type="button"
-                                    onClick={() => {
-                                       setSelectedPosReceipt(linkedOrder || {
-                                          orderNo: posNo,
-                                          branch: log.branch || employee.branch,
-                                          createdAt: log.createdAt || log.date,
-                                          price: log.totalBillAmount || log.amount,
-                                          status: isCancelled ? 'ยกเลิก' : 'สำเร็จ',
-                                          paymentStaff: log.sharedWith || log.employeeName || employee.name,
-                                          courseName: log.type,
-                                          cartItems: [{ name: log.type, qty: 1, price: log.totalBillAmount || log.amount, type: 'service' }]
-                                       });
-                                    }}
-                                    className="w-full mt-1.5 flex items-center justify-between p-2.5 rounded-xl bg-white hover:bg-indigo-50/80 border border-slate-200 hover:border-indigo-300 transition-all group shadow-sm text-left"
+
+                              <div className="bg-white p-5 rounded-3xl border border-amber-200/80 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+                                 <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                       <span className="text-xs font-bold text-amber-700 uppercase tracking-wider flex items-center gap-1.5">
+                                          <Package size={14} /> คอมมิชชั่นสินค้า
+                                       </span>
+                                       <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
+                                          {employee.productCommissionRate || 0}%
+                                       </span>
+                                    </div>
+                                    <h3 className="text-2xl font-black text-amber-600">฿{commissionDetails.totalProductCommission.toLocaleString()}</h3>
+                                    <p className="text-xs font-bold text-slate-500 mt-1">
+                                       ยอดขาย ฿{commissionDetails.totalProductSales.toLocaleString()} ({commissionDetails.productItems.length} รายการ)
+                                    </p>
+                                 </div>
+                                 <button
+                                    onClick={() => setIncomeSubTab('product')}
+                                    className="mt-3 pt-3 border-t border-slate-100 text-xs font-bold text-amber-700 hover:text-amber-800 flex items-center justify-between"
                                  >
-                                    <div className="flex items-center gap-2.5">
-                                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isCancelled ? 'bg-rose-50 text-rose-500 border border-rose-100' : 'bg-indigo-50 text-indigo-600 border border-indigo-100 group-hover:bg-indigo-600 group-hover:text-white transition-colors'}`}>
-                                          <Receipt size={16} />
-                                       </div>
-                                       <div>
-                                          <div className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                                             <span>POS: {posNo}</span>
-                                             {isCancelled ? (
-                                                <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">บิลยกเลิก</span>
-                                             ) : (
-                                                <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">สำเร็จ</span>
-                                             )}
-                                          </div>
-                                          <div className="text-[10px] text-slate-400 font-medium">แตะเพื่อดูใบเสร็จและรายการย้อนหลัง</div>
-                                       </div>
-                                    </div>
-                                    <div className="flex items-center gap-1 text-xs font-bold text-indigo-600 group-hover:translate-x-0.5 transition-transform shrink-0">
-                                       <FileText size={13} />
-                                       <span className="text-[11px]">ดูใบเสร็จ</span>
-                                       <ChevronRight size={14} className="text-slate-400 group-hover:text-indigo-600" />
-                                    </div>
+                                    <span>ดูรายการคอมสินค้า</span>
+                                    <ArrowRight size={14} />
                                  </button>
-                              ) : log.note ? (
-                                 <p className="text-sm text-slate-600 bg-white p-2 rounded-xl border border-slate-100 mt-1">{log.note}</p>
-                              ) : null}
+                              </div>
+
+                              <div className="bg-white p-5 rounded-3xl border border-indigo-200/80 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+                                 <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                       <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider flex items-center gap-1.5">
+                                          <Sparkles size={14} /> คอมมิชชั่นคอร์ส
+                                       </span>
+                                       <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                                          {employee.commissionRate || 0}%
+                                       </span>
+                                    </div>
+                                    <h3 className="text-2xl font-black text-indigo-600">฿{commissionDetails.totalCourseCommission.toLocaleString()}</h3>
+                                    <p className="text-xs font-bold text-slate-500 mt-1">
+                                       ยอดขาย ฿{commissionDetails.totalCourseSales.toLocaleString()} ({commissionDetails.courseItems.length} รายการ)
+                                    </p>
+                                 </div>
+                                 <button
+                                    onClick={() => setIncomeSubTab('course')}
+                                    className="mt-3 pt-3 border-t border-slate-100 text-xs font-bold text-indigo-700 hover:text-indigo-800 flex items-center justify-between"
+                                 >
+                                    <span>ดูรายการคอมคอส</span>
+                                    <ArrowRight size={14} />
+                                 </button>
+                              </div>
                            </div>
-                               );
-                            })}
-                     </div>
+
+                           {/* Visual Distribution Bar */}
+                           <div className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 shadow-sm">
+                              <div className="flex justify-between items-center mb-3">
+                                 <h3 className="font-black text-slate-800 text-sm md:text-base flex items-center gap-2">
+                                    <PieChart size={18} className="text-indigo-600" /> สัดส่วนรายได้แต่ละประเภท ({formatMonthLabel(payrollMonth)})
+                                 </h3>
+                                 <span className="text-xs font-bold text-slate-500">รวม ฿{totalAllIncome.toLocaleString()}</span>
+                              </div>
+                              
+                              <div className="w-full h-4 rounded-full bg-slate-100 overflow-hidden flex gap-0.5 p-0.5">
+                                 {pctService > 0 && (
+                                    <div 
+                                       style={{ width: `${pctService}%` }} 
+                                       className="bg-pink-500 h-full rounded-full transition-all duration-500 cursor-pointer hover:opacity-90"
+                                       title={`ค่ามือ: ${pctService}% (฿${totalFilteredServiceFees.toLocaleString()})`}
+                                       onClick={() => setIncomeSubTab('service')}
+                                    />
+                                 )}
+                                 {pctProduct > 0 && (
+                                    <div 
+                                       style={{ width: `${pctProduct}%` }} 
+                                       className="bg-amber-500 h-full rounded-full transition-all duration-500 cursor-pointer hover:opacity-90"
+                                       title={`คอมสินค้า: ${pctProduct}% (฿${commissionDetails.totalProductCommission.toLocaleString()})`}
+                                       onClick={() => setIncomeSubTab('product')}
+                                    />
+                                 )}
+                                 {pctCourse > 0 && (
+                                    <div 
+                                       style={{ width: `${pctCourse}%` }} 
+                                       className="bg-indigo-600 h-full rounded-full transition-all duration-500 cursor-pointer hover:opacity-90"
+                                       title={`คอมคอส: ${pctCourse}% (฿${commissionDetails.totalCourseCommission.toLocaleString()})`}
+                                       onClick={() => setIncomeSubTab('course')}
+                                    />
+                                 )}
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4 pt-3 border-t border-slate-100 text-xs">
+                                 <div className="flex items-center gap-2 cursor-pointer hover:opacity-80" onClick={() => setIncomeSubTab('service')}>
+                                    <span className="w-3 h-3 rounded-full bg-pink-500 shrink-0" />
+                                    <span className="font-bold text-slate-600">ค่ามือ:</span>
+                                    <span className="font-black text-pink-600">฿{totalFilteredServiceFees.toLocaleString()}</span>
+                                    <span className="text-slate-400 text-[11px]">({pctService}%)</span>
+                                 </div>
+                                 <div className="flex items-center gap-2 cursor-pointer hover:opacity-80" onClick={() => setIncomeSubTab('product')}>
+                                    <span className="w-3 h-3 rounded-full bg-amber-500 shrink-0" />
+                                    <span className="font-bold text-slate-600">คอมสินค้า:</span>
+                                    <span className="font-black text-amber-600">฿{commissionDetails.totalProductCommission.toLocaleString()}</span>
+                                    <span className="text-slate-400 text-[11px]">({pctProduct}%)</span>
+                                 </div>
+                                 <div className="flex items-center gap-2 cursor-pointer hover:opacity-80" onClick={() => setIncomeSubTab('course')}>
+                                    <span className="w-3 h-3 rounded-full bg-indigo-600 shrink-0" />
+                                    <span className="font-bold text-slate-600">คอมคอส:</span>
+                                    <span className="font-black text-indigo-600">฿{commissionDetails.totalCourseCommission.toLocaleString()}</span>
+                                    <span className="text-slate-400 text-[11px]">({pctCourse}%)</span>
+                                 </div>
+                              </div>
+                           </div>
+
+                           {/* Detailed Category Table */}
+                           <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                              <div className="p-5 border-b border-slate-100 flex justify-between items-center">
+                                 <h3 className="font-black text-slate-800 text-sm md:text-base flex items-center gap-2">
+                                    <Layers size={18} className="text-indigo-600" /> ตารางสรุปรายละเอียดรายได้แต่ละประเภท
+                                 </h3>
+                                 <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full">
+                                    {formatMonthLabel(payrollMonth)}
+                                 </span>
+                              </div>
+
+                              <div className="overflow-x-auto">
+                                 <table className="w-full text-left text-xs md:text-sm">
+                                    <thead className="bg-slate-50 text-slate-600 font-black border-b border-slate-200">
+                                       <tr>
+                                          <th className="py-3.5 px-5">ประเภทรายได้</th>
+                                          <th className="py-3.5 px-4 text-center">อัตราผลตอบแทน</th>
+                                          <th className="py-3.5 px-4 text-right">ฐานคิด / ยอดขาย</th>
+                                          <th className="py-3.5 px-4 text-center">จำนวนรายการ</th>
+                                          <th className="py-3.5 px-5 text-right font-black">รายได้ที่ได้รับ</th>
+                                          <th className="py-3.5 px-4 text-center">สัดส่วน</th>
+                                          <th className="py-3.5 px-4 text-center">ดูรายละเอียด</th>
+                                       </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 font-bold">
+                                       <tr className="hover:bg-slate-50/70 transition-colors">
+                                          <td className="py-4 px-5">
+                                             <div className="flex items-center gap-2.5">
+                                                <span className="p-2 rounded-xl bg-pink-50 text-pink-600 shrink-0">
+                                                   <UserCheck size={16} />
+                                                </span>
+                                                <div>
+                                                   <p className="font-black text-slate-800">ค่ามือ / ค่าบริการ (DF)</p>
+                                                   <p className="text-[11px] text-slate-400 font-medium">หัตถการหน้าร้าน, กดสิว, สปา, จี้ไฝ/กระ/ติ่งเนื้อ</p>
+                                                </div>
+                                             </div>
+                                          </td>
+                                          <td className="py-4 px-4 text-center text-slate-600 text-xs">
+                                             10-20% หรือ 10-100 บ./ครั้ง
+                                          </td>
+                                          <td className="py-4 px-4 text-right text-slate-700">
+                                             ฿{myFilteredServiceLogs.reduce((sum, s) => sum + (s.isCancelled ? 0 : Number(s.amount || 0)), 0).toLocaleString()}
+                                          </td>
+                                          <td className="py-4 px-4 text-center text-slate-600">
+                                             {myFilteredServiceLogs.filter(s => !s.isCancelled && s.status !== 'ยกเลิก').length} ครั้ง
+                                          </td>
+                                          <td className="py-4 px-5 text-right font-black text-pink-600 text-base">
+                                             ฿{totalFilteredServiceFees.toLocaleString()}
+                                          </td>
+                                          <td className="py-4 px-4 text-center text-slate-600">
+                                             {pctService}%
+                                          </td>
+                                          <td className="py-4 px-4 text-center">
+                                             <button 
+                                                onClick={() => setIncomeSubTab('service')}
+                                                className="text-xs text-pink-600 hover:text-pink-800 bg-pink-50 hover:bg-pink-100 px-3 py-1.5 rounded-xl font-bold transition-colors inline-flex items-center gap-1"
+                                             >
+                                                ดูรายการ <ChevronRight size={13} />
+                                             </button>
+                                          </td>
+                                       </tr>
+
+                                       <tr className="hover:bg-slate-50/70 transition-colors">
+                                          <td className="py-4 px-5">
+                                             <div className="flex items-center gap-2.5">
+                                                <span className="p-2 rounded-xl bg-amber-50 text-amber-600 shrink-0">
+                                                   <Package size={16} />
+                                                </span>
+                                                <div>
+                                                   <p className="font-black text-slate-800">ค่าคอมมิชชั่นสินค้า</p>
+                                                   <p className="text-[11px] text-slate-400 font-medium">ยอดขายเวชสำอางและผลิตภัณฑ์</p>
+                                                </div>
+                                             </div>
+                                          </td>
+                                          <td className="py-4 px-4 text-center text-amber-700 font-black">
+                                             {employee.productCommissionRate || 0}%
+                                          </td>
+                                          <td className="py-4 px-4 text-right text-slate-700">
+                                             ฿{commissionDetails.totalProductSales.toLocaleString()}
+                                          </td>
+                                          <td className="py-4 px-4 text-center text-slate-600">
+                                             {commissionDetails.productItems.length} รายการ
+                                          </td>
+                                          <td className="py-4 px-5 text-right font-black text-amber-600 text-base">
+                                             ฿{commissionDetails.totalProductCommission.toLocaleString()}
+                                          </td>
+                                          <td className="py-4 px-4 text-center text-slate-600">
+                                             {pctProduct}%
+                                          </td>
+                                          <td className="py-4 px-4 text-center">
+                                             <button 
+                                                onClick={() => setIncomeSubTab('product')}
+                                                className="text-xs text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-xl font-bold transition-colors inline-flex items-center gap-1"
+                                             >
+                                                ดูรายการ <ChevronRight size={13} />
+                                             </button>
+                                          </td>
+                                       </tr>
+
+                                       <tr className="hover:bg-slate-50/70 transition-colors">
+                                          <td className="py-4 px-5">
+                                             <div className="flex items-center gap-2.5">
+                                                <span className="p-2 rounded-xl bg-indigo-50 text-indigo-600 shrink-0">
+                                                   <Sparkles size={16} />
+                                                </span>
+                                                <div>
+                                                   <p className="font-black text-slate-800">ค่าคอมมิชชั่นคอร์ส</p>
+                                                   <p className="text-[11px] text-slate-400 font-medium">ยอดขายคอร์สใหม่, เปิดคอร์ส, ซื้อเพิ่ม</p>
+                                                </div>
+                                             </div>
+                                          </td>
+                                          <td className="py-4 px-4 text-center text-indigo-700 font-black">
+                                             {employee.commissionRate || 0}%
+                                          </td>
+                                          <td className="py-4 px-4 text-right text-slate-700">
+                                             ฿{commissionDetails.totalCourseSales.toLocaleString()}
+                                          </td>
+                                          <td className="py-4 px-4 text-center text-slate-600">
+                                             {commissionDetails.courseItems.length} รายการ
+                                          </td>
+                                          <td className="py-4 px-5 text-right font-black text-indigo-600 text-base">
+                                             ฿{commissionDetails.totalCourseCommission.toLocaleString()}
+                                          </td>
+                                          <td className="py-4 px-4 text-center text-slate-600">
+                                             {pctCourse}%
+                                          </td>
+                                          <td className="py-4 px-4 text-center">
+                                             <button 
+                                                onClick={() => setIncomeSubTab('course')}
+                                                className="text-xs text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl font-bold transition-colors inline-flex items-center gap-1"
+                                             >
+                                                ดูรายการ <ChevronRight size={13} />
+                                             </button>
+                                          </td>
+                                       </tr>
+                                    </tbody>
+                                    <tfoot className="bg-slate-50 font-black text-slate-900 border-t-2 border-slate-200">
+                                       <tr>
+                                          <td colSpan="4" className="py-4 px-5 text-sm md:text-base">
+                                             รวมรายได้จากงานบริการ & ค่าคอมทั้งหมด
+                                          </td>
+                                          <td className="py-4 px-5 text-right text-emerald-600 text-lg md:text-xl font-black">
+                                             ฿{totalAllIncome.toLocaleString()}
+                                          </td>
+                                          <td className="py-4 px-4 text-center text-slate-600">
+                                             100%
+                                          </td>
+                                          <td></td>
+                                       </tr>
+                                    </tfoot>
+                                 </table>
+                              </div>
+                           </div>
+
+                           {/* Full Monthly Payroll Card */}
+                           {payrollEmployee && (
+                              <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white rounded-3xl p-6 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                                 <div>
+                                    <div className="flex items-center gap-2 text-indigo-300 font-bold text-xs uppercase tracking-wider mb-1">
+                                       <Receipt size={16} /> สรุปเงินเดือนและรายรับสุทธิ ({formatMonthLabel(payrollMonth)})
+                                    </div>
+                                    <h4 className="text-2xl md:text-3xl font-black text-white">
+                                       ฿{(payrollEmployee.totalIncome ?? 0).toLocaleString()}
+                                    </h4>
+                                    <p className="text-xs text-slate-300 mt-1.5 font-medium leading-relaxed">
+                                       ฐานเงินเดือน ฿{(payrollEmployee.baseSalary ?? 0).toLocaleString()} • ค่าอาหาร ฿{(payrollEmployee.totalFoodAllowance ?? 0).toLocaleString()} (มาทำงาน {payrollEmployee.daysWorked ?? 0} วัน) • เบี้ยขยัน ฿{(payrollEmployee.diligenceAllowance ?? 0).toLocaleString()}{payrollEmployee.totalAdvances > 0 ? ` • หักเบิกเงิน -฿${payrollEmployee.totalAdvances.toLocaleString()}` : ''}
+                                    </p>
+                                 </div>
+                                 <button
+                                    type="button"
+                                    onClick={() => setShowPayslip(true)}
+                                    className="py-3 px-5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-sm shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-2 shrink-0 active:scale-95"
+                                 >
+                                    <Printer size={16} /> ดูสลิปเงินเดือน
+                                 </button>
+                              </div>
+                           )}
+                        </div>
+                     )}
+
+                     {/* 4. Sub-tab Content: service (ค่ามือ / ค่าบริการ) */}
+                     {incomeSubTab === 'service' && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col h-fit">
+                              <h3 className="text-lg md:text-xl font-black text-slate-800 mb-6 flex items-center gap-2">
+                                 <UserCheck className="text-pink-500" /> บันทึกค่ามือ / ค่าจี้ไฝ
+                              </h3>
+                              <form onSubmit={handleSubmitService} className="space-y-4">
+                                  <div>
+                                     <label className="block text-xs font-bold text-slate-500 mb-1">วันที่ทำงาน</label>
+                                     <input required type="date" value={serviceForm.date} onChange={e => setServiceForm({...serviceForm, date: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:border-indigo-500 outline-none text-slate-700" />
+                                  </div>
+                                  <div>
+                                     <label className="block text-xs font-bold text-slate-500 mb-1">ประเภท</label>
+                                     <select required value={serviceForm.type} onChange={e => setServiceForm({...serviceForm, type: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:border-indigo-500 outline-none text-slate-700">
+                                        <option value="ค่ามือ">ค่ามือ</option>
+                                        <option value="ค่าจี้ไฝ">ค่าจี้ไฝ</option>
+                                     </select>
+                                  </div>
+                                  <div>
+                                     <label className="block text-xs font-bold text-slate-500 mb-1">จำนวนเงิน (บาท)</label>
+                                     <input required type="number" min="0" step="any" value={serviceForm.amount} onChange={e => setServiceForm({...serviceForm, amount: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:border-indigo-500 outline-none text-slate-700 text-lg" placeholder="ระบุจำนวนเงิน..." />
+                                  </div>
+                                  <div>
+                                     <label className="block text-xs font-bold text-slate-500 mb-1">รายละเอียด (ไม่บังคับ)</label>
+                                     <textarea rows="2" value={serviceForm.note} onChange={e => setServiceForm({...serviceForm, note: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:border-indigo-500 outline-none text-slate-700" placeholder="ระบุรายละเอียดเพิ่มเติม..."></textarea>
+                                  </div>
+                                  <button type="submit" disabled={isSubmittingService} className="w-full py-4 bg-pink-500 hover:bg-pink-600 text-white rounded-2xl font-black shadow-xl shadow-pink-500/30 transition-transform active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 mt-4">
+                                    <Check size={18} /> บันทึกยอด
+                                  </button>
+                              </form>
+                           </div>
+
+                           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col h-fit">
+                              <div className="flex justify-between items-center mb-6">
+                                 <div>
+                                    <h3 className="text-lg md:text-xl font-black text-slate-800">ประวัติการบันทึกค่ามือ</h3>
+                                    <p className="text-xs font-bold text-slate-400 mt-0.5">ประจำเดือน {formatMonthLabel(payrollMonth)}</p>
+                                 </div>
+                                 <span className="text-sm font-black text-pink-600 bg-pink-50 px-3 py-1 rounded-full border border-pink-100">
+                                    รวม ฿{totalFilteredServiceFees.toLocaleString()}
+                                 </span>
+                              </div>
+
+                              <div className="space-y-3">
+                                 {myFilteredServiceLogs.length === 0 ? (
+                                    <div className="py-12 text-center text-slate-400 font-bold bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                                       ไม่มีประวัติการบันทึกค่ามือในเดือนนี้
+                                    </div>
+                                 ) : myFilteredServiceLogs.map(log => {
+                                       const posMatch = String(log.note || '').match(/POS:?\s*(POS[A-Za-z0-9_-]+)/i) || String(log.note || '').match(/(POS\d+)/i);
+                                       const posNo = posMatch ? posMatch[1] : (log.orderNo || null);
+                                       const linkedOrder = posNo ? orders.find(o => o.orderNo === posNo || o.id === posNo) : null;
+                                       const isCancelled = log.isCancelled || log.status === 'ยกเลิก' || log.status === 'cancelled' || (linkedOrder && (linkedOrder.status === 'ยกเลิก' || linkedOrder.status === 'cancelled'));
+                                       const fee = isCancelled ? 0 : Math.ceil(calculateServiceLogFee(log));
+
+                                       return (
+                                          <div key={log.id} className={`p-4 rounded-2xl border transition-all ${isCancelled ? 'border-rose-100 bg-rose-50/30' : 'border-slate-100 bg-slate-50'} flex flex-col gap-2`}>
+                                             <div className="flex justify-between items-start">
+                                                <div>
+                                                   {isCancelled ? (
+                                                      <h4 className="font-black text-slate-400 text-lg flex items-center gap-2 flex-wrap">
+                                                         <span className="line-through">฿{Number(log.amount).toLocaleString()}</span>
+                                                         <span className="text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                                                            ❌ บิลยกเลิก (ได้ ฿0)
+                                                         </span>
+                                                      </h4>
+                                                   ) : (
+                                                      <h4 className="font-black text-pink-600 text-lg flex items-center gap-2 flex-wrap">
+                                                         ฿{Number(log.amount).toLocaleString()} 
+                                                         <span className="text-sm font-bold text-emerald-500">
+                                                            (ได้ ฿{fee.toLocaleString()})
+                                                         </span>
+                                                      </h4>
+                                                   )}
+                                                   <p className="text-xs font-bold text-slate-500 mt-0.5">{new Date(log.date).toLocaleDateString('th-TH')} - {log.type}</p>
+                                                   {(log.staffCount > 1 || log.sharedWith) && (
+                                                      <div className="text-[11px] font-bold text-indigo-600 bg-indigo-50/70 px-2 py-0.5 rounded-md border border-indigo-100 inline-flex items-center gap-1 mt-1">
+                                                         <Users size={12}/> ทำร่วมกัน {log.staffCount || 2} คน (ยอดบิลเต็ม ฿{Number(log.totalBillAmount || (log.amount * (log.staffCount || 2))).toLocaleString()})
+                                                      </div>
+                                                   )}
+                                                </div>
+                                                <button 
+                                                   onClick={() => {
+                                                      if (window.confirm('ต้องการลบประวัติค่ามือนี้หรือไม่?')) {
+                                                         internalDeleteServiceLog(log.id);
+                                                      }
+                                                   }}
+                                                   className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors flex-shrink-0 ml-2"
+                                                   title="ลบข้อมูล"
+                                                >
+                                                   <Trash2 size={16} />
+                                                </button>
+                                             </div>
+                                             
+                                             {posNo ? (
+                                                <button 
+                                                   type="button"
+                                                   onClick={() => {
+                                                      setSelectedPosReceipt(linkedOrder || {
+                                                         orderNo: posNo,
+                                                         branch: log.branch || employee.branch,
+                                                         createdAt: log.createdAt || log.date,
+                                                         price: log.totalBillAmount || log.amount,
+                                                         status: isCancelled ? 'ยกเลิก' : 'สำเร็จ',
+                                                         paymentStaff: log.sharedWith || log.employeeName || employee.name,
+                                                         courseName: log.type,
+                                                         cartItems: [{ name: log.type, qty: 1, price: log.totalBillAmount || log.amount, type: 'service' }]
+                                                      });
+                                                   }}
+                                                   className="w-full mt-1.5 flex items-center justify-between p-2.5 rounded-xl bg-white hover:bg-indigo-50/80 border border-slate-200 hover:border-indigo-300 transition-all group shadow-sm text-left"
+                                                >
+                                                   <div className="flex items-center gap-2.5">
+                                                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isCancelled ? 'bg-rose-50 text-rose-500 border border-rose-100' : 'bg-indigo-50 text-indigo-600 border border-indigo-100 group-hover:bg-indigo-600 group-hover:text-white transition-colors'}`}>
+                                                         <Receipt size={16} />
+                                                      </div>
+                                                      <div>
+                                                         <div className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                                            <span>POS: {posNo}</span>
+                                                            {isCancelled ? (
+                                                               <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">บิลยกเลิก</span>
+                                                            ) : (
+                                                               <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">สำเร็จ</span>
+                                                            )}
+                                                         </div>
+                                                         <div className="text-[10px] text-slate-400 font-medium">แตะเพื่อดูใบเสร็จและรายการย้อนหลัง</div>
+                                                      </div>
+                                                   </div>
+                                                   <div className="flex items-center gap-1 text-xs font-bold text-indigo-600 group-hover:translate-x-0.5 transition-transform shrink-0">
+                                                      <FileText size={13} />
+                                                      <span className="text-[11px]">ดูใบเสร็จ</span>
+                                                      <ChevronRight size={14} className="text-slate-400 group-hover:text-indigo-600" />
+                                                   </div>
+                                                </button>
+                                             ) : log.note ? (
+                                                <p className="text-sm text-slate-600 bg-white p-2 rounded-xl border border-slate-100 mt-1">{log.note}</p>
+                                             ) : null}
+                                          </div>
+                                       );
+                                    })}
+                              </div>
+                           </div>
+                        </div>
+                     )}
+
+                     {/* 5. Sub-tab Content: product (คอมสินค้า) */}
+                     {incomeSubTab === 'product' && (
+                        <div className="space-y-4">
+                           {/* Summary Banner */}
+                           <div className="bg-amber-50/80 border border-amber-200/80 p-5 rounded-3xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                              <div className="flex items-center gap-3">
+                                 <span className="p-3 bg-amber-500 text-white rounded-2xl shadow-md shadow-amber-500/20">
+                                    <Package size={22} />
+                                 </span>
+                                 <div>
+                                    <h3 className="text-lg font-black text-amber-950">ประวัติค่าคอมมิชชั่นสินค้า</h3>
+                                    <p className="text-xs font-bold text-amber-800/80 mt-0.5">
+                                       อัตรา {employee.productCommissionRate || 0}% • ยอดขายสินค้ารวม ฿{commissionDetails.totalProductSales.toLocaleString()} ({commissionDetails.productItems.length} รายการ)
+                                    </p>
+                                 </div>
+                              </div>
+                              <div className="text-left sm:text-right">
+                                 <p className="text-[11px] font-bold text-amber-700 uppercase">ค่าคอมมิชชั่นสินค้าที่ได้รับ</p>
+                                 <p className="text-2xl font-black text-amber-700">฿{commissionDetails.totalProductCommission.toLocaleString()}</p>
+                              </div>
+                           </div>
+
+                           {/* Product Items List */}
+                           {commissionDetails.productItems.length === 0 ? (
+                              <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center text-slate-400 font-bold">
+                                 <Package size={44} className="mx-auto text-slate-300 mb-2 stroke-1" />
+                                 <p>ไม่มีรายการขายสินค้าในเดือน {formatMonthLabel(payrollMonth)}</p>
+                              </div>
+                           ) : (
+                              <div className="space-y-3">
+                                 {commissionDetails.productItems.map((item, idx) => {
+                                    const posNo = item.orderNo;
+                                    const linkedOrder = posNo ? orders.find(o => o.orderNo === posNo || o.id === posNo) : null;
+                                    
+                                    return (
+                                       <div key={item.id || idx} className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col gap-2.5">
+                                          <div className="flex justify-between items-start gap-3">
+                                             <div>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                   <h4 className="font-black text-slate-800 text-base">{item.itemName}</h4>
+                                                   {item.isBundle && (
+                                                      <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full border border-amber-200">
+                                                         เซตผลิตภัณฑ์คู่คอร์ส
+                                                      </span>
+                                                   )}
+                                                </div>
+                                                <p className="text-xs text-slate-500 mt-0.5">
+                                                   {item.date} {item.time && `• ${item.time}`} • ลูกค้า: <span className="font-bold text-slate-700">{item.customerName}</span> {item.customerPhone ? `(${item.customerPhone})` : ''}
+                                                </p>
+                                                {item.shareCount > 1 && (
+                                                   <div className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100 inline-flex items-center gap-1 mt-1.5">
+                                                      <Users size={12}/> ทำร่วมกัน {item.shareCount} คน ({item.staffNames?.join(', ')})
+                                                   </div>
+                                                )}
+                                             </div>
+
+                                             <div className="text-right shrink-0">
+                                                <div className="text-lg font-black text-emerald-600">
+                                                   +฿{Math.ceil(item.commission).toLocaleString()}
+                                                </div>
+                                                <p className="text-[11px] text-slate-400 font-medium">
+                                                   {item.rate}% จาก ฿{Math.round(item.salesShare).toLocaleString()}
+                                                </p>
+                                             </div>
+                                          </div>
+
+                                          {posNo && (
+                                             <button
+                                                type="button"
+                                                onClick={() => {
+                                                   setSelectedPosReceipt(linkedOrder || item.linkedOrder || {
+                                                      orderNo: posNo,
+                                                      branch: item.branch || employee.branch,
+                                                      createdAt: item.date,
+                                                      price: item.price,
+                                                      status: 'สำเร็จ',
+                                                      paymentStaff: item.staffNames?.join('/') || employee.name,
+                                                      courseName: item.itemName,
+                                                      cartItems: [{ name: item.itemName, qty: 1, price: item.price, type: 'product' }]
+                                                   });
+                                                }}
+                                                className="w-full mt-1 flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 text-left transition-colors group"
+                                             >
+                                                <div className="flex items-center gap-2">
+                                                   <Receipt size={14} className="text-indigo-600" />
+                                                   <span className="text-xs font-bold text-slate-700">POS: {posNo}</span>
+                                                </div>
+                                                <span className="text-[11px] font-bold text-indigo-600 flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                                                   <FileText size={12} /> ดูใบเสร็จ <ChevronRight size={13} />
+                                                </span>
+                                             </button>
+                                          )}
+                                       </div>
+                                    );
+                                 })}
+                              </div>
+                           )}
+                        </div>
+                     )}
+
+                     {/* 6. Sub-tab Content: course (คอมคอส) */}
+                     {incomeSubTab === 'course' && (
+                        <div className="space-y-4">
+                           {/* Summary Banner */}
+                           <div className="bg-indigo-50/80 border border-indigo-200/80 p-5 rounded-3xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                              <div className="flex items-center gap-3">
+                                 <span className="p-3 bg-indigo-600 text-white rounded-2xl shadow-md shadow-indigo-600/20">
+                                    <Sparkles size={22} />
+                                 </span>
+                                 <div>
+                                    <h3 className="text-lg font-black text-indigo-950">ประวัติค่าคอมมิชชั่นคอร์ส</h3>
+                                    <p className="text-xs font-bold text-indigo-800/80 mt-0.5">
+                                       อัตรา {employee.commissionRate || 0}% • ยอดขายคอร์สรวม ฿{commissionDetails.totalCourseSales.toLocaleString()} ({commissionDetails.courseItems.length} รายการ)
+                                    </p>
+                                 </div>
+                              </div>
+                              <div className="text-left sm:text-right">
+                                 <p className="text-[11px] font-bold text-indigo-700 uppercase">ค่าคอมมิชชั่นคอร์สที่ได้รับ</p>
+                                 <p className="text-2xl font-black text-indigo-700">฿{commissionDetails.totalCourseCommission.toLocaleString()}</p>
+                              </div>
+                           </div>
+
+                           {/* Course Items List */}
+                           {commissionDetails.courseItems.length === 0 ? (
+                              <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center text-slate-400 font-bold">
+                                 <Sparkles size={44} className="mx-auto text-slate-300 mb-2 stroke-1" />
+                                 <p>ไม่มีรายการขายคอร์สในเดือน {formatMonthLabel(payrollMonth)}</p>
+                              </div>
+                           ) : (
+                              <div className="space-y-3">
+                                 {commissionDetails.courseItems.map((item, idx) => {
+                                    const posNo = item.orderNo;
+                                    const linkedOrder = posNo ? orders.find(o => o.orderNo === posNo || o.id === posNo) : null;
+                                    
+                                    return (
+                                       <div key={item.id || idx} className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col gap-2.5">
+                                          <div className="flex justify-between items-start gap-3">
+                                             <div>
+                                                <h4 className="font-black text-slate-800 text-base">{item.itemName}</h4>
+                                                <p className="text-xs text-slate-500 mt-0.5">
+                                                   {item.date} {item.time && `• ${item.time}`} • ลูกค้า: <span className="font-bold text-slate-700">{item.customerName}</span> {item.customerPhone ? `(${item.customerPhone})` : ''}
+                                                </p>
+                                                {item.shareCount > 1 && (
+                                                   <div className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100 inline-flex items-center gap-1 mt-1.5">
+                                                      <Users size={12}/> ทำร่วมกัน {item.shareCount} คน ({item.staffNames?.join(', ')})
+                                                   </div>
+                                                )}
+                                             </div>
+
+                                             <div className="text-right shrink-0">
+                                                <div className="text-lg font-black text-indigo-600">
+                                                   +฿{Math.ceil(item.commission).toLocaleString()}
+                                                </div>
+                                                <p className="text-[11px] text-slate-400 font-medium">
+                                                   {item.rate}% จาก ฿{Math.round(item.salesShare).toLocaleString()}
+                                                </p>
+                                             </div>
+                                          </div>
+
+                                          {posNo && (
+                                             <button
+                                                type="button"
+                                                onClick={() => {
+                                                   setSelectedPosReceipt(linkedOrder || item.linkedOrder || {
+                                                      orderNo: posNo,
+                                                      branch: item.branch || employee.branch,
+                                                      createdAt: item.date,
+                                                      price: item.price,
+                                                      status: 'สำเร็จ',
+                                                      paymentStaff: item.staffNames?.join('/') || employee.name,
+                                                      courseName: item.itemName,
+                                                      cartItems: [{ name: item.itemName, qty: 1, price: item.price, type: 'course' }]
+                                                   });
+                                                }}
+                                                className="w-full mt-1 flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-200 text-left transition-colors group"
+                                             >
+                                                <div className="flex items-center gap-2">
+                                                   <Receipt size={14} className="text-indigo-600" />
+                                                   <span className="text-xs font-bold text-slate-700">POS: {posNo}</span>
+                                                </div>
+                                                <span className="text-[11px] font-bold text-indigo-600 flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                                                   <FileText size={12} /> ดูใบเสร็จ <ChevronRight size={13} />
+                                                </span>
+                                             </button>
+                                          )}
+                                       </div>
+                                    );
+                                 })}
+                              </div>
+                           )}
+                        </div>
+                     )}
                   </div>
-               </div>
-            )}
+               );
+            })()}
             
             {/* Requests Group */}
             {activeTab === 'requests_group' && (
@@ -1827,7 +2489,7 @@ export default function EmployeePortal({
             { id: 'dashboard', icon: Clock, label: 'ลงเวลา' },
             { id: 'requests_group', icon: Send, label: 'คำร้อง' },
             ...((isActiveShift || isAdmin) ? [
-               { id: 'service', icon: UserCheck, label: 'ค่ามือ' },
+               { id: 'service', icon: Wallet, label: 'ดูรายได้' },
                { id: 'schedule_group', icon: Calendar, label: 'ตาราง' },
                { id: 'settings', icon: Lock, label: 'ตั้งค่า' }
             ] : [])
