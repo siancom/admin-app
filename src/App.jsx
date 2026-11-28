@@ -1747,6 +1747,11 @@ export default function App() {
   // 🌟 Fast ID generator for history records without expensive JSON.stringify
   const getHistoryId = (h) => h?.id || h?._fastKey || (h ? (h._fastKey = `${h.date || ''}_${h.time || ''}_${h.customerName || ''}_${h.type || ''}_${h.amount || ''}_${h.courseId || ''}`) : '');
 
+  // 🌟 High-performance incremental calculation caches for courses & customers
+  // Prevents recalculating thousands of unchanged legacy courses/customers on every new transaction
+  const courseComputationCacheRef = useRef(new Map());
+  const customerComputationCacheRef = useRef(new Map());
+
   // --- COMPUTED DATA ---
   const precomputedHistories = useMemo(() => {
     if (loginGate || histories.length === 0) return { byCourseRef: {}, byCustomer: {} };
@@ -1947,9 +1952,27 @@ export default function App() {
         };
       }
 
-      const myHistoriesMap = new Map();
       const normPosName = posName.replace(/\s+/g, '').toLowerCase();
       const normDisplayName = displayName.replace(/\s+/g, '').toLowerCase();
+      const cleanPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone", "computedPhone", "cleanPhone"]) || '').replace(/\D/g, '');
+
+      const histCount = (cleanPhone && cleanPhone.length >= 9 && historiesByPhone.get(cleanPhone)?.length || 0) + 
+                        (normPosName && historiesByName.get(normPosName)?.length || 0);
+
+      const courseCreditUsed = 
+        (cleanPhone && coursesCreditUsedByPhone.get(cleanPhone)) || 
+        (normPosName && coursesCreditUsedByName.get(normPosName)) || 
+        (normDisplayName && coursesCreditUsedByName.get(normDisplayName)) || 
+        0;
+
+      const cacheKey = `${c.id}_${c.updatedAt || ''}_${cleanPhone}_${histCount}_${courseCreditUsed}_${c.membershipCardNo || ''}_${c.nickname || ''}_${c.realAccumulatedAmount || ''}`;
+
+      const cachedCust = customerComputationCacheRef.current.get(c.id);
+      if (cachedCust && cachedCust._cacheKey === cacheKey) {
+        return cachedCust;
+      }
+
+      const myHistoriesMap = new Map();
 
       if (normPosName && historiesByName.has(normPosName)) {
         historiesByName.get(normPosName).forEach(h => myHistoriesMap.set(getHistoryId(h), h));
@@ -1958,7 +1981,6 @@ export default function App() {
         historiesByName.get(normDisplayName).forEach(h => myHistoriesMap.set(getHistoryId(h), h));
       }
       
-      const cleanPhone = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone", "computedPhone", "cleanPhone"]) || '').replace(/\D/g, '');
       if (cleanPhone && cleanPhone.length >= 9 && historiesByPhone.has(cleanPhone)) {
         historiesByPhone.get(cleanPhone).forEach(h => myHistoriesMap.set(getHistoryId(h), h));
       }
@@ -1995,12 +2017,6 @@ export default function App() {
              }
          }
       });
-
-      const courseCreditUsed = 
-        (cleanPhone && coursesCreditUsedByPhone.get(cleanPhone)) || 
-        (normPosName && coursesCreditUsedByName.get(normPosName)) || 
-        (normDisplayName && coursesCreditUsedByName.get(normDisplayName)) || 
-        0;
 
       // ปรับปรุงยอดสะสมสินค้า: รวมยอดจากประวัติ และยอดเครดิตคอร์สที่เบิกใช้ (เช่น เครดิต 5,000 ใช้ครบ 5,000)
       const productAccumulatedAmount = Math.max(oldAmount + productEarned, courseCreditUsed);
@@ -2057,7 +2073,7 @@ export default function App() {
       const picData = getProfilePicData(c, null);
       const createdAtTimestamp = getCustomerTimestamp(c);
 
-      return { 
+      const custResult = { 
         ...c, 
         computedName: displayName, 
         computedNickname: rawNickname,
@@ -2081,8 +2097,11 @@ export default function App() {
         isApproved: isApprovedCustomer,
         hasMoleHistory: myHistories.some(isMoleHistoryRecord),
         profilePicData: picData,
-        createdAtTimestamp
+        createdAtTimestamp,
+        _cacheKey: cacheKey
       };
+      customerComputationCacheRef.current.set(c.id, custResult);
+      return custResult;
     });
   }, [customersRaw, histories, courses, employees]);
 
@@ -2112,12 +2131,13 @@ export default function App() {
   const processedCourses = useMemo(() => {
     if (loginGate || courses.length === 0) return [];
     const consumedHistoryIds = new Set();
-    const sortedCourses = [...courses].sort((a,b) => {
-        const dA = parseThaiDate(getFuzzyKey(a, ["วันที่ซื้อ", "col_3"]));
-        const dB = parseThaiDate(getFuzzyKey(b, ["วันที่ซื้อ", "col_3"]));
-        if (dA && dB) return dA.getTime() - dB.getTime();
-        return 0;
-    });
+    const getCourseSortTime = (c) => {
+      if (c._sortTime !== undefined) return c._sortTime;
+      const d = parseThaiDate(getFuzzyKey(c, ["วันที่ซื้อ", "col_3"]));
+      c._sortTime = d ? d.getTime() : 0;
+      return c._sortTime;
+    };
+    const sortedCourses = [...courses].sort((a,b) => getCourseSortTime(a) - getCourseSortTime(b));
 
     // 🌟 Pre-index customers by clean phone and master courses by code for instant O(1) lookups
     const customersByPhoneMap = new Map();
@@ -2161,6 +2181,23 @@ export default function App() {
       const cleanCourseNo = courseNo.replace(new RegExp('\\s', 'g'), '').toLowerCase();
       const cleanCourseName = courseName.replace(new RegExp('\\s', 'g'), '').toLowerCase();
       const cleanCustomerName = courseCustomerName.replace(new RegExp('\\s', 'g'), '').toLowerCase();
+      const isPosCourse = courseNo.toUpperCase().startsWith('IC');
+
+      // 🌟 Fast incremental cache check:
+      // If course metadata and matching history count / latest history ID haven't changed, reuse cached computed course!
+      const idHist = (course.id && precomputedHistories.byCourseRef[course.id]) || [];
+      const noHist = (cleanCourseNo && cleanCourseNo.length > 2 && precomputedHistories.byCourseRef[cleanCourseNo]) || [];
+      const custHist = (!isPosCourse && cleanCustomerName && precomputedHistories.byCustomer[cleanCustomerName]) || [];
+      const histCount = idHist.length + noHist.length + (custHist ? custHist.length : 0);
+      const lastHistKey = idHist[0]?.id || noHist[0]?.id || custHist[0]?.id || (idHist[0]?._fastKey || noHist[0]?._fastKey || custHist[0]?._fastKey || '');
+
+      const cacheKey = `${course.id}_${course.updatedAt || ''}_${course['ครั้งที่ใช้'] || ''}_${course['คงเหลือ'] || ''}_${course['สถานะ'] || ''}_${course.isClosed ? '1' : '0'}_${course.paperUsedQty || ''}_${(course.claimedItems || []).length}_${cleanCourseNo}_${cleanCourseName}_${histCount}_${lastHistKey}`;
+
+      const cached = courseComputationCacheRef.current.get(course.id);
+      if (cached && cached._cacheKey === cacheKey) {
+        (cached.myHistories || []).forEach(h => consumedHistoryIds.add(getHistoryId(h)));
+        return cached;
+      }
       
       const exactRefKey = cleanCourseNo + cleanCourseName;
 
@@ -2184,7 +2221,6 @@ export default function App() {
       if (cleanCourseNo && cleanCourseNo.length > 2) {
           addHistories(precomputedHistories.byCourseRef[cleanCourseNo]);
       }
-      const isPosCourse = courseNo.toUpperCase().startsWith('IC');
       
       if (!isPosCourse) {
           const custHistories = precomputedHistories.byCustomer[cleanCustomerName] || [];
@@ -2201,12 +2237,7 @@ export default function App() {
       
       myHistories.forEach(h => consumedHistoryIds.add(getHistoryId(h)));
 
-      myHistories.sort((a, b) => {
-         const d1 = parseThaiDate(getFuzzyKey(a, ["วันที่", "col_1"]));
-         const d2 = parseThaiDate(getFuzzyKey(b, ["วันที่", "col_1"]));
-         if (d1 && d2) return d2.getTime() - d1.getTime();
-         return 0;
-      });
+      myHistories.sort((a, b) => getHistorySortTime(b) - getHistorySortTime(a));
 
       let legacyDrawnAmount = 0;
       let modernDrawnAmount = 0;
@@ -2504,7 +2535,7 @@ export default function App() {
         }
       });
 
-      return {
+      const courseResult = {
         ...course, 
         claimedItems: effectiveClaimedItems,
         courseRefKey: courseNo, 
@@ -2535,10 +2566,13 @@ export default function App() {
         computedDurationMonths: calculatedDurationMonths,
         daysLeft, 
         isExpiringSoon,
-        durationText
+        durationText,
+        _cacheKey: cacheKey
       };
+      courseComputationCacheRef.current.set(course.id, courseResult);
+      return courseResult;
     });
-  }, [courses, precomputedHistories, customers, customersRaw, masterCourses]);
+  }, [courses, precomputedHistories, customersRaw, masterCourses]);
 
   const getCustomerCourses = (phone) => {
     const targetClean = String(phone || '').replace(/\D/g, '');

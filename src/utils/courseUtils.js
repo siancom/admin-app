@@ -123,18 +123,27 @@ function getLocalYYYYMMDD_inline(dateObj) {
 }
 
 export function getHistorySortTime(h) {
+  if (!h) return 0;
+  if (h._sortTime !== undefined) return h._sortTime;
   const createdAt = getFuzzyKey(h, ["createdAt", "updatedAt"]);
   if (createdAt) {
     const d = new Date(createdAt);
-    if (!isNaN(d.getTime())) return d.getTime();
+    if (!isNaN(d.getTime())) {
+      h._sortTime = d.getTime();
+      return h._sortTime;
+    }
   }
   const dateVal = getFuzzyKey(h, ["วันที่", "col_1"]);
   const parsed = parseThaiDate(dateVal);
-  if (!parsed) return 0;
+  if (!parsed) {
+    h._sortTime = 0;
+    return 0;
+  }
   const timeVal = getFuzzyKey(h, ["เวลา", "time"]);
   const minutes = parseHistoryTime_inline(timeVal);
   parsed.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
-  return parsed.getTime();
+  h._sortTime = parsed.getTime();
+  return h._sortTime;
 }
 
 function parseHistoryTime_inline(val) {
