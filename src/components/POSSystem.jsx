@@ -5177,13 +5177,6 @@ export default function POSSystem({
         onReturnToAppointments();
       }
 
-      if (isOwnerDirectUsage) {
-        showToast('✨ บันทึกการใช้คอส (เช็คเบื้องต้น) เรียบร้อยแล้ว!', 'success');
-      } else {
-        const paySummary = total > 0 ? `฿${total.toLocaleString()}` : (isUsageBill ? 'ตัดคอร์สสำเร็จ' : 'สำเร็จ');
-        showToast(`⚡ ชำระเงินสำเร็จ! บิล ${orderNo} (${paySummary}) พร้อมขายบิลถัดไปทันที`, 'success');
-      }
-
       // If autoPrint is enabled — open preview immediately so print fires without user action (desktop only, no mobile freezing)
       const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       if (autoPrint && !isMobile) {
