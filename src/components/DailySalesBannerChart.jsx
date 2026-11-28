@@ -27,6 +27,7 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import DailySalesPreviewModal from './DailySalesPreviewModal';
+import DailyOrdersModal from './DailyOrdersModal';
 import MonthlyEodPrintModal from './MonthlyEodPrintModal';
 import { isExpensePaid } from './FinancialDashboard';
 import { 
@@ -58,7 +59,7 @@ const THAI_MONTH_MAP = {
 };
 
 // Helper to convert any date representation to YYYY-MM-DD
-const extractIsoDate = (val) => {
+export const extractIsoDate = (val) => {
   if (!val) return '';
   if (val instanceof Date) return isNaN(val.getTime()) ? '' : getLocalYYYYMMDD(val);
   if (typeof val?.toDate === 'function') {
@@ -122,7 +123,7 @@ export const isShopeeOrder = (o) => {
 };
 
 // Check if order counts toward customer sales revenue (real POS & approved/paid sales)
-const isOrderCompletedForRevenue = (o) => {
+export const isOrderCompletedForRevenue = (o) => {
   if (!o || o.isCancelled || o.source === 'POS_Parked' || o.mergedIntoPosOrderNo) return false;
   // Exclude internal stock transfers & owner acquisitions & internal clinic use
   const isReq = o.transactionType === 'branch_requisition' || (o.courseName || '').includes('[เบิกจาก');
@@ -162,14 +163,14 @@ const isOrderCompletedForRevenue = (o) => {
   );
 };
 
-const getEffectiveOrderPrice = (o) => {
+export const getEffectiveOrderPrice = (o) => {
   if (isShopeeOrder(o) && o?.shopeeNetReceived !== undefined && o?.shopeeNetReceived !== '') {
     return parseNumber(o.shopeeNetReceived);
   }
   return parseNumber(o?.price ?? o?.total ?? o?.totalPrice ?? o?.netPrice ?? 0);
 };
 
-const parsePaymentBreakdown = (o) => {
+export const parsePaymentBreakdown = (o) => {
   let cash = 0;
   let transfer = 0;
   let cod = 0;
@@ -231,6 +232,7 @@ export default function DailySalesBannerChart({
   const [dayRange, setDayRange] = useState(14); // 7, 14, 30
   const [hoveredDay, setHoveredDay] = useState(null);
   const [previewModalDate, setPreviewModalDate] = useState(null);
+  const [viewOrdersModalDate, setViewOrdersModalDate] = useState(null);
   const [showEodReportModal, setShowEodReportModal] = useState(false);
   const [showGrossProfitModal, setShowGrossProfitModal] = useState(false);
   const [showMonthlyEodPrint, setShowMonthlyEodPrint] = useState(false);
@@ -410,6 +412,7 @@ export default function DailySalesBannerChart({
         orderCount: ordData.orderCount,
         inStoreOrderCount: ordData.inStoreOrderCount,
         shopeeOrderCount: ordData.shopeeOrderCount,
+        orders: ordData.orders || [],
         isToday: dateStr === todayIso,
         isSubmitted: Boolean(eodData)
       };
@@ -765,35 +768,50 @@ export default function DailySalesBannerChart({
       {/* 📊 Key Metrics KPI Cards Row 📊 */}
       <div className="relative z-10 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4 my-6">
         {/* KPI 1: ยอดขายวันนี้ */}
-        <div className="bg-slate-800/50 hover:bg-slate-800/70 p-4 sm:p-5 rounded-2xl border border-indigo-500/20 backdrop-blur-md transition-all">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-bold text-slate-400 flex items-center gap-1">
+        <div 
+          onClick={() => setViewOrdersModalDate(todayIso)}
+          className="bg-slate-800/50 hover:bg-slate-800/80 p-4 sm:p-5 rounded-2xl border border-indigo-500/20 hover:border-emerald-500/40 backdrop-blur-md transition-all cursor-pointer group shadow-lg active:scale-[0.99] relative overflow-hidden"
+          title="คลิกเพื่อเปิดดูบิลคำสั่งซื้อวันนี้ทั้งหมด"
+        >
+          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-xl group-hover:bg-emerald-500/20 transition-all pointer-events-none" />
+          <div className="flex items-center justify-between mb-1.5 relative z-10">
+            <span className="text-xs font-bold text-slate-400 flex items-center gap-1 group-hover:text-emerald-300 transition-colors">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               ยอดขายวันนี้
             </span>
-            <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
-              {todayStats.orderCount} บิล
+            <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/20 group-hover:bg-emerald-500/30 text-emerald-300 font-bold border border-emerald-500/30 flex items-center gap-1 transition-all">
+              <span>{todayStats.orderCount} บิล</span>
+              <ArrowUpRight size={11} className="opacity-70 group-hover:opacity-100 group-hover:translate-x-0.5 -translate-y-0.5 transition-transform" />
             </span>
           </div>
-          <div className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+          <div className="text-2xl sm:text-3xl font-black text-white tracking-tight group-hover:text-emerald-100 transition-colors">
             ฿{todayStats.total.toLocaleString()}
           </div>
-          <div className="mt-2 flex items-center gap-1.5 text-[11px] sm:text-xs">
-            {diffFromYesterday >= 0 ? (
-              <span className="text-emerald-400 font-bold flex items-center">
-                ↑ +฿{diffFromYesterday.toLocaleString()} {pctFromYesterday > 0 && `(+${pctFromYesterday}%)`}
-              </span>
-            ) : (
-              <span className="text-rose-400 font-bold flex items-center">
-                ↓ -฿{Math.abs(diffFromYesterday).toLocaleString()} ({pctFromYesterday}%)
-              </span>
-            )}
-            <span className="text-slate-500">vs เมื่อวาน</span>
+          <div className="mt-2 flex items-center justify-between text-[11px] sm:text-xs">
+            <div className="flex items-center gap-1.5">
+              {diffFromYesterday >= 0 ? (
+                <span className="text-emerald-400 font-bold flex items-center">
+                  ↑ +฿{diffFromYesterday.toLocaleString()} {pctFromYesterday > 0 && `(+${pctFromYesterday}%)`}
+                </span>
+              ) : (
+                <span className="text-rose-400 font-bold flex items-center">
+                  ↓ -฿{Math.abs(diffFromYesterday).toLocaleString()} ({pctFromYesterday}%)
+                </span>
+              )}
+              <span className="text-slate-500">vs เมื่อวาน</span>
+            </div>
+            <span className="text-[10px] font-bold text-emerald-400 group-hover:text-emerald-300 flex items-center gap-0.5 underline decoration-emerald-500/40">
+              กดดูบิล ↗
+            </span>
           </div>
         </div>
 
         {/* KPI 2: ช่องทางการชำระวันนี้ */}
-        <div className="bg-slate-800/50 hover:bg-slate-800/70 p-4 sm:p-5 rounded-2xl border border-indigo-500/20 backdrop-blur-md transition-all">
+        <div 
+          onClick={() => setViewOrdersModalDate(todayIso)}
+          className="bg-slate-800/50 hover:bg-slate-800/80 p-4 sm:p-5 rounded-2xl border border-indigo-500/20 hover:border-cyan-500/40 backdrop-blur-md transition-all cursor-pointer group active:scale-[0.99]"
+          title="คลิกเพื่อดูรายการบิลวันนี้แยกตามช่องทางชำระ"
+        >
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-xs font-bold text-slate-400">ช่องทางชำระวันนี้</span>
             <span className="text-[10px] text-indigo-300 font-bold">
@@ -1041,9 +1059,15 @@ export default function DailySalesBannerChart({
               <span className="text-emerald-400">
                 ยอดขาย: ฿{activeDay.total.toLocaleString()}
               </span>
-              <span className="text-cyan-300 bg-cyan-950/50 px-2 py-0.5 rounded-lg border border-cyan-500/30 text-[11px]">
-                POS: ฿{(activeDay.posTotal ?? activeDay.total).toLocaleString()} ({activeDay.orderCount} บิล)
-              </span>
+              <button
+                type="button"
+                onClick={() => setViewOrdersModalDate(activeDay.dateStr)}
+                className="text-cyan-300 hover:text-white bg-cyan-950/60 hover:bg-cyan-900/80 px-2.5 py-0.5 rounded-lg border border-cyan-500/30 hover:border-cyan-400 text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 cursor-pointer shadow-xs"
+                title="คลิกเพื่อดูรายการบิลทั้งหมดของวันนี้"
+              >
+                <Receipt size={12} className="text-cyan-400" />
+                <span>POS: ฿{(activeDay.posTotal ?? activeDay.total).toLocaleString()} ({activeDay.orderCount} บิล) ↗</span>
+              </button>
               {activeDay.shopeeTotal > 0 && (
                 <span className="text-orange-300 bg-orange-950/50 px-2 py-0.5 rounded-lg border border-orange-500/30 text-[11px]">
                   Shopee: ฿{activeDay.shopeeTotal.toLocaleString()} ({activeDay.shopeeOrderCount} บิล)
@@ -1197,7 +1221,11 @@ export default function DailySalesBannerChart({
                   onMouseLeave={() => setHoveredDay(null)}
                   onClick={() => {
                     setHoveredDay(d);
-                    setPreviewModalDate(d.dateStr);
+                    if (d.orderCount > 0) {
+                      setViewOrdersModalDate(d.dateStr);
+                    } else {
+                      setPreviewModalDate(d.dateStr);
+                    }
                   }}
                 >
                   {/* Invisible wide hitbox for easy mouse/touch targeting */}
@@ -1322,6 +1350,17 @@ export default function DailySalesBannerChart({
           </div>
         </div>
       </div>
+
+      {/* 🧾 รายการบิลคำสั่งซื้อประจำวัน (Daily Orders & Bills Modal) 🧾 */}
+      <DailyOrdersModal
+        isOpen={Boolean(viewOrdersModalDate)}
+        onClose={() => setViewOrdersModalDate(null)}
+        dateIso={viewOrdersModalDate || ''}
+        orders={orders}
+        branch={selectedBranch === 'ทั้งหมด' ? (globalBranch || 'เฉวง') : selectedBranch}
+        onOpenA4Preview={(d) => setPreviewModalDate(d)}
+        onViewSlip={(url) => setPreviewReceiptImage(url)}
+      />
 
       {/* 📄 Daily Sales A4 Preview Modal 📄 */}
       <DailySalesPreviewModal
