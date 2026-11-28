@@ -5141,6 +5141,7 @@ export default function POSSystem({
 
       // Close modal and reset POS UI instantly (Optimistic UI - 0ms perceived lag)
       setShowPaymentModal(false);
+      setIsProcessing(false); // ปลดล็อกปุ่มขายทันที 0ms ให้ใส่ตะกร้าและทำรายการต่อได้ทันที
       setSelectedBed('');
       setCart([]);
       setUsedServices([]);
@@ -5168,20 +5169,13 @@ export default function POSSystem({
       setIsStoreUseMode(false);
       setStoreUseReason('ห้องทรีตเมนต์ 1');
       setCustomStoreUseReason('');
-      setIsMobileCartOpen(false); // Close cart immediately so receipt shows properly
+      setIsMobileCartOpen(false);
       setActiveTab('products'); // 🌟 ชำระเงินเสร็จให้กลับมาหน้าขายครีมทุกครั้ง
 
       if (posReturnToStaffAfterCheckout && onReturnToStaffDashboard) {
         onReturnToStaffDashboard();
       } else if (posReturnToAppointmentsAfterCheckout && onReturnToAppointments) {
         onReturnToAppointments();
-      }
-
-      // If autoPrint is enabled — open preview immediately so print fires without user action (desktop only, no mobile freezing)
-      const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      if (autoPrint && !isMobile) {
-        setPrintMode('receipt');
-        setShowPreviewModal(true);
       }
 
       const lineTargetUid = (selectedCustomer && selectedCustomer.lineUid && !isRequisitionMode && !isStoreUseTransaction) ? selectedCustomer.lineUid : null;

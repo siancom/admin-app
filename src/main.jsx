@@ -11,6 +11,11 @@ if (typeof document !== 'undefined') {
   document.addEventListener('gestureend', (e) => e.preventDefault(), { passive: false });
 }
 
+// Global safety fallback for WebKit / Safari legacy scopes
+if (typeof window !== 'undefined') {
+  window.user = window.user || null;
+}
+
 window.addEventListener('vite:preloadError', () => {
   const lastReload = sessionStorage.getItem('iris_chunk_reload_ts')
   const now = Date.now()
