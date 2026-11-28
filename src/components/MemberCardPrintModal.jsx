@@ -99,7 +99,18 @@ export default function MemberCardPrintModal({
       const rawAction = String(getFuzzyKey(h, ["รายการ", "col_23", "สินค้า", "col_18"]) || '').trim();
       const amt = parseNumber(getFuzzyKey(h, ["ยอดสินค้า", "ยอดจัดซื้อ", "ยอดเงิน", "ยอดเบิก", "ยอด", "col_19"]));
       const dateStr = String(getFuzzyKey(h, ["วันที่", "col_1"]) || '-');
-      const staff = String(getFuzzyKey(h, ["พนักงาน", "ผู้ให้บริการ", "เจ้าหน้าที่", "staff"]) || '');
+      // ดึงชื่อพนักงานผู้บันทึกอย่างปลอดภัย ป้องกันการจับโดนไฟล์รูปภาพลายเซ็น (ลายเซนต์เจ้าหน้าที่)
+      let staff = String(
+        h.staffName || 
+        h.seller || 
+        h.cashier || 
+        h.employeeName || 
+        getFuzzyKey(h, ["พนักงานให้บริการ", "ผู้บันทึก", "พนักงาน", "ผู้ให้บริการ"]) || 
+        ''
+      ).trim();
+      if (!staff || staff.includes('.png') || staff.includes('.jpg') || staff.includes('.jpeg') || staff.includes('/') || staff.includes('http') || staff.length > 25) {
+        staff = 'IRIS';
+      }
       const prodQty = String(getFuzzyKey(h, ["จำนวนสินค้าที่เบิก", "จำนวนเบิก", "จำนวนสินค้า"]) || '');
       const isLegacy = !h.courseId;
 
@@ -651,13 +662,13 @@ export default function MemberCardPrintModal({
 
                   {/* Stamp / Log Table */}
                   <div className="my-auto overflow-hidden">
-                    <table className="w-full border-collapse text-[6.5px]">
+                    <table className="w-full table-fixed border-collapse text-[6.5px]">
                       <thead>
                         <tr className="bg-slate-100 text-slate-600 font-black border-b border-slate-200">
-                          <th className="py-0.5 px-1 text-left w-12">วันที่</th>
-                          <th className="py-0.5 px-1 text-left">รายการสินค้า</th>
-                          <th className="py-0.5 px-1 text-right w-11">ยอดเงิน</th>
-                          <th className="py-0.5 px-1 text-center w-10">ผู้ตรวจ</th>
+                          <th className="py-0.5 px-1 text-left w-[20%]">วันที่</th>
+                          <th className="py-0.5 px-1 text-left w-[44%]">รายการสินค้า</th>
+                          <th className="py-0.5 px-1 text-right w-[20%]">ยอดเงิน</th>
+                          <th className="py-0.5 px-1 text-center w-[16%]">ผู้ตรวจ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 font-medium">
@@ -847,25 +858,25 @@ export default function MemberCardPrintModal({
                     <span>ตารางประวัติรายการสะสม</span>
                     <span className="text-xs text-slate-400 font-normal">ทั้งหมด {displayItems.length} รายการ</span>
                   </h3>
-                  <table className="w-full border-collapse border border-slate-200 text-xs">
+                  <table className="w-full table-fixed border-collapse border border-slate-200 text-xs">
                     <thead>
                       <tr className="bg-slate-100 text-slate-700 font-bold">
-                        <th className="border border-slate-200 p-2 text-left w-24">วันที่</th>
-                        <th className="border border-slate-200 p-2 text-left">รายการ</th>
-                        <th className="border border-slate-200 p-2 text-right w-28">ยอดสะสม (บาท)</th>
-                        <th className="border border-slate-200 p-2 text-center w-24">ผู้บันทึก</th>
-                        <th className="border border-slate-200 p-2 text-center w-28">ลายเซ็น / ตราประทับ</th>
+                        <th className="border border-slate-200 p-2 text-left w-[15%]">วันที่</th>
+                        <th className="border border-slate-200 p-2 text-left w-[41%]">รายการ</th>
+                        <th className="border border-slate-200 p-2 text-right w-[16%]">ยอดสะสม (บาท)</th>
+                        <th className="border border-slate-200 p-2 text-center w-[14%]">ผู้บันทึก</th>
+                        <th className="border border-slate-200 p-2 text-center w-[14%]">ลายเซ็น / ตราประทับ</th>
                       </tr>
                     </thead>
                     <tbody>
                       {displayItems.map((item, idx) => (
                         <tr key={item.id || idx} className="hover:bg-slate-50">
-                          <td className="border border-slate-200 p-2 font-mono">{item.date}</td>
-                          <td className="border border-slate-200 p-2 font-medium">{item.name}</td>
-                          <td className="border border-slate-200 p-2 text-right font-black text-teal-700">
+                          <td className="border border-slate-200 p-2 font-mono whitespace-nowrap overflow-hidden text-ellipsis">{item.date}</td>
+                          <td className="border border-slate-200 p-2 font-medium break-words leading-tight">{item.name}</td>
+                          <td className="border border-slate-200 p-2 text-right font-black text-teal-700 whitespace-nowrap">
                             ฿{Number(item.amount || 0).toLocaleString()}
                           </td>
-                          <td className="border border-slate-200 p-2 text-center text-slate-600">{item.recorder || '-'}</td>
+                          <td className="border border-slate-200 p-2 text-center text-slate-600 truncate break-words">{item.recorder || '-'}</td>
                           <td className="border border-slate-200 p-2 text-center text-slate-300">
                             <span className="inline-block border border-dashed border-slate-300 w-16 h-6 rounded"></span>
                           </td>
@@ -874,9 +885,9 @@ export default function MemberCardPrintModal({
                       {/* Blank rows */}
                       {Array.from({ length: blankRowsCount }).map((_, bIdx) => (
                         <tr key={`a4_blank_${bIdx}`} className="h-8">
-                          <td className="border border-slate-200 p-2 text-slate-300">.../.../...</td>
-                          <td className="border border-slate-200 p-2 text-slate-300">................................................</td>
-                          <td className="border border-slate-200 p-2 text-right text-slate-300">฿................</td>
+                          <td className="border border-slate-200 p-2 text-slate-300 font-mono">.../.../...</td>
+                          <td className="border border-slate-200 p-2 text-slate-300 truncate">................................................</td>
+                          <td className="border border-slate-200 p-2 text-right text-slate-300 whitespace-nowrap">฿................</td>
                           <td className="border border-slate-200 p-2 text-center text-slate-300">............</td>
                           <td className="border border-slate-200 p-2 text-center text-slate-300">
                             <span className="inline-block border border-dashed border-slate-300 w-16 h-6 rounded"></span>

@@ -1769,6 +1769,65 @@ export default function App() {
       }
     });
 
+    // 🌟 High-performance index maps for course credit used per customer
+    const coursesCreditUsedByPhone = new Map();
+    const coursesCreditUsedByName = new Map();
+
+    courses.forEach(crs => {
+      if (crs.isCancelled || String(getFuzzyKey(crs, ["สถานะ", "col_7", "col_8"]) || '') === 'ยกเลิก') return;
+
+      const rawExplicitCredit = getFuzzyKey(crs, ["เครดิตที่ได้รับ", "เครดิตที่ได้", "เครดิตทั้งหมด", "ยอดเครดิต", "วงเงินคอร์ส", "เครดิต", "วงเงิน", "วงเงินที่ได้รับ", "มูลค่าเครดิต"]);
+      const coursePrice = parseNumber(getFuzzyKey(crs, ["ราคา", "ราคาคอร์ส", "ยอดเต็ม", "ยอดเงิน", "จำนวนเงิน", "ยอดสุทธิ", "ราคาขาย", "col_13"]));
+      let initialCredit = rawExplicitCredit !== undefined && rawExplicitCredit !== '' ? parseNumber(rawExplicitCredit) : 0;
+      
+      const cleanCourseName = String(getFuzzyKey(crs, ["ชื่อคอส", "ชื่อคอร์ส", "col_2", "name"]) || '').trim().toLowerCase();
+      const isExplicitCashCreditProgram = 
+        cleanCourseName.includes('เครดิต') || 
+        cleanCourseName.includes('วงเงิน') || 
+        cleanCourseName.includes('voucher') || 
+        cleanCourseName.includes('บัตรกำนัล') || 
+        cleanCourseName.includes('เติมเงิน') || 
+        cleanCourseName.includes('ฝากเงิน');
+
+      if (initialCredit === 0 && coursePrice > 0 && isExplicitCashCreditProgram) {
+        initialCredit = coursePrice;
+      }
+
+      const crsTotalQty = parseNumber(getFuzzyKey(crs, ["จำนวนครั้ง", "col_4"]));
+      const isAccidentalSessionCredit = initialCredit > 0 && !isExplicitCashCreditProgram && (
+        (initialCredit <= 20 && initialCredit === crsTotalQty) || 
+        initialCredit < 50
+      );
+      if (isAccidentalSessionCredit) {
+        initialCredit = 0;
+      }
+
+      const courseOldBerq = parseNumber(getFuzzyKey(crs, ["ยอดเบิกดิบ", "เบิกไปแล้ว", "ยอดเบิก", "ใช้เครดิต", "หักเครดิต", "ใช้เครดิตแล้ว", "col_28"]));
+      const courseOldAccum = parseNumber(getFuzzyKey(crs, ["ยอดสะสมดิบ", "ยอดสะสม", "col_16"]));
+
+      let creditUsed = courseOldBerq + courseOldAccum;
+      if (initialCredit > 0) {
+        if (creditUsed === 0) {
+          const remain = parseNumber(getFuzzyKey(crs, ["วงเงินคงเหลือ", "เครดิตคงเหลือ", "คงเหลือ", "col_17"]));
+          if (remain === 0 && initialCredit > 0) {
+            creditUsed = initialCredit;
+          }
+        }
+        creditUsed = Math.min(initialCredit, creditUsed > 0 ? creditUsed : initialCredit);
+      }
+
+      if (creditUsed > 0) {
+        const cPhone = String(getFuzzyKey(crs, ["เบอร์โทร", "col_1", "phone"]) || '').replace(/\D/g, '');
+        if (cPhone && cPhone.length >= 9) {
+          coursesCreditUsedByPhone.set(cPhone, (coursesCreditUsedByPhone.get(cPhone) || 0) + creditUsed);
+        }
+        const cName = String(getFuzzyKey(crs, ["ผู้ซื้อคอส", "ชื่อลูกค้า", "col_9", "customerName", "name"]) || '').replace(/\s+/g, '').toLowerCase();
+        if (cName) {
+          coursesCreditUsedByName.set(cName, (coursesCreditUsedByName.get(cName) || 0) + creditUsed);
+        }
+      }
+    });
+
     return customersRaw.map(c => {
       const oldAmount = parseNumber(getFuzzyKey(c, ["ยอดสะสม", "col_13"]));
       const posName = String(getFuzzyKey(c, ["ชื่อ", "col_1"]) || '').trim();
@@ -1843,19 +1902,40 @@ export default function App() {
              } else {
                  historyEarned += amt;
                  // ในระบบเก่าทุกยอดที่มียอดเงินคือยอดซื้อสินค้า (col_19 = ยอดสินค้า)
-                 if (isLegacy || type.includes('สินค้า') || rawProduct.length > 0) {
+                 // และรวมรายการจัดซื้อ เบิกสินค้า หรือที่มีชื่อสินค้า
+                 if (
+                   isLegacy || 
+                   type.includes('สินค้า') || 
+                   type.includes('จัดซื้อ') || 
+                   type.includes('เบิก') || 
+                   isRealProductRequisition(rawProduct) || 
+                   rawProduct.length > 0
+                 ) {
                      productEarned += amt;
                  }
              }
          }
       });
 
-      const totalAccumulated = oldAmount + historyEarned - historySpent;
-      const productAccumulatedAmount = oldAmount + productEarned;
+      const courseCreditUsed = 
+        (cleanPhone && coursesCreditUsedByPhone.get(cleanPhone)) || 
+        (normPosName && coursesCreditUsedByName.get(normPosName)) || 
+        (normDisplayName && coursesCreditUsedByName.get(normDisplayName)) || 
+        0;
+
+      // ปรับปรุงยอดสะสมสินค้า: รวมยอดจากประวัติ และยอดเครดิตคอร์สที่เบิกใช้ (เช่น เครดิต 5,000 ใช้ครบ 5,000)
+      const productAccumulatedAmount = Math.max(oldAmount + productEarned, courseCreditUsed);
+      const totalAccumulated = Math.max(oldAmount + historyEarned - historySpent, productAccumulatedAmount);
       
       let memberStatus = String(getFuzzyKey(c, ["สถานะสมาชิก", "col_7"]) || '').trim() || 'ทั่วไป';
-      if (productAccumulatedAmount >= 5000 && ['ยังไม่สะสมยอด', 'ทั่วไป', 'สะสมยอด', ''].includes(memberStatus)) memberStatus = 'รอบัตร';
-      else if (productAccumulatedAmount > 0 && productAccumulatedAmount < 5000 && ['ยังไม่สะสมยอด', 'ทั่วไป', ''].includes(memberStatus)) memberStatus = 'สะสมยอด';
+      if (productAccumulatedAmount >= 5000) {
+        // เมื่อยอดสะสมครบ 5,000 ปรับเป็นสมาชิก VIP ได้ทันที
+        if (['ยังไม่สะสมยอด', 'ทั่วไป', 'สะสมยอด', '', 'รอบัตร'].includes(memberStatus)) {
+          memberStatus = 'สมาชิกระดับ VIP';
+        }
+      } else if (productAccumulatedAmount > 0 && productAccumulatedAmount < 5000 && ['ยังไม่สะสมยอด', 'ทั่วไป', ''].includes(memberStatus)) {
+        memberStatus = 'สะสมยอด';
+      }
       
       // 🌟 ดึงข้อมูลรูปภาพสำหรับ Customer
       const picData = getProfilePicData(c, null);
@@ -1880,7 +1960,7 @@ export default function App() {
         createdAtTimestamp
       };
     });
-  }, [customersRaw, histories]);
+  }, [customersRaw, histories, courses]);
 
   // 🌟 Clean customer phone set for O(1) fast new vs returning customer lookup
   const customerPhoneSet = useMemo(() => {
