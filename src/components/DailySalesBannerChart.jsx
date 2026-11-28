@@ -84,6 +84,24 @@ const extractIsoDate = (val) => {
 
 const UNPAID_ORDER_STATUSES = ['รอชำระเงิน', 'รอตรวจสอบ', 'รอตรวจสอบยอดโอน', 'รอดำเนินการ', 'รอประเมินราคา', 'ยกเลิก', 'cancelled'];
 
+export const isShopeeOrder = (o) => {
+  if (!o) return false;
+  const channel = String(o.orderChannel || o.channel || '').toLowerCase();
+  const source = String(o.source || '').toUpperCase();
+  const payment = String(o.paymentMethod || o.method || '').toLowerCase();
+  return (
+    channel === 'shopee' ||
+    channel.includes('shopee') ||
+    channel.includes('ช้อปปี้') ||
+    channel.includes('ช็อปปี้') ||
+    source === 'SHOPEE' ||
+    Boolean(o.shopeeNetReceived !== undefined && o.shopeeNetReceived !== '') ||
+    payment.includes('shopee') ||
+    payment.includes('ช้อปปี้') ||
+    payment.includes('ช็อปปี้')
+  );
+};
+
 // Check if order counts toward customer sales revenue (real POS & approved/paid sales)
 const isOrderCompletedForRevenue = (o) => {
   if (!o || o.isCancelled || o.source === 'POS_Parked' || o.mergedIntoPosOrderNo) return false;
@@ -96,6 +114,14 @@ const isOrderCompletedForRevenue = (o) => {
   const rawStatus = String(getFuzzyKey(o, ['status', 'สถานะ']) || '').trim();
   if (rawStatus && UNPAID_ORDER_STATUSES.some(s => rawStatus.toLowerCase().includes(s.toLowerCase()))) {
     return false;
+  }
+
+  // Non-cancelled Shopee orders always count towards revenue
+  if (isShopeeOrder(o)) {
+    if (rawStatus && (rawStatus.includes('ยกเลิก') || rawStatus.includes('cancel') || rawStatus.includes('คืนเงิน') || rawStatus.includes('refund'))) {
+      return false;
+    }
+    return true;
   }
 
   // POS orders (source === 'POS') are real completed point-of-sale transactions
@@ -118,8 +144,7 @@ const isOrderCompletedForRevenue = (o) => {
 };
 
 const getEffectiveOrderPrice = (o) => {
-  const isShopee = o?.source === 'SHOPEE' || String(o?.orderChannel || '').toLowerCase() === 'shopee';
-  if (isShopee && o?.shopeeNetReceived !== undefined && o?.shopeeNetReceived !== '') {
+  if (isShopeeOrder(o) && o?.shopeeNetReceived !== undefined && o?.shopeeNetReceived !== '') {
     return parseNumber(o.shopeeNetReceived);
   }
   return parseNumber(o?.price ?? o?.total ?? o?.totalPrice ?? o?.netPrice ?? 0);
@@ -129,8 +154,13 @@ const parsePaymentBreakdown = (o) => {
   let cash = 0;
   let transfer = 0;
   let cod = 0;
+  let shopee = 0;
   let other = 0;
   const price = getEffectiveOrderPrice(o);
+  const isShopee = isShopeeOrder(o);
+  if (isShopee) {
+    shopee = price;
+  }
   const methodStr = String(o?.paymentMethod || o?.method || o?.paymentType || '').trim();
 
   if (methodStr.includes(':')) {
@@ -150,7 +180,9 @@ const parsePaymentBreakdown = (o) => {
     });
   } else {
     const lower = methodStr.toLowerCase();
-    if (lower === 'cash' || lower.includes('เงินสด')) {
+    if (isShopee) {
+      shopee = price;
+    } else if (lower === 'cash' || lower.includes('เงินสด')) {
       cash = price;
     } else if (lower === 'transfer' || lower.includes('โอน') || lower.includes('promptpay') || lower.includes('qr')) {
       transfer = price;
@@ -162,7 +194,7 @@ const parsePaymentBreakdown = (o) => {
     }
   }
 
-  return { cash, transfer, cod, other };
+  return { cash, transfer, cod, shopee, other };
 };
 
 const THAI_DAYS_SHORT = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
@@ -231,20 +263,36 @@ export default function DailySalesBannerChart({
       if (!ordersByDate[dateIso]) {
         ordersByDate[dateIso] = {
           total: 0,
+          inStoreTotal: 0,
+          shopeeTotal: 0,
           cash: 0,
           transfer: 0,
+          cod: 0,
+          shopee: 0,
           other: 0,
           orderCount: 0,
+          inStoreOrderCount: 0,
+          shopeeOrderCount: 0,
           orders: []
         };
       }
+      const isShopee = isShopeeOrder(o);
       const price = getEffectiveOrderPrice(o);
       const breakdown = parsePaymentBreakdown(o);
       ordersByDate[dateIso].total += price;
+      if (isShopee) {
+        ordersByDate[dateIso].shopeeTotal += price;
+        ordersByDate[dateIso].shopeeOrderCount += 1;
+        ordersByDate[dateIso].shopee += price;
+      } else {
+        ordersByDate[dateIso].inStoreTotal += price;
+        ordersByDate[dateIso].inStoreOrderCount += 1;
+      }
       ordersByDate[dateIso].cash += breakdown.cash;
       ordersByDate[dateIso].transfer += breakdown.transfer;
+      ordersByDate[dateIso].cod += breakdown.cod;
       ordersByDate[dateIso].other += breakdown.other;
-      if (price > 0 || o.source === 'POS') {
+      if (price > 0 || o.source === 'POS' || isShopee) {
         ordersByDate[dateIso].orderCount += 1;
       }
       ordersByDate[dateIso].orders.push(o);
@@ -291,7 +339,9 @@ export default function DailySalesBannerChart({
       const monthName = THAI_MONTHS_SHORT[dObj.getMonth()];
       const thaiYearShort = (year + 543) % 100;
 
-      const ordData = ordersByDate[dateStr] || { total: 0, cash: 0, transfer: 0, other: 0, orderCount: 0 };
+      const ordData = ordersByDate[dateStr] || { 
+        total: 0, inStoreTotal: 0, shopeeTotal: 0, cash: 0, transfer: 0, cod: 0, shopee: 0, other: 0, orderCount: 0, inStoreOrderCount: 0, shopeeOrderCount: 0 
+      };
       const eodData = eodByDate[dateStr];
 
       // รายรับจริงมาจากยอดบิลขาย POS โดยตรง ไม่นำยอดส่งยอดมาบวกซ้ำซ้อน
@@ -311,10 +361,15 @@ export default function DailySalesBannerChart({
         fullLabel: `${dayName} ${day} ${monthName} ${year + 543}`,
         total: dayTotal,
         posTotal: ordData.total,
+        inStoreTotal: ordData.inStoreTotal,
+        shopeeTotal: ordData.shopeeTotal,
         eodTotal: eodData ? eodData.totalSales : 0,
         cash: ordData.cash || (eodData ? eodData.cashSales : 0),
         transfer: ordData.transfer || (eodData ? eodData.transferSales : 0),
+        shopee: ordData.shopee || 0,
         orderCount: ordData.orderCount,
+        inStoreOrderCount: ordData.inStoreOrderCount,
+        shopeeOrderCount: ordData.shopeeOrderCount,
         isToday: dateStr === todayIso,
         isSubmitted: Boolean(eodData)
       };
@@ -326,23 +381,32 @@ export default function DailySalesBannerChart({
     const yesterdayIso = getLocalYYYYMMDD(yesterdayDate);
 
     const todayItem = chartItems.find(i => i.dateStr === todayIso) || {
-      total: 0, posTotal: 0, eodTotal: 0, cash: 0, transfer: 0, orderCount: 0
+      total: 0, posTotal: 0, inStoreTotal: 0, shopeeTotal: 0, eodTotal: 0, cash: 0, transfer: 0, shopee: 0, orderCount: 0, inStoreOrderCount: 0, shopeeOrderCount: 0
     };
     const yesterdayItem = chartItems.find(i => i.dateStr === yesterdayIso) || {
-      total: 0, posTotal: 0, eodTotal: 0, cash: 0, transfer: 0, orderCount: 0
+      total: 0, posTotal: 0, inStoreTotal: 0, shopeeTotal: 0, eodTotal: 0, cash: 0, transfer: 0, shopee: 0, orderCount: 0, inStoreOrderCount: 0, shopeeOrderCount: 0
     };
 
     // Month-to-date calculation (all days from 1st of current month up to today)
     const currentMonthPrefix = todayIso.substring(0, 7);
 
-    // 1. ยอดสะสมจริงจาก POS (บิลขายหน้าร้าน)
+    // 1. ยอดสะสมจริงจาก POS (บิลขายหน้าร้าน + Shopee)
     let mtdPosSum = 0;
     let mtdPosOrdersCount = 0;
     let mtdPosDaysCount = 0;
+    let mtdShopeeSum = 0;
+    let mtdShopeeOrdersCount = 0;
+    let mtdInStorePosSum = 0;
+    let mtdInStorePosOrdersCount = 0;
+
     Object.entries(ordersByDate).forEach(([dStr, val]) => {
       if (dStr.startsWith(currentMonthPrefix) && dStr <= todayIso) {
         mtdPosSum += val.total;
         mtdPosOrdersCount += val.orderCount;
+        mtdShopeeSum += (val.shopeeTotal || 0);
+        mtdShopeeOrdersCount += (val.shopeeOrderCount || 0);
+        mtdInStorePosSum += (val.inStoreTotal || 0);
+        mtdInStorePosOrdersCount += (val.inStoreOrderCount || 0);
         if (val.total > 0) mtdPosDaysCount++;
       }
     });
@@ -397,6 +461,10 @@ export default function DailySalesBannerChart({
       mtdPosTotal: mtdPosSum,
       mtdPosOrdersCount,
       mtdPosDaysCount,
+      mtdInStorePosTotal: mtdInStorePosSum,
+      mtdInStorePosOrdersCount,
+      mtdShopeeTotal: mtdShopeeSum,
+      mtdShopeeOrdersCount,
       mtdEodTotal: mtdEodSum,
       mtdEodDaysCount,
       mtdDepositTotal: mtdDepositSum,
@@ -411,6 +479,7 @@ export default function DailySalesBannerChart({
     ? Math.round((diffFromYesterday / yesterdayStats.total) * 100) 
     : (todayStats.total > 0 ? 100 : 0);
   const mtdDiff = mtdPosTotal - mtdEodTotal;
+  const inStoreDiff = (mtdShopeeTotal > 0 ? mtdInStorePosTotal : mtdPosTotal) - mtdEodTotal;
 
   // Average per day in current timeframe
   const totalInPeriod = chartData.reduce((s, i) => s + i.total, 0);
@@ -562,7 +631,9 @@ export default function DailySalesBannerChart({
         <div className="bg-slate-800/50 hover:bg-slate-800/70 p-4 sm:p-5 rounded-2xl border border-indigo-500/20 backdrop-blur-md transition-all">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-xs font-bold text-slate-400">ช่องทางชำระวันนี้</span>
-            <span className="text-[10px] text-indigo-300 font-bold">โอน / เงินสด</span>
+            <span className="text-[10px] text-indigo-300 font-bold">
+              โอน / เงินสด{todayStats.shopee > 0 ? ' / Shopee' : ''}
+            </span>
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-lg sm:text-xl font-black text-cyan-300">
@@ -579,15 +650,21 @@ export default function DailySalesBannerChart({
                   style={{ width: `${Math.round((todayStats.transfer / todayStats.total) * 100)}%` }} 
                 />
                 <div 
-                  className="bg-emerald-400 h-full rounded-r-full" 
+                  className="bg-emerald-400 h-full" 
                   style={{ width: `${Math.round((todayStats.cash / todayStats.total) * 100)}%` }} 
                 />
+                {todayStats.shopee > 0 && (
+                  <div 
+                    className="bg-orange-500 h-full rounded-r-full" 
+                    style={{ width: `${Math.round((todayStats.shopee / todayStats.total) * 100)}%` }} 
+                  />
+                )}
               </>
             ) : (
               <div className="w-full bg-slate-700" />
             )}
           </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-400">
+          <div className="flex items-center justify-between text-[11px] text-slate-400 flex-wrap gap-1">
             <span className="flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
               โอน {todayStats.total > 0 ? Math.round((todayStats.transfer / todayStats.total) * 100) : 0}%
@@ -596,10 +673,16 @@ export default function DailySalesBannerChart({
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
               สด ฿{todayStats.cash.toLocaleString()}
             </span>
+            {todayStats.shopee > 0 && (
+              <span className="flex items-center gap-1 text-orange-400 font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+                Shopee ฿{todayStats.shopee.toLocaleString()}
+              </span>
+            )}
           </div>
         </div>
 
-        {/* KPI 3: ยอดสะสมเดือนนี้ (MTD) - ยอดจาก POS คู่กับ ยอดส่งยอด */}
+        {/* KPI 3: ยอดสะสมเดือนนี้ (MTD) - ยอดจาก POS คู่กับ ยอด Shopee และ ยอดส่งยอด */}
         <div className="bg-slate-800/50 hover:bg-slate-800/70 p-3.5 sm:p-5 rounded-2xl border border-indigo-500/20 backdrop-blur-md transition-all flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -612,25 +695,43 @@ export default function DailySalesBannerChart({
               </span>
             </div>
 
-            {/* แถบคู่: ยอดจาก POS คู่กับ ยอดส่งยอด */}
+            {/* แถบคู่ / สามแถว: ยอดจาก POS หน้าร้าน, ยอด Shopee, ยอดส่งยอด */}
             <div className="space-y-1.5 sm:space-y-2">
               {/* บรรทัด 1: ยอดจาก POS */}
               <div className="flex items-center justify-between bg-slate-900/70 px-2.5 py-1.5 sm:py-2 rounded-xl border border-cyan-500/30">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-xs shadow-cyan-400/50" />
-                  <span className="text-[11px] sm:text-xs font-bold text-cyan-300">ยอด POS</span>
+                  <span className="text-[11px] sm:text-xs font-bold text-cyan-300">
+                    {mtdShopeeTotal > 0 ? 'ยอด POS (หน้าร้าน)' : 'ยอด POS'}
+                  </span>
                 </div>
                 <div className="text-right flex items-baseline gap-1">
                   <span className="text-base sm:text-lg font-black text-white tracking-tight">
-                    ฿{mtdPosTotal.toLocaleString()}
+                    ฿{(mtdShopeeTotal > 0 ? mtdInStorePosTotal : mtdPosTotal).toLocaleString()}
                   </span>
                   <span className="text-[10px] text-slate-400 font-medium">
-                    ({mtdPosOrdersCount} บิล)
+                    ({mtdShopeeTotal > 0 ? mtdInStorePosOrdersCount : mtdPosOrdersCount} บิล)
                   </span>
                 </div>
               </div>
 
-              {/* บรรทัด 2: ยอดส่งยอด (EOD) */}
+              {/* บรรทัด 2: ยอด Shopee (ช้อปปี้) */}
+              <div className="flex items-center justify-between bg-slate-900/70 px-2.5 py-1.5 sm:py-2 rounded-xl border border-orange-500/30">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-orange-500 shadow-xs shadow-orange-500/50" />
+                  <span className="text-[11px] sm:text-xs font-bold text-orange-400">ยอด Shopee</span>
+                </div>
+                <div className="text-right flex items-baseline gap-1">
+                  <span className="text-base sm:text-lg font-black text-orange-200 tracking-tight">
+                    ฿{mtdShopeeTotal.toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    ({mtdShopeeOrdersCount} บิล)
+                  </span>
+                </div>
+              </div>
+
+              {/* บรรทัด 3: ยอดส่งยอด (EOD) */}
               <div className="flex items-center justify-between bg-slate-900/70 px-2.5 py-1.5 sm:py-2 rounded-xl border border-purple-500/30">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-purple-400 shadow-xs shadow-purple-400/50" />
@@ -651,13 +752,13 @@ export default function DailySalesBannerChart({
           {/* ส่วนท้าย: เปรียบเทียบส่วนต่าง และเฉลี่ยต่อวัน */}
           <div className="mt-2.5 pt-2 border-t border-slate-700/60 flex items-center justify-between text-[11px] text-slate-400 flex-wrap gap-1">
             <span className="flex items-center gap-1">
-              {Math.abs(mtdDiff) === 0 ? (
-                <span className="text-emerald-400 font-bold">✓ ยอดตรงกัน</span>
-              ) : Math.abs(mtdDiff) < 100 ? (
-                <span className="text-emerald-400 font-bold">✓ ยอดตรงกัน (ต่าง ฿{Math.abs(mtdDiff).toLocaleString()})</span>
+              {Math.abs(inStoreDiff) === 0 ? (
+                <span className="text-emerald-400 font-bold">✓ หน้าร้านตรงกับส่งยอด</span>
+              ) : Math.abs(inStoreDiff) < 100 ? (
+                <span className="text-emerald-400 font-bold">✓ ยอดตรงกัน (ต่าง ฿{Math.abs(inStoreDiff).toLocaleString()})</span>
               ) : (
-                <span className={`font-semibold ${mtdDiff > 0 ? 'text-amber-300' : 'text-rose-400'}`}>
-                  ต่างกัน: ฿{Math.abs(mtdDiff).toLocaleString()}
+                <span className={`font-semibold ${inStoreDiff > 0 ? 'text-amber-300' : 'text-rose-400'}`}>
+                  ต่างกัน: ฿{Math.abs(inStoreDiff).toLocaleString()}
                 </span>
               )}
             </span>
@@ -711,6 +812,11 @@ export default function DailySalesBannerChart({
               <span className="text-cyan-300 bg-cyan-950/50 px-2 py-0.5 rounded-lg border border-cyan-500/30 text-[11px]">
                 POS: ฿{(activeDay.posTotal ?? activeDay.total).toLocaleString()} ({activeDay.orderCount} บิล)
               </span>
+              {activeDay.shopeeTotal > 0 && (
+                <span className="text-orange-300 bg-orange-950/50 px-2 py-0.5 rounded-lg border border-orange-500/30 text-[11px]">
+                  Shopee: ฿{activeDay.shopeeTotal.toLocaleString()} ({activeDay.shopeeOrderCount} บิล)
+                </span>
+              )}
               {activeDay.isSubmitted ? (
                 <span className="text-purple-300 bg-purple-950/50 px-2 py-0.5 rounded-lg border border-purple-500/30 text-[11px]">
                   ส่งยอด: ฿{(activeDay.eodTotal || 0).toLocaleString()} ✓

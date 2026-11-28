@@ -147,11 +147,23 @@ export default function DailySalesPreviewModal({
     let codSalesAmt = 0;
     let cashSalesAmt = 0;
     let transferSalesAmt = 0;
+    let shopeeSalesAmt = 0;
     const allSalesDetails = [];
 
     dayOrders.forEach((o, idx) => {
-      const orderTotal = parseNumber(o.price ?? o.total ?? o.totalPrice ?? o.netPrice ?? 0);
       const paymentStr = String(o.paymentMethod || o.method || '').trim();
+      const isShopee = o.orderChannel === 'shopee' ||
+        String(o.orderChannel || '').toLowerCase().includes('shopee') ||
+        o.source === 'SHOPEE' ||
+        Boolean(o.shopeeNetReceived !== undefined && o.shopeeNetReceived !== '') ||
+        paymentStr.toLowerCase().includes('shopee') ||
+        paymentStr.includes('ช้อปปี้') ||
+        paymentStr.includes('ช็อปปี้');
+
+      const orderTotal = isShopee && o?.shopeeNetReceived !== undefined && o?.shopeeNetReceived !== ''
+        ? parseNumber(o.shopeeNetReceived)
+        : parseNumber(o.price ?? o.total ?? o.totalPrice ?? o.netPrice ?? 0);
+
       const isOwnerZeroPay = paymentStr.includes('สิทธิ์เจ้าของ') || (o.price === '0' && o.courseName);
       
       // Breakdown items
@@ -182,7 +194,7 @@ export default function DailySalesPreviewModal({
         tItems = [{ name: o.courseName, qty: parseNumber(o.qty || 1) }];
         cSum = orderTotal;
       } else {
-        tItems = [{ name: 'สินค้า/บริการ', qty: 1 }];
+        tItems = [{ name: isShopee ? (o.itemName || 'สินค้า Shopee') : 'สินค้า/บริการ', qty: 1 }];
         pSum = orderTotal;
       }
 
@@ -191,37 +203,41 @@ export default function DailySalesPreviewModal({
       manualSalesAmt += mSum;
 
       // Payment breakdowns
-      if (paymentStr.includes('เงินสด:')) {
-        const m = paymentStr.match(/เงินสด:\s*([\d.]+)/);
-        if (m) cashSalesAmt += parseFloat(m[1]);
-      } else if (paymentStr.toLowerCase() === 'cash' || paymentStr.includes('เงินสด')) {
-        cashSalesAmt += orderTotal;
-      }
+      if (isShopee) {
+        shopeeSalesAmt += orderTotal;
+      } else {
+        if (paymentStr.includes('เงินสด:')) {
+          const m = paymentStr.match(/เงินสด:\s*([\d.]+)/);
+          if (m) cashSalesAmt += parseFloat(m[1]);
+        } else if (paymentStr.toLowerCase() === 'cash' || paymentStr.includes('เงินสด')) {
+          cashSalesAmt += orderTotal;
+        }
 
-      if (paymentStr.includes('โอนเงิน:')) {
-        const m = paymentStr.match(/โอนเงิน:\s*([\d.]+)/);
-        if (m) transferSalesAmt += parseFloat(m[1]);
-      } else if (paymentStr.toLowerCase() === 'transfer' || paymentStr.includes('โอน') || paymentStr.includes('qr')) {
-        transferSalesAmt += orderTotal;
-      }
-
-      if (paymentStr.includes('ตัดเครดิต:') || paymentStr.includes('เครดิต:')) {
-        const m = paymentStr.match(/(?:ตัดเครดิต|เครดิต):\s*([\d.]+)/);
-        if (m) creditSalesAmt += parseFloat(m[1]);
-      } else if (paymentStr.includes('เครดิต')) {
-        creditSalesAmt += orderTotal;
-      }
-
-      if (paymentStr.includes('ค้าง') || paymentStr.includes('COD')) {
-        const m = paymentStr.match(/(?:ค้าง\/COD|COD):\s*([\d.]+)/);
-        if (m) codSalesAmt += parseFloat(m[1]);
-        else codSalesAmt += orderTotal;
-      }
-
-      // Default payment channel fallback
-      if (!paymentStr.includes(':') && !paymentStr.includes('เงินสด') && !paymentStr.includes('เครดิต') && !paymentStr.includes('COD') && !isOwnerZeroPay) {
-        if (transferSalesAmt === 0 && cashSalesAmt === 0) {
+        if (paymentStr.includes('โอนเงิน:')) {
+          const m = paymentStr.match(/โอนเงิน:\s*([\d.]+)/);
+          if (m) transferSalesAmt += parseFloat(m[1]);
+        } else if (paymentStr.toLowerCase() === 'transfer' || paymentStr.includes('โอน') || paymentStr.includes('qr')) {
           transferSalesAmt += orderTotal;
+        }
+
+        if (paymentStr.includes('ตัดเครดิต:') || paymentStr.includes('เครดิต:')) {
+          const m = paymentStr.match(/(?:ตัดเครดิต|เครดิต):\s*([\d.]+)/);
+          if (m) creditSalesAmt += parseFloat(m[1]);
+        } else if (paymentStr.includes('เครดิต')) {
+          creditSalesAmt += orderTotal;
+        }
+
+        if (paymentStr.includes('ค้าง') || paymentStr.includes('COD')) {
+          const m = paymentStr.match(/(?:ค้าง\/COD|COD):\s*([\d.]+)/);
+          if (m) codSalesAmt += parseFloat(m[1]);
+          else codSalesAmt += orderTotal;
+        }
+
+        // Default payment channel fallback
+        if (!paymentStr.includes(':') && !paymentStr.includes('เงินสด') && !paymentStr.includes('เครดิต') && !paymentStr.includes('COD') && !isOwnerZeroPay) {
+          if (transferSalesAmt === 0 && cashSalesAmt === 0) {
+            transferSalesAmt += orderTotal;
+          }
         }
       }
 
@@ -233,10 +249,10 @@ export default function DailySalesPreviewModal({
         id: o.id || idx,
         orderNo: o.orderNo || `POS${String(idx + 1).padStart(6, '0')}`,
         time: timeFormatted,
-        customer: o.customerName || (o.isWalkIn ? 'ลูกค้าทั่วไป (Walk-in)' : 'ลูกค้าทั่วไป'),
+        customer: o.customerName || (isShopee ? 'ลูกค้า Shopee' : (o.isWalkIn ? 'ลูกค้าทั่วไป (Walk-in)' : 'ลูกค้าทั่วไป')),
         items: tItems,
         amount: orderTotal,
-        paymentStr: paymentStr || (isOwnerZeroPay ? 'สิทธิ์เจ้าของร้าน (ตรวจเช็คฟรี)' : 'โอนเงิน')
+        paymentStr: isShopee ? 'Shopee (ช้อปปี้)' : (paymentStr || (isOwnerZeroPay ? 'สิทธิ์เจ้าของร้าน (ตรวจเช็คฟรี)' : 'โอนเงิน'))
       });
     });
 
@@ -247,13 +263,14 @@ export default function DailySalesPreviewModal({
     const finalCodSales = codSalesAmt > 0 ? codSalesAmt : parseNumber(dayEod?.codSales || 0);
     const finalCashSales = cashSalesAmt > 0 ? cashSalesAmt : parseNumber(dayEod?.cashSales || 0);
     const finalTransferSales = transferSalesAmt > 0 ? transferSalesAmt : parseNumber(dayEod?.transferSales || 0);
+    const finalShopeeSales = shopeeSalesAmt;
 
     const totalNetSales = finalProductSales + finalCourseSales + finalCreditSales + finalCodSales;
 
     // Cash flow metrics
     const floatCash = dayEod ? parseNumber(dayEod.floatCash || 0) : 1000;
     const cashTotalInDrawer = finalCashSales + floatCash;
-    const nonCashSales = finalTransferSales + finalCreditSales + finalCodSales;
+    const nonCashSales = finalTransferSales + finalCreditSales + finalCodSales + finalShopeeSales;
     const totalSystemBalance = cashTotalInDrawer + nonCashSales;
 
     const baseFloat = Math.floor(floatCash / 100) * 100;
@@ -465,7 +482,7 @@ export default function DailySalesPreviewModal({
                     </td>
                   </tr>
                   <tr>
-                    <td className="border border-slate-300 p-3">ยอดขายช่องทางอื่น (โอน/เครดิต/COD)</td>
+                    <td className="border border-slate-300 p-3">ยอดขายช่องทางอื่น (โอน/เครดิต/COD/Shopee)</td>
                     <td className="border border-slate-300 p-3 text-right font-bold text-blue-600">
                       ฿{summary.nonCashSales.toLocaleString()}
                     </td>
