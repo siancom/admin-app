@@ -116,6 +116,15 @@ const getEffectiveOrderPrice = (o) =>
     ? parseNumber(o.shopeeNetReceived)
     : parseNumber(o?.price);
 
+export const isExpensePaid = (e) => {
+  if (!e) return false;
+  const status = String(e.status || e.paymentStatus || '').trim().toLowerCase();
+  if (status === 'ยังไม่จ่าย' || status === 'unpaid' || status === 'รอจ่าย' || status === 'ค้างจ่าย' || status === 'pending') {
+    return false;
+  }
+  return true;
+};
+
 const matchesBranchFilter = (recordBranch, selectedBranch) => {
   if (!selectedBranch || selectedBranch === 'ทั้งหมด') return true;
   return normalizeBranchName(recordBranch) === normalizeBranchName(selectedBranch);
@@ -235,7 +244,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
   const [previewImage, setPreviewImage] = useState(null);
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [selectedPaymentCourse, setSelectedPaymentCourse] = useState(null);
-  const [expenseForm, setExpenseForm] = useState({ date: getLocalDateStr(), category: 'เงินเดือนพนักงาน', amount: '', note: '', branch: 'สำนักงานใหญ่', receiptFile: null, receiptPreview: null });
+  const [expenseForm, setExpenseForm] = useState({ date: getLocalDateStr(), category: 'เงินเดือนพนักงาน', amount: '', note: '', branch: 'สำนักงานใหญ่', status: 'จ่ายแล้ว', receiptFile: null, receiptPreview: null });
   const [treasuryForm, setTreasuryForm] = useState({ amount: '', category: 'เงินทุนตั้งต้น', date: getLocalDateStr(), note: '', branch: 'สำนักงานใหญ่', bankName: '', bankAccountName: '' });
   const [showTreasuryHistory, setShowTreasuryHistory] = useState(null);
   const [isTreasurySummaryOpen, setIsTreasurySummaryOpen] = useState(false);
@@ -250,7 +259,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
 
   const branchOptions = ['ทั้งหมด', ...branches.map(b => b.name || b.id)];
 
-  const opexExpenses = useMemo(() => expenses.filter(e => !isTreasuryRecord(e)), [expenses]);
+  const opexExpenses = useMemo(() => expenses.filter(e => !isTreasuryRecord(e) && isExpensePaid(e)), [expenses]);
 
   const expenseDataByBranch = useMemo(() => {
     const currentMonthPrefix = getLocalYYYYMMDD(new Date()).substring(0, 7);
@@ -957,11 +966,13 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
         category: expenseForm.category,
         amount: parseNumber(expenseForm.amount),
         note: expenseForm.note,
+        status: expenseForm.status || 'จ่ายแล้ว',
+        paymentStatus: (expenseForm.status || 'จ่ายแล้ว') === 'จ่ายแล้ว' ? 'paid' : 'unpaid',
         receiptUrl: receiptUrl,
         createdAt: new Date().toISOString()
       });
       alert('บันทึกรายจ่ายเรียบร้อย');
-      setExpenseForm({ date: expenseForm.date, branch: expenseForm.branch, category: expenseForm.category, amount: '', note: '', receiptFile: null, receiptPreview: null });
+      setExpenseForm({ date: expenseForm.date, branch: expenseForm.branch, category: expenseForm.category, amount: '', note: '', status: 'จ่ายแล้ว', receiptFile: null, receiptPreview: null });
     } catch (e) {
       console.error(e);
       alert('เกิดข้อผิดพลาดในการบันทึกรายจ่าย');
@@ -2288,6 +2299,34 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                       </select>
                     </div>
                  </div>
+
+                 {/* Payment Status Selector */}
+                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-0.5">สถานะการจ่ายเงิน</label>
+                      <p className="text-[11px] text-slate-400">รายการ "จ่ายแล้ว" จะนำไปคำนวณใน OPEX ทันที</p>
+                    </div>
+                    <div className="flex bg-slate-200/70 p-1 rounded-xl gap-1">
+                       <button
+                          type="button"
+                          onClick={() => setExpenseForm({ ...expenseForm, status: 'จ่ายแล้ว' })}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                             expenseForm.status === 'จ่ายแล้ว' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-800'
+                          }`}
+                       >
+                          ✓ จ่ายแล้ว
+                       </button>
+                       <button
+                          type="button"
+                          onClick={() => setExpenseForm({ ...expenseForm, status: 'ยังไม่จ่าย' })}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                             expenseForm.status === 'ยังไม่จ่าย' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-800'
+                          }`}
+                       >
+                          ⏳ ยังไม่จ่าย
+                       </button>
+                    </div>
+                 </div>
                  
                  {expenseForm.category === 'เงินเดือนพนักงาน' && payrollSummary && (
                    <div className="space-y-4">
@@ -2453,8 +2492,31 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
 
             {/* List */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden mt-6">
-              <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
+              <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <h2 className="font-bold text-slate-800 flex items-center gap-2"><ListChecks size={18} className="text-slate-400" /> ประวัติค่าใช้จ่ายเดือนนี้</h2>
+                {(() => {
+                  const currentMonthPrefix = getLocalYYYYMMDD(new Date()).substring(0, 7);
+                  const monthList = expenses
+                    .filter(e => !isTreasuryRecord(e))
+                    .filter(e => {
+                      const iso = extractIsoDate(e.date);
+                      return Boolean(iso && iso.startsWith(currentMonthPrefix));
+                    });
+                  const paidTotal = monthList.filter(isExpensePaid).reduce((s, e) => s + parseNumber(e.amount), 0);
+                  const unpaidTotal = monthList.filter(e => !isExpensePaid(e)).reduce((s, e) => s + parseNumber(e.amount), 0);
+                  return (
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
+                      <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-xl">
+                        ✓ จ่ายแล้ว (คิดในระบบ): ฿{paidTotal.toLocaleString()}
+                      </span>
+                      {unpaidTotal > 0 && (
+                        <span className="bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-xl">
+                          ⏳ ยังไม่จ่าย: ฿{unpaidTotal.toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
@@ -2464,6 +2526,7 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                       <th className="px-6 py-3">สาขา</th>
                       <th className="px-6 py-3">หมวดหมู่</th>
                       <th className="px-6 py-3">รายละเอียด</th>
+                      <th className="px-6 py-3 text-center">สถานะการจ่าย</th>
                       <th className="px-6 py-3 text-right">จำนวนเงิน</th>
                       <th className="px-6 py-3 text-center">จัดการ</th>
                     </tr>
@@ -2471,14 +2534,15 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                   <tbody className="divide-y divide-slate-100">
                     {(() => {
                       const currentMonthPrefix = getLocalYYYYMMDD(new Date()).substring(0, 7);
-                      const monthOpexList = opexExpenses
+                      const monthOpexList = expenses
+                        .filter(e => !isTreasuryRecord(e))
                         .filter(e => {
                           const iso = extractIsoDate(e.date);
                           return Boolean(iso && iso.startsWith(currentMonthPrefix));
                         })
                         .sort((a, b) => (toValidDate(b.date)?.getTime() || 0) - (toValidDate(a.date)?.getTime() || 0));
                       if (monthOpexList.length === 0) {
-                        return <tr><td colSpan={6} className="text-center py-6 text-slate-400">ยังไม่มีประวัติค่าใช้จ่าย</td></tr>;
+                        return <tr><td colSpan={7} className="text-center py-6 text-slate-400">ยังไม่มีประวัติค่าใช้จ่าย</td></tr>;
                       }
                       return monthOpexList.map(e => (
                         <tr key={e.id} className="hover:bg-slate-50">
@@ -2486,12 +2550,43 @@ export default function FinancialDashboard({ orders = [], dailySales = [], appSe
                           <td className="px-6 py-3">{e.branch}</td>
                           <td className="px-6 py-3"><span className="bg-slate-100 text-slate-600 px-2 py-1 rounded-lg text-xs font-bold">{e.category}</span></td>
                           <td className="px-6 py-4 max-w-[200px] truncate text-slate-500">
-                            {e.note || '-'}
+                            {e.note || e.title || '-'}
+                            {e.vendor && <span className="text-xs text-slate-400 ml-1">({e.vendor})</span>}
+                            {e.employeeName && <span className="block text-[10px] text-slate-400">ผู้บันทึก: {e.employeeName}</span>}
                             {e.receiptUrl && (
                               <a href={e.receiptUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-bold ml-2 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100 transition-colors">
                                 <ImageIcon size={12} /> ดูรูปใบเสร็จ
                               </a>
                             )}
+                          </td>
+                          <td className="px-6 py-3 text-center">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const isPaid = isExpensePaid(e);
+                                const nextStatus = isPaid ? 'ยังไม่จ่าย' : 'จ่ายแล้ว';
+                                try {
+                                  const { updateDoc, doc } = await import('firebase/firestore');
+                                  await updateDoc(doc(db, 'expenses', e.id), {
+                                    status: nextStatus,
+                                    paymentStatus: nextStatus === 'จ่ายแล้ว' ? 'paid' : 'unpaid',
+                                    updatedAt: new Date().toISOString(),
+                                    ...(nextStatus === 'จ่ายแล้ว' ? { paidAt: new Date().toISOString() } : {})
+                                  });
+                                } catch (err) {
+                                  alert('อัปเดตสถานะไม่สำเร็จ: ' + err.message);
+                                }
+                              }}
+                              className={`px-3 py-1 rounded-xl text-xs font-black inline-flex items-center gap-1.5 transition-all active:scale-95 shadow-xs cursor-pointer ${
+                                isExpensePaid(e)
+                                  ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border border-emerald-300/60'
+                                  : 'bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-300/60'
+                              }`}
+                              title="คลิกเพื่อสลับสถานะ จ่ายแล้ว / ยังไม่จ่าย"
+                            >
+                              {isExpensePaid(e) ? <Check size={12} className="text-emerald-600" /> : <Clock size={12} className="text-amber-600" />}
+                              <span>{isExpensePaid(e) ? 'จ่ายแล้ว' : 'ยังไม่จ่าย'}</span>
+                            </button>
                           </td>
                           <td className="px-6 py-3 text-right font-bold text-orange-600">฿{parseNumber(e.amount).toLocaleString()}</td>
                           <td className="px-6 py-3 text-center">

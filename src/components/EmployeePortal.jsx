@@ -1,11 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Clock, Calendar, CheckCircle, UserCheck, UserMinus, X, User, LogOut, Send, Check, XCircle, History, DollarSign, Wallet, ShoppingCart, Lock, Trash2, FileText, ShieldAlert, Gift, Percent, Edit3, RotateCcw, ArrowRight, Receipt, Printer, ExternalLink, ChevronRight, AlertCircle, Eye, Users, TrendingUp, Package, Sparkles, BarChart3, PieChart, ShoppingBag, Layers, Award, Coins, ArrowUpRight } from 'lucide-react';
-import { db, getCol } from '../config/firebase';
-import { addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
+import { Clock, Calendar, CheckCircle, UserCheck, UserMinus, X, User, LogOut, Send, Check, XCircle, History, DollarSign, Wallet, ShoppingCart, Lock, Trash2, FileText, ShieldAlert, Gift, Percent, Edit3, RotateCcw, ArrowRight, Receipt, Printer, ExternalLink, ChevronRight, AlertCircle, Eye, Users, TrendingUp, Package, Sparkles, BarChart3, PieChart, ShoppingBag, Layers, Award, Coins, ArrowUpRight, Camera, Image as ImageIcon } from 'lucide-react';
+import { db, getCol, storage } from '../config/firebase';
+import { addDoc, updateDoc, doc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import PayslipModal from './PayslipModal';
 import { parseNumber, getLocalYYYYMMDD, normalizeBranchName, parseThaiDate } from '../utils/parse';
 import { getOrderStatus, isInPayrollMonth } from '../utils/dateUtils';
 import { calculateEmployeeMonthlyPayroll, calculateServiceLogFee, calculateEmployeeCommissionDetails } from '../utils/payrollUtils';
+import { isExpensePaid } from './FinancialDashboard';
 import EmploymentContractModal from './EmploymentContractModal';
 import ClockOutSummaryModal from './ClockOutSummaryModal';
 
@@ -23,6 +25,7 @@ export default function EmployeePortal({
   bookings = [],
   masterCourses = [],
   courses = [],
+  expenses = [],
   appSettings = {},
   onClose,
   onClockIn,
@@ -45,6 +48,37 @@ export default function EmployeePortal({
   const [leaveForm, setLeaveForm] = useState({ leaveType: 'ลาป่วย', startDate: '', endDate: '', reason: '', dates: [], replacementDate: '' });
   const [advanceForm, setAdvanceForm] = useState({ amount: '', reason: '' });
   const [suppliesForm, setSuppliesForm] = useState({ itemName: '', quantity: '', reason: '' });
+  const [purchaseForm, setPurchaseForm] = useState({
+    date: getLocalYYYYMMDD(),
+    itemName: '',
+    amount: '',
+    category: 'ค่าอุปกรณ์/เบิกจิปาถะ',
+    vendor: '',
+    note: '',
+    status: 'จ่ายแล้ว',
+    receiptFile: null,
+    receiptPreview: null
+  });
+  const [isSubmittingPurchase, setIsSubmittingPurchase] = useState(false);
+  const [previewReceiptImage, setPreviewReceiptImage] = useState(null);
+  const [localExpenses, setLocalExpenses] = useState(expenses || []);
+
+  useEffect(() => {
+    if (expenses && expenses.length > 0) {
+      setLocalExpenses(expenses);
+    }
+  }, [expenses]);
+
+  useEffect(() => {
+    try {
+      const unsub = onSnapshot(getCol('expenses'), (snap) => {
+        setLocalExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      }, (err) => console.error("Error listening to expenses in EmployeePortal:", err));
+      return () => unsub();
+    } catch (err) {
+      console.error("Failed to subscribe to expenses:", err);
+    }
+  }, []);
   const [serviceForm, setServiceForm] = useState({ date: getLocalYYYYMMDD(), type: 'ค่ามือ', amount: '', note: '' });
   const [benefitForm, setBenefitForm] = useState({ show: false, type: '', amount: '', note: '' });
   const [isSubmittingBenefit, setIsSubmittingBenefit] = useState(false);
@@ -182,6 +216,15 @@ export default function EmployeePortal({
   const myAttendance = useMemo(() => attendance.filter(a => a.employeeId === employee.id).sort((a,b) => new Date(b.date) - new Date(a.date)), [attendance, employee.id]);
   const myAdvances = useMemo(() => advancePayments.filter(a => a.employeeId === employee.id).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)), [advancePayments, employee.id]);
   const myRequisitions = useMemo(() => requisitions.filter(r => r.employeeId === employee.id).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)), [requisitions, employee.id]);
+  const myPurchases = useMemo(() => {
+    return (localExpenses || [])
+      .filter(e => {
+        const isMyRecord = e.employeeId === employee.id || (e.source === 'store_purchase' && e.employeeName === employee.name);
+        const isMyBranch = !e.employeeId && e.branch && normalizeBranchName(e.branch) === normalizeBranchName(employee.branch);
+        return isMyRecord || (e.source === 'store_purchase' && isMyBranch);
+      })
+      .sort((a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date));
+  }, [localExpenses, employee.id, employee.name, employee.branch]);
 
   const payrollEmployee = useMemo(() => {
      return calculateEmployeeMonthlyPayroll(employee, payrollMonth, {
@@ -601,6 +644,105 @@ export default function EmployeePortal({
         alert('เกิดข้อผิดพลาด: ' + err.message);
     }
     setIsSubmittingSupplies(false);
+  };
+
+  const handleSavePurchase = async (e) => {
+    e.preventDefault();
+    if (!purchaseForm.itemName || !purchaseForm.amount) {
+      alert('กรุณาระบุชื่อรายการและจำนวนเงิน');
+      return;
+    }
+    const numAmount = parseNumber(purchaseForm.amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      alert('กรุณาระบุจำนวนเงินที่ถูกต้อง');
+      return;
+    }
+
+    setIsSubmittingPurchase(true);
+    try {
+      let receiptUrl = null;
+      if (purchaseForm.receiptFile) {
+        try {
+          const fileExt = purchaseForm.receiptFile.name.split('.').pop() || 'jpg';
+          const fileName = `receipts/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+          const storageRef = ref(storage, fileName);
+          await uploadBytes(storageRef, purchaseForm.receiptFile);
+          receiptUrl = await getDownloadURL(storageRef);
+        } catch (uploadErr) {
+          console.error("Image upload failed:", uploadErr);
+          alert("อัปโหลดรูปภาพไม่สำเร็จ จะบันทึกข้อมูลโดยไม่มีรูปภาพ");
+        }
+      }
+
+      const isPaid = purchaseForm.status === 'จ่ายแล้ว';
+      const purchaseDoc = {
+        title: purchaseForm.itemName.trim(),
+        itemName: purchaseForm.itemName.trim(),
+        amount: numAmount,
+        category: purchaseForm.category || 'ค่าอุปกรณ์/เบิกจิปาถะ',
+        date: purchaseForm.date || getLocalYYYYMMDD(),
+        branch: employee.branch || 'สำนักงานใหญ่',
+        employeeId: employee.id,
+        employeeName: employee.name,
+        vendor: purchaseForm.vendor?.trim() || '',
+        note: purchaseForm.note?.trim() || '',
+        status: purchaseForm.status || 'จ่ายแล้ว',
+        paymentStatus: isPaid ? 'paid' : 'unpaid',
+        source: 'store_purchase',
+        receiptUrl: receiptUrl,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      await addDoc(getCol('expenses'), purchaseDoc);
+      alert(isPaid
+        ? 'บันทึกซื้อของสำเร็จ! ยอดนี้ถูกนำไปคิดในค่าใช้จ่ายร้านเรียบร้อย'
+        : 'บันทึกซื้อของสำเร็จ! (สถานะ: ยังไม่จ่าย จะยังไม่คิดเข้าค่าใช้จ่ายร้านจนกว่าจะกด "จ่ายแล้ว")'
+      );
+
+      setPurchaseForm({
+        date: getLocalYYYYMMDD(),
+        itemName: '',
+        amount: '',
+        category: 'ค่าอุปกรณ์/เบิกจิปาถะ',
+        vendor: '',
+        note: '',
+        status: 'จ่ายแล้ว',
+        receiptFile: null,
+        receiptPreview: null
+      });
+    } catch (err) {
+      console.error("Save purchase failed:", err);
+      alert('เกิดข้อผิดพลาดในการบันทึก: ' + err.message);
+    }
+    setIsSubmittingPurchase(false);
+  };
+
+  const handleTogglePurchaseStatus = async (item) => {
+    try {
+      const isPaid = isExpensePaid(item);
+      const nextStatus = isPaid ? 'ยังไม่จ่าย' : 'จ่ายแล้ว';
+      const nextPaymentStatus = isPaid ? 'unpaid' : 'paid';
+
+      await updateDoc(doc(db, 'expenses', item.id), {
+        status: nextStatus,
+        paymentStatus: nextPaymentStatus,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (err) {
+      console.error("Toggle status failed:", err);
+      alert('ไม่สามารถอัปเดตสถานะได้: ' + err.message);
+    }
+  };
+
+  const handleDeletePurchase = async (id) => {
+    if (!window.confirm('คุณต้องการลบรายการซื้อของนี้ใช่หรือไม่?')) return;
+    try {
+      await deleteDoc(doc(db, 'expenses', id));
+    } catch (err) {
+      console.error("Delete purchase failed:", err);
+      alert('ลบไม่สำเร็จ: ' + err.message);
+    }
   };
 
 
@@ -1242,9 +1384,19 @@ export default function EmployeePortal({
                               .map(a => ({ ...a, reqType: 'advance', title: 'เบิกเงินล่วงหน้า', amount: a.amount }));
                            const empRequisitions = requisitions.filter(r => r.employeeId === employee.id && getLocalYYYYMMDD(r.createdAt).startsWith(currentMonthPrefix))
                               .map(r => ({ ...r, reqType: 'requisition', title: 'เบิกของใช้: ' + r.itemName, amount: r.quantity }));
+                           const empPurchases = (localExpenses || []).filter(e => {
+                              const isMy = e.employeeId === employee.id || (e.source === 'store_purchase' && e.employeeName === employee.name);
+                              return isMy && getLocalYYYYMMDD(e.createdAt || e.date).startsWith(currentMonthPrefix);
+                           }).map(e => ({
+                              ...e,
+                              reqType: 'purchase',
+                              title: 'ซื้อของเข้าร้าน: ' + (e.title || e.itemName),
+                              amount: e.amount,
+                              status: isExpensePaid(e) ? 'จ่ายแล้ว' : 'ยังไม่จ่าย'
+                           }));
                               
-                           const allMyRequests = [...empLeaves, ...empAdvances, ...empRequisitions]
-                              .sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+                           const allMyRequests = [...empLeaves, ...empAdvances, ...empRequisitions, ...empPurchases]
+                              .sort((a,b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date));
                               
                            if (allMyRequests.length === 0) {
                               return <div className="text-center text-slate-400 font-bold py-6 bg-slate-50 rounded-2xl text-xs border border-slate-100">ไม่มีคำร้องในเดือนนี้</div>;
@@ -1255,22 +1407,23 @@ export default function EmployeePortal({
                                  <div>
                                     <div className="font-bold text-xs text-slate-800 flex items-center gap-1.5">
                                       <div className={`w-2 h-2 rounded-full ${
-                                          req.status === 'อนุมัติ' || req.status === 'อนุมัติแล้ว' ? 'bg-emerald-500' :
+                                          req.status === 'อนุมัติ' || req.status === 'อนุมัติแล้ว' || req.status === 'จ่ายแล้ว' ? 'bg-emerald-500' :
                                           req.status === 'ไม่อนุมัติ' ? 'bg-rose-500' :
                                           'bg-amber-400'
                                       }`}></div>
                                       {req.title}
                                     </div>
                                     <div className="text-[10px] text-slate-500 font-medium mt-1">
-                                       {new Date(req.createdAt).toLocaleDateString('th-TH')}
+                                       {new Date(req.createdAt || req.date).toLocaleDateString('th-TH')}
                                        {req.reqType === 'leave' && req.startDate && ` (${new Date(req.startDate).toLocaleDateString('th-TH')})`}
                                        {req.reqType === 'advance' && ` - ฿${Number(req.amount).toLocaleString()}`}
+                                       {req.reqType === 'purchase' && ` - ฿${parseNumber(req.amount).toLocaleString()}`}
                                        {req.reqType === 'requisition' && ` - จำนวน: ${req.amount}`}
                                     </div>
                                  </div>
                                  <div>
                                      <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${
-                                          req.status === 'อนุมัติ' || req.status === 'อนุมัติแล้ว' ? 'bg-emerald-100 text-emerald-700' :
+                                          req.status === 'อนุมัติ' || req.status === 'อนุมัติแล้ว' || req.status === 'จ่ายแล้ว' ? 'bg-emerald-100 text-emerald-700' :
                                           req.status === 'ไม่อนุมัติ' ? 'bg-rose-100 text-rose-700' :
                                           'bg-amber-100 text-amber-700'
                                      }`}>
@@ -2115,10 +2268,13 @@ export default function EmployeePortal({
             {/* Requests Group */}
             {activeTab === 'requests_group' && (
                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full max-h-[80vh]">
-                  <div className="flex bg-slate-50 border-b border-slate-200">
-                     <button onClick={() => setRequestsSubTab('leave')} className={`flex-1 py-4 font-bold text-sm transition-colors ${requestsSubTab === 'leave' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>ยื่นขอลา</button>
-                     <button onClick={() => setRequestsSubTab('finance')} className={`flex-1 py-4 font-bold text-sm transition-colors ${requestsSubTab === 'finance' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>เบิกเงินล่วงหน้า</button>
-                     <button onClick={() => setRequestsSubTab('supplies')} className={`flex-1 py-4 font-bold text-sm transition-colors ${requestsSubTab === 'supplies' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>เบิกของใช้</button>
+                  <div className="flex overflow-x-auto custom-scrollbar bg-slate-50 border-b border-slate-200">
+                     <button onClick={() => setRequestsSubTab('leave')} className={`flex-1 min-w-[110px] py-4 font-bold text-sm transition-colors whitespace-nowrap text-center ${requestsSubTab === 'leave' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>ยื่นขอลา</button>
+                     <button onClick={() => setRequestsSubTab('finance')} className={`flex-1 min-w-[110px] py-4 font-bold text-sm transition-colors whitespace-nowrap text-center ${requestsSubTab === 'finance' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>เบิกเงินล่วงหน้า</button>
+                     <button onClick={() => setRequestsSubTab('supplies')} className={`flex-1 min-w-[110px] py-4 font-bold text-sm transition-colors whitespace-nowrap text-center ${requestsSubTab === 'supplies' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>เบิกของใช้</button>
+                     <button onClick={() => setRequestsSubTab('purchase')} className={`flex-1 min-w-[130px] py-4 font-bold text-sm transition-colors whitespace-nowrap text-center flex items-center justify-center gap-1.5 ${requestsSubTab === 'purchase' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'text-slate-500 hover:bg-slate-100'}`}>
+                        <ShoppingBag size={16} /> ซื้อของเข้าร้าน
+                     </button>
                   </div>
                   <div className="flex-1 overflow-y-auto custom-scrollbar p-0">
                      {requestsSubTab === 'leave' && (
@@ -2313,6 +2469,310 @@ export default function EmployeePortal({
                                        )}
                                     </div>
                                  ))}
+                              </div>
+                           </div>
+                        </div>
+                     )}
+
+                     {requestsSubTab === 'purchase' && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-4 md:p-6">
+                           {/* Left Column: Purchase Form */}
+                           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col h-fit">
+                              <div className="flex items-center justify-between mb-2">
+                                 <h3 className="text-lg md:text-xl font-black text-slate-800 flex items-center gap-2">
+                                    <ShoppingBag className="text-emerald-500" /> บันทึกซื้อของเข้าร้าน
+                                 </h3>
+                                 <span className="text-[11px] font-bold px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-100">
+                                    คำนวณเข้าต้นทุนร้าน
+                                 </span>
+                              </div>
+                              <p className="text-xs text-slate-500 font-medium mb-6">
+                                 บันทึกของที่ซื้อเข้าร้าน หากเลือกสถานะ <b className="text-emerald-600">"จ่ายแล้ว"</b> ยอดจะถูกนำไปคำนวณในค่าใช้จ่ายร้านของฝั่งแอดมินโดยอัตโนมัติ
+                              </p>
+
+                              <form onSubmit={handleSavePurchase} className="space-y-4">
+                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                       <label className="block text-xs font-bold text-slate-600 mb-1">วันที่ซื้อ</label>
+                                       <input
+                                          required
+                                          type="date"
+                                          value={purchaseForm.date}
+                                          onChange={e => setPurchaseForm({ ...purchaseForm, date: e.target.value })}
+                                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:border-indigo-500 outline-none text-slate-700 text-sm"
+                                       />
+                                    </div>
+                                    <div>
+                                       <label className="block text-xs font-bold text-slate-600 mb-1">หมวดหมู่ค่าใช้จ่าย</label>
+                                       <select
+                                          value={purchaseForm.category}
+                                          onChange={e => setPurchaseForm({ ...purchaseForm, category: e.target.value })}
+                                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:border-indigo-500 outline-none text-slate-700 text-sm"
+                                       >
+                                          <option value="ค่าอุปกรณ์/เบิกจิปาถะ">ค่าอุปกรณ์/เบิกจิปาถะ</option>
+                                          <option value="สั่งซื้อสินค้าจากศูนย์ใหญ่">สั่งซื้อสินค้าจากศูนย์ใหญ่</option>
+                                          <option value="ค่าน้ำ">ค่าน้ำ</option>
+                                          <option value="ค่าไฟ">ค่าไฟ</option>
+                                          <option value="ค่าอินเทอร์เน็ต">ค่าอินเทอร์เน็ต</option>
+                                          <option value="ค่าเช่าที่">ค่าเช่าที่</option>
+                                          <option value="อื่นๆ">อื่นๆ</option>
+                                       </select>
+                                    </div>
+                                 </div>
+
+                                 <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                                       ชื่อรายการ/สินค้าที่ซื้อ <span className="text-rose-500">*</span>
+                                    </label>
+                                    <input
+                                       required
+                                       type="text"
+                                       value={purchaseForm.itemName}
+                                       onChange={e => setPurchaseForm({ ...purchaseForm, itemName: e.target.value })}
+                                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:border-indigo-500 outline-none text-slate-700 text-sm"
+                                       placeholder="เช่น กระดาษทิชชู่ 5 แพ็ค, น้ำยาถูพื้น, หลอดไฟ..."
+                                    />
+                                 </div>
+
+                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                       <label className="block text-xs font-bold text-slate-600 mb-1">
+                                          จำนวนเงิน (บาท) <span className="text-rose-500">*</span>
+                                       </label>
+                                       <div className="relative">
+                                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">฿</span>
+                                          <input
+                                             required
+                                             type="number"
+                                             step="any"
+                                             min="0.01"
+                                             value={purchaseForm.amount}
+                                             onChange={e => setPurchaseForm({ ...purchaseForm, amount: e.target.value })}
+                                             className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-4 py-3 font-black focus:border-indigo-500 outline-none text-slate-800 text-base"
+                                             placeholder="0.00"
+                                          />
+                                       </div>
+                                    </div>
+                                    <div>
+                                       <label className="block text-xs font-bold text-slate-600 mb-1">ซื้อจากร้าน/ผู้จำหน่าย (ถ้ามี)</label>
+                                       <input
+                                          type="text"
+                                          value={purchaseForm.vendor}
+                                          onChange={e => setPurchaseForm({ ...purchaseForm, vendor: e.target.value })}
+                                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold focus:border-indigo-500 outline-none text-slate-700 text-sm"
+                                          placeholder="เช่น แม็คโคร, 7-Eleven, โลตัส..."
+                                       />
+                                    </div>
+                                 </div>
+
+                                 <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1.5">
+                                       สถานะการจ่ายเงิน <span className="text-rose-500">*</span>
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                       <button
+                                          type="button"
+                                          onClick={() => setPurchaseForm({ ...purchaseForm, status: 'จ่ายแล้ว' })}
+                                          className={`py-3 px-3 rounded-2xl font-bold text-xs flex flex-col items-center justify-center gap-1 border transition-all cursor-pointer ${
+                                             purchaseForm.status === 'จ่ายแล้ว'
+                                                ? 'bg-emerald-500 text-white border-emerald-600 shadow-md shadow-emerald-500/20'
+                                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                          }`}
+                                       >
+                                          <div className="flex items-center gap-1.5">
+                                             <CheckCircle size={15} />
+                                             <span className="font-black text-sm">จ่ายแล้ว</span>
+                                          </div>
+                                          <span className="text-[10px] opacity-90 font-medium">คำนวณเข้าต้นทุนร้านทันที</span>
+                                       </button>
+
+                                       <button
+                                          type="button"
+                                          onClick={() => setPurchaseForm({ ...purchaseForm, status: 'ยังไม่จ่าย' })}
+                                          className={`py-3 px-3 rounded-2xl font-bold text-xs flex flex-col items-center justify-center gap-1 border transition-all cursor-pointer ${
+                                             purchaseForm.status === 'ยังไม่จ่าย'
+                                                ? 'bg-amber-500 text-white border-amber-600 shadow-md shadow-amber-500/20'
+                                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                                          }`}
+                                       >
+                                          <div className="flex items-center gap-1.5">
+                                             <Clock size={15} />
+                                             <span className="font-black text-sm">ยังไม่จ่าย</span>
+                                          </div>
+                                          <span className="text-[10px] opacity-90 font-medium">ยังไม่คำนวณจนกว่าจะจ่าย</span>
+                                       </button>
+                                    </div>
+                                 </div>
+
+                                 <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">หมายเหตุ/รายละเอียดเพิ่มเติม</label>
+                                    <textarea
+                                       rows="2"
+                                       value={purchaseForm.note}
+                                       onChange={e => setPurchaseForm({ ...purchaseForm, note: e.target.value })}
+                                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 font-medium focus:border-indigo-500 outline-none text-slate-700 text-sm"
+                                       placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)..."
+                                    />
+                                 </div>
+
+                                 <div>
+                                    <label className="block text-xs font-bold text-slate-600 mb-1">แนบรูปถ่ายใบเสร็จ / บิล (ถ้ามี)</label>
+                                    {purchaseForm.receiptPreview ? (
+                                       <div className="relative rounded-2xl overflow-hidden border border-slate-200 max-h-48 bg-slate-100 flex items-center justify-center group">
+                                          <img src={purchaseForm.receiptPreview} alt="Receipt preview" className="w-full h-44 object-contain" />
+                                          <button
+                                             type="button"
+                                             onClick={() => setPurchaseForm({ ...purchaseForm, receiptFile: null, receiptPreview: null })}
+                                             className="absolute top-2 right-2 bg-rose-500 hover:bg-rose-600 text-white p-1.5 rounded-full shadow-lg transition-colors cursor-pointer"
+                                          >
+                                             <X size={14} />
+                                          </button>
+                                       </div>
+                                    ) : (
+                                       <label className="border-2 border-dashed border-slate-200 hover:border-emerald-400 bg-slate-50/70 hover:bg-emerald-50/30 rounded-2xl p-4 flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-colors text-slate-500 hover:text-emerald-600">
+                                          <Camera size={22} className="text-slate-400 group-hover:text-emerald-500" />
+                                          <span className="text-xs font-bold">แตะเพื่อถ่ายรูปหรือเลือกใบเสร็จ</span>
+                                          <span className="text-[10px] text-slate-400 font-medium">PNG, JPG, JPEG</span>
+                                          <input
+                                             type="file"
+                                             accept="image/*"
+                                             capture="environment"
+                                             className="hidden"
+                                             onChange={e => {
+                                                const file = e.target.files?.[0];
+                                                if (file) {
+                                                   setPurchaseForm({
+                                                      ...purchaseForm,
+                                                      receiptFile: file,
+                                                      receiptPreview: URL.createObjectURL(file)
+                                                   });
+                                                }
+                                             }}
+                                          />
+                                       </label>
+                                    )}
+                                 </div>
+
+                                 <button
+                                    type="submit"
+                                    disabled={isSubmittingPurchase}
+                                    className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-black shadow-lg shadow-emerald-600/25 transition-transform active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 text-sm cursor-pointer"
+                                 >
+                                    <Send size={16} /> {isSubmittingPurchase ? 'กำลังบันทึกข้อมูล...' : 'บันทึกรายการซื้อของ'}
+                                 </button>
+                              </form>
+                           </div>
+
+                           {/* Right Column: Purchases History */}
+                           <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col h-full">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                                 <div>
+                                    <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                                       <History className="text-slate-500" /> ประวัติการซื้อของเข้าร้าน
+                                    </h3>
+                                    <p className="text-[11px] text-slate-400 font-medium">กดปุ่มสถานะเพื่อสลับเป็น "จ่ายแล้ว" หรือ "ยังไม่จ่าย"</p>
+                                 </div>
+
+                                 {(() => {
+                                    const paidSum = myPurchases.filter(isExpensePaid).reduce((s, p) => s + parseNumber(p.amount), 0);
+                                    const unpaidSum = myPurchases.filter(p => !isExpensePaid(p)).reduce((s, p) => s + parseNumber(p.amount), 0);
+                                    return (
+                                       <div className="flex items-center gap-1.5 text-xs font-bold">
+                                          <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-xl border border-emerald-200" title="ยอดที่นำไปคิดในค่าใช้จ่ายร้านแล้ว">
+                                             จ่ายแล้ว: ฿{paidSum.toLocaleString()}
+                                          </span>
+                                          {unpaidSum > 0 && (
+                                             <span className="bg-amber-100 text-amber-800 px-2.5 py-1 rounded-xl border border-amber-200" title="ยอดที่ยังไม่ได้นำไปคิด">
+                                                ค้างจ่าย: ฿{unpaidSum.toLocaleString()}
+                                             </span>
+                                          )}
+                                       </div>
+                                    );
+                                 })()}
+                              </div>
+
+                              <div className="space-y-3 flex-1 overflow-y-auto custom-scrollbar pr-2 max-h-[600px]">
+                                 {myPurchases.length === 0 ? (
+                                    <div className="text-center text-slate-400 text-sm font-bold mt-12 py-8 bg-white rounded-2xl border border-slate-200/60">
+                                       ยังไม่มีประวัติการบันทึกซื้อของเข้าร้าน
+                                    </div>
+                                 ) : (
+                                    myPurchases.map(item => {
+                                       const isPaid = isExpensePaid(item);
+                                       return (
+                                          <div key={item.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs hover:border-slate-300 transition-all flex flex-col gap-2">
+                                             <div className="flex justify-between items-start gap-2">
+                                                <div className="flex-1 min-w-0">
+                                                   <div className="font-extrabold text-slate-800 text-sm truncate">
+                                                      {item.title || item.itemName}
+                                                   </div>
+                                                   <div className="text-[11px] text-slate-500 font-medium flex flex-wrap items-center gap-1.5 mt-0.5">
+                                                      <span>{new Date(item.date || item.createdAt).toLocaleDateString('th-TH')}</span>
+                                                      <span>•</span>
+                                                      <span className="text-slate-600 font-bold">{item.category}</span>
+                                                      {item.vendor && (
+                                                         <>
+                                                            <span>•</span>
+                                                            <span className="text-slate-400">ร้าน: {item.vendor}</span>
+                                                         </>
+                                                      )}
+                                                   </div>
+                                                   {item.employeeName && (
+                                                      <p className="text-[10px] text-slate-400">ผู้บันทึก: {item.employeeName}</p>
+                                                   )}
+                                                   {item.note && (
+                                                      <p className="text-xs text-slate-600 mt-1 bg-slate-50 p-2 rounded-xl border border-slate-100">
+                                                         {item.note}
+                                                      </p>
+                                                   )}
+                                                </div>
+
+                                                <div className="text-right shrink-0">
+                                                   <span className="text-base font-black text-slate-800 block">
+                                                      ฿{parseNumber(item.amount).toLocaleString()}
+                                                   </span>
+                                                   {item.receiptUrl && (
+                                                      <button
+                                                         type="button"
+                                                         onClick={() => setPreviewReceiptImage(item.receiptUrl)}
+                                                         className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-lg border border-indigo-100 inline-flex items-center gap-1 mt-1 transition-colors cursor-pointer"
+                                                      >
+                                                         <ImageIcon size={10} /> ดูใบเสร็จ
+                                                      </button>
+                                                   )}
+                                                </div>
+                                             </div>
+
+                                             {/* Status bar & Action */}
+                                             <div className="flex items-center justify-between pt-2 border-t border-slate-100 mt-1">
+                                                <button
+                                                   type="button"
+                                                   onClick={() => handleTogglePurchaseStatus(item)}
+                                                   className={`px-3 py-1 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all active:scale-95 shadow-xs cursor-pointer ${
+                                                      isPaid
+                                                         ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border border-emerald-300/50'
+                                                         : 'bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-300/50'
+                                                   }`}
+                                                   title="คลิกเพื่อสลับสถานะ จ่ายแล้ว / ยังไม่จ่าย"
+                                                >
+                                                   {isPaid ? <CheckCircle size={13} className="text-emerald-600" /> : <Clock size={13} className="text-amber-600" />}
+                                                   <span>{isPaid ? 'จ่ายแล้ว' : 'ยังไม่จ่าย'}</span>
+                                                   <span className="text-[9px] font-normal opacity-70 underline ml-0.5">(แตะเพื่อเปลี่ยน)</span>
+                                                </button>
+
+                                                <button
+                                                   type="button"
+                                                   onClick={() => handleDeletePurchase(item.id)}
+                                                   className="text-slate-400 hover:text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg transition-colors cursor-pointer"
+                                                   title="ลบรายการ"
+                                                >
+                                                   <Trash2 size={14} />
+                                                </button>
+                                             </div>
+                                          </div>
+                                       );
+                                    })
+                                 )}
                               </div>
                            </div>
                         </div>
@@ -2800,6 +3260,21 @@ export default function EmployeePortal({
                 ปิดหน้าต่าง
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Receipt Image Modal */}
+      {previewReceiptImage && (
+        <div className="fixed inset-0 z-[250] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setPreviewReceiptImage(null)}>
+          <div className="relative max-w-2xl max-h-[90vh] bg-white rounded-3xl overflow-hidden shadow-2xl p-2" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setPreviewReceiptImage(null)}
+              className="absolute top-4 right-4 z-10 w-9 h-9 bg-slate-900/70 hover:bg-slate-900 text-white rounded-full flex items-center justify-center transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+            <img src={previewReceiptImage} alt="Receipt preview" className="max-w-full max-h-[85vh] object-contain rounded-2xl mx-auto" />
           </div>
         </div>
       )}

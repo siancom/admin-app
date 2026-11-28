@@ -165,6 +165,8 @@ export default function MonthlyEodPrintModal({ isOpen, onClose, month, year, eod
   
   // OPEX Expenses (excluding inventory purchases from HQ to avoid double-counting with COGS)
   const monthlyExpenses = expenses.filter(e => {
+      const status = String(e?.status || e?.paymentStatus || '').trim().toLowerCase();
+      if (status === 'ยังไม่จ่าย' || status === 'unpaid' || status === 'รอจ่าย' || status === 'ค้างจ่าย' || status === 'pending') return false;
       if (localBranch !== 'ทั้งหมด' && e.branch !== localBranch) return false;
       if (e.category === 'สั่งซื้อสินค้าจากศูนย์ใหญ่') return false; 
       const eDate = getIsoDateStr(e.date || e.createdAt);

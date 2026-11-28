@@ -71,6 +71,8 @@ export default function DailyReportPrintModal({ isOpen, onClose, dateStr, filter
   };
 
   const currentExpenses = expenses.filter(ex => {
+    const status = String(ex?.status || ex?.paymentStatus || '').trim().toLowerCase();
+    if (status === 'ยังไม่จ่าย' || status === 'unpaid' || status === 'รอจ่าย' || status === 'ค้างจ่าย' || status === 'pending') return false;
     const exDate = ex.date ? ex.date.split('T')[0] : '';
     const matchDate = exDate === dateStr;
     const matchBranch = filterBranch === 'ทั้งหมด' || ex.branch === filterBranch;
