@@ -22,6 +22,7 @@ export default function EmployeePortal({
   orders = [],
   bookings = [],
   masterCourses = [],
+  courses = [],
   appSettings = {},
   onClose,
   onClockIn,
@@ -62,7 +63,8 @@ export default function EmployeePortal({
     totalServiceFees: '',
     totalFoodAllowance: '',
     diligenceAllowance: '',
-    totalAdvances: ''
+    totalAdvances: '',
+    totalPendingDebt: ''
   });
 
   useEffect(() => {
@@ -189,9 +191,11 @@ export default function EmployeePortal({
         attendance,
         leaves,
         localOverrides,
-        masterCourses
+        masterCourses,
+        courses,
+        orders
      });
-  }, [histories, serviceLogs, advancePayments, attendance, leaves, employee, payrollMonth, localOverrides, masterCourses]);
+  }, [histories, serviceLogs, advancePayments, attendance, leaves, employee, payrollMonth, localOverrides, masterCourses, courses, orders]);
 
   const commissionDetails = useMemo(() => {
     return calculateEmployeeCommissionDetails(employee, payrollMonth, {
@@ -231,7 +235,8 @@ export default function EmployeePortal({
       totalServiceFees: String(payrollEmployee.totalServiceFees ?? 0),
       totalFoodAllowance: String(payrollEmployee.totalFoodAllowance ?? 0),
       diligenceAllowance: String(payrollEmployee.diligenceAllowance ?? 0),
-      totalAdvances: String(payrollEmployee.totalAdvances ?? 0)
+      totalAdvances: String(payrollEmployee.totalAdvances ?? 0),
+      totalPendingDebt: String(payrollEmployee.totalPendingDebt ?? 0)
     });
     setIsEditingPayroll(true);
   };
@@ -246,6 +251,7 @@ export default function EmployeePortal({
         totalFoodAllowance: parseNumber(payrollEditForm.totalFoodAllowance),
         diligenceAllowance: parseNumber(payrollEditForm.diligenceAllowance),
         totalAdvances: parseNumber(payrollEditForm.totalAdvances),
+        totalPendingDebt: parseNumber(payrollEditForm.totalPendingDebt),
         updatedAt: new Date().toISOString()
       };
       const updatedOverrides = {
@@ -811,6 +817,12 @@ export default function EmployeePortal({
                         <div className="relative z-10">
                            <div className="text-emerald-800 font-bold mb-1 text-xs md:text-sm flex items-center gap-2">รายรับสุทธิ (รวมหักลบ)</div>
                            <div className="text-xl md:text-2xl font-black text-emerald-900">฿{payrollEmployee.netSalary.toLocaleString()}</div>
+                           {payrollEmployee.totalPendingDebt > 0 && (
+                              <div className="text-[11px] font-bold text-rose-600 mt-1 flex items-center gap-1">
+                                 <span>หักหนี้ค้างชำระ:</span>
+                                 <span className="font-black">-฿{payrollEmployee.totalPendingDebt.toLocaleString()}</span>
+                              </div>
+                           )}
                         </div>
                      </div>
                   </div>
@@ -1007,6 +1019,18 @@ export default function EmployeePortal({
                                  />
                               </div>
                            </div>
+                           <div className="flex justify-between items-center text-slate-600 gap-2">
+                              <span>หักยอดค้างชำระสินค้า/คอร์ส</span>
+                              <div className="flex items-center gap-1">
+                                 <span className="text-rose-500 font-bold">- ฿</span>
+                                 <input
+                                    type="number"
+                                    value={payrollEditForm.totalPendingDebt}
+                                    onChange={e => setPayrollEditForm({ ...payrollEditForm, totalPendingDebt: e.target.value })}
+                                    className="w-28 md:w-32 text-right font-bold text-rose-600 bg-rose-50/50 border border-rose-300 focus:border-rose-500 rounded-lg px-2.5 py-1 outline-none"
+                                 />
+                              </div>
+                           </div>
                            <div className="border-t border-dashed border-slate-200 pt-2 mt-2 flex justify-between items-center">
                               <span className="font-black text-slate-800">รายรับสุทธิ</span>
                               <span className="font-black text-emerald-600 text-base">
@@ -1016,7 +1040,8 @@ export default function EmployeePortal({
                                     parseNumber(payrollEditForm.totalServiceFees) +
                                     parseNumber(payrollEditForm.totalFoodAllowance) +
                                     parseNumber(payrollEditForm.diligenceAllowance) -
-                                    parseNumber(payrollEditForm.totalAdvances)
+                                    parseNumber(payrollEditForm.totalAdvances) -
+                                    parseNumber(payrollEditForm.totalPendingDebt)
                                  ).toLocaleString()}
                               </span>
                            </div>
@@ -1093,6 +1118,19 @@ export default function EmployeePortal({
                               <span>หักเบิกล่วงหน้า</span>
                               <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-rose-500 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>- ฿{(payrollEmployee.totalAdvances || 0).toLocaleString()}</span>
                            </div>
+                           {payrollEmployee.totalPendingDebt > 0 && (
+                              <div className="flex justify-between items-center text-rose-600">
+                                 <div>
+                                    <span>หักยอดค้างชำระสินค้า/คอร์ส</span>
+                                    {payrollEmployee.pendingDebtCourses?.length > 0 && (
+                                       <span className="text-[10px] text-rose-400 block font-normal">
+                                          ({payrollEmployee.pendingDebtCourses.map(c => c.computedCourseName || c['ชื่อคอส'] || 'คอร์ส').join(', ')})
+                                       </span>
+                                    )}
+                                 </div>
+                                 <span onClick={isAdmin || isOwnerPayrollUnlocked ? handleStartEditPayroll : undefined} className={`font-bold text-rose-600 ${isAdmin || isOwnerPayrollUnlocked ? 'cursor-pointer hover:underline decoration-dashed' : ''}`}>- ฿{(payrollEmployee.totalPendingDebt || 0).toLocaleString()}</span>
+                              </div>
+                           )}
                            <div className="border-t border-dashed border-slate-200 pt-2 mt-2 flex justify-between items-center">
                               <span className="font-black text-slate-800">รายรับสุทธิ</span>
                               <span className="font-black text-emerald-600 text-base">฿{(payrollEmployee.netSalary || 0).toLocaleString()}</span>
@@ -1100,6 +1138,28 @@ export default function EmployeePortal({
                         </div>
                      )}
                   </div>
+
+                  {payrollEmployee.totalPendingDebt > 0 && (
+                     <div className="bg-rose-50/90 border border-rose-200 rounded-2xl p-4 text-xs shadow-xs space-y-2">
+                        <div className="flex items-center justify-between text-rose-800 font-bold">
+                           <span className="flex items-center gap-1.5"><AlertCircle size={16} className="text-rose-600"/> รายการค้างชำระที่นำมาหักรายได้สุทธิ</span>
+                           <span className="text-rose-700 font-black text-sm">-฿{payrollEmployee.totalPendingDebt.toLocaleString()}</span>
+                        </div>
+                        <p className="text-[11px] text-rose-600/90 leading-relaxed">
+                           ระบบหักยอดค้างชำระสินค้า/คอร์สจากรายรับสุทธิแบบเรียลไทม์ หากชำระที่ POS เรียบร้อย ยอดรายรับจะอัปเดตคืนทันที
+                        </p>
+                        {payrollEmployee.pendingDebtCourses?.length > 0 && (
+                           <div className="bg-white/80 rounded-xl p-2.5 border border-rose-100 space-y-1">
+                              {payrollEmployee.pendingDebtCourses.map((c, i) => (
+                                 <div key={i} className="flex justify-between items-center text-[11px]">
+                                    <span className="font-medium text-slate-700">{c.computedCourseName || c['ชื่อคอส'] || 'คอร์สค้างชำระ'}</span>
+                                    <span className="font-bold text-rose-600">ค้าง ฿{(Number(c.computedPendingAmount) || 0).toLocaleString()}</span>
+                                 </div>
+                              ))}
+                           </div>
+                        )}
+                     </div>
+                  )}
                   
                   <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                      <div className="flex justify-between items-center mb-2">

@@ -24,9 +24,10 @@ export default function PayslipModal({ employee, payrollMonth, onClose }) {
   const totalFoodAllowance = parseNumber(employee.totalFoodAllowance);
   const diligenceAllowance = parseNumber(employee.diligenceAllowance);
   const totalAdvances = parseNumber(employee.totalAdvances);
+  const totalPendingDebt = parseNumber(employee.totalPendingDebt || 0);
   const totalIncome = employee.totalIncome !== undefined && employee.totalIncome !== null
     ? parseNumber(employee.totalIncome)
-    : (baseSalary + totalCommission + totalServiceFees + totalFoodAllowance + diligenceAllowance - totalAdvances);
+    : (baseSalary + totalCommission + totalServiceFees + totalFoodAllowance + diligenceAllowance - totalAdvances - totalPendingDebt);
 
   return (
     <div className="fixed inset-0 z-[240] flex items-center justify-center bg-black/50 p-4">
@@ -135,7 +136,20 @@ export default function PayslipModal({ employee, payrollMonth, onClose }) {
                     <span className="font-medium">-{totalAdvances.toLocaleString()}</span>
                   </div>
                 )}
-                {absenceDeduction === 0 && totalAdvances === 0 && (
+                {(totalPendingDebt > 0) && (
+                  <div className="flex justify-between text-rose-600">
+                    <div>
+                      <span>หักยอดค้างชำระสินค้า/คอร์ส (Course/Product Debt)</span>
+                      {Array.isArray(employee.pendingDebtCourses) && employee.pendingDebtCourses.length > 0 && (
+                        <span className="text-[10px] text-rose-400 block font-normal">
+                          ({employee.pendingDebtCourses.map(c => c.computedCourseName || c['ชื่อคอส'] || 'คอร์ส').join(', ')})
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-medium">-{totalPendingDebt.toLocaleString()}</span>
+                  </div>
+                )}
+                {absenceDeduction === 0 && totalAdvances === 0 && totalPendingDebt === 0 && (
                   <div className="flex justify-between text-slate-400">
                     <span>ไม่มีรายการหัก</span>
                     <span className="font-medium">0</span>

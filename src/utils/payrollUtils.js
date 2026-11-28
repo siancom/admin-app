@@ -67,6 +67,8 @@ export function calculateEmployeeMonthlyPayroll(
     localOverrides = null,
     localBaseSalary = undefined,
     masterCourses = [],
+    courses = [],
+    orders = [],
   } = {}
 ) {
   if (!emp) return null;
@@ -298,13 +300,50 @@ export function calculateEmployeeMonthlyPayroll(
       ? Math.ceil(parseNumber(emp.diligenceAllowance))
       : 0;
 
+  // 🌟 คำนวณยอดค้างชำระสินค้า / คอร์ส ของพนักงาน (Pending Debt)
+  const empPhoneClean = String(emp.phone || '').replace(/\D/g, '');
+  const empNameLower = String(emp.name || '').trim().toLowerCase();
+
+  const pendingDebtCourses = (courses || []).filter((c) => {
+    const pending = Number(c.computedPendingAmount ?? parseNumber(getFuzzyKey(c, ['ยอดค้างชำระ', 'pending', 'col_pending']))) || 0;
+    if (pending <= 0) return false;
+
+    const cPhoneClean = String(c.cleanPhone || c.computedPhone || getFuzzyKey(c, ['เบอร์โทร', 'col_1', 'col_3']) || '').replace(/\D/g, '');
+    const cName = String(c.computedCustomerName || getFuzzyKey(c, ['ผู้ซื้อคอส', 'ชื่อลูกค้า', 'col_9', 'col_2']) || '').trim().toLowerCase();
+
+    return (
+      (empPhoneClean && cPhoneClean && empPhoneClean === cPhoneClean) ||
+      (empNameLower && cName && (cName === empNameLower || cName.includes(empNameLower) || empNameLower.includes(cName))) ||
+      (c.employeeId && (c.employeeId === emp.id || c.employeeId === emp.name))
+    );
+  });
+
+  const rawPendingDebt = pendingDebtCourses.reduce((sum, c) => {
+    return sum + (Number(c.computedPendingAmount ?? parseNumber(getFuzzyKey(c, ['ยอดค้างชำระ', 'pending', 'col_pending']))) || 0);
+  }, 0);
+
+  const pendingDebtOrders = (orders || []).filter((o) => {
+    const pending = Number(o.pendingAmount ?? o.unpaidAmount ?? 0);
+    if (pending <= 0) return false;
+    const oPhoneClean = String(o.customerPhone || '').replace(/\D/g, '');
+    const oName = String(o.customerName || '').trim().toLowerCase();
+    return (
+      (empPhoneClean && oPhoneClean && empPhoneClean === oPhoneClean) ||
+      (empNameLower && oName && (oName === empNameLower || oName.includes(empNameLower) || empNameLower.includes(oName))) ||
+      (o.employeeId && o.employeeId === emp.id)
+    );
+  });
+
+  const totalOrderDebt = pendingDebtOrders.reduce((sum, o) => sum + Number(o.pendingAmount ?? o.unpaidAmount ?? 0), 0);
+  const autoPendingDebt = rawPendingDebt + totalOrderDebt;
+
   const monthOverride =
     (localOverrides && localOverrides[payrollMonth]) ||
     emp.payrollOverrides?.[payrollMonth] ||
     {};
 
   const hasVal = (v) => v !== undefined && v !== null && v !== '';
-  const hasOverride = ['baseSalary', 'totalCommission', 'totalServiceFees', 'totalFoodAllowance', 'diligenceAllowance', 'totalAdvances', 'absenceDeduction'].some(
+  const hasOverride = ['baseSalary', 'totalCommission', 'totalServiceFees', 'totalFoodAllowance', 'diligenceAllowance', 'totalAdvances', 'absenceDeduction', 'totalPendingDebt'].some(
     (k) => hasVal(monthOverride[k])
   );
 
@@ -329,6 +368,9 @@ export function calculateEmployeeMonthlyPayroll(
   const totalAdvances = hasVal(monthOverride.totalAdvances)
     ? parseNumber(monthOverride.totalAdvances)
     : autoAdvances;
+  const totalPendingDebt = hasVal(monthOverride.totalPendingDebt)
+    ? parseNumber(monthOverride.totalPendingDebt)
+    : autoPendingDebt;
 
   const totalIncome =
     baseSalary +
@@ -336,7 +378,8 @@ export function calculateEmployeeMonthlyPayroll(
     totalServiceFees +
     totalFoodAllowance +
     diligenceAllowance -
-    totalAdvances;
+    totalAdvances -
+    totalPendingDebt;
 
   return {
     ...emp,
@@ -359,6 +402,10 @@ export function calculateEmployeeMonthlyPayroll(
     totalFoodAllowance,
     diligenceAllowance,
     totalAdvances,
+    totalPendingDebt,
+    autoPendingDebt,
+    pendingDebtCourses,
+    pendingDebtOrders,
     autoRawBaseSalary: rawBaseSalary,
     autoBaseSalary,
     autoAbsenceDeduction,

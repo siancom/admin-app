@@ -2923,7 +2923,12 @@ export default function POSSystem({
       // สำหรับลูกค้า Walk-in สิทธิ์สมาชิกจะเปิดเฉพาะเมื่อพนักงานจงใจกดปุ่ม "สิทธิ์สมาชิก" หรือ toggle เองเท่านั้น ไม่เด้งจากยอดสะสม
       return Boolean(selectedCustomer.hasMemberCard || selectedCustomer.isMemberDiscount);
     }
-    return orderChannel === 'shopee' || vipStats.isVip || Boolean(selectedCustomer.isApproved === true || selectedCustomer.hasMemberCard === true || selectedCustomer.isMemberDiscount === true);
+    const isEmp = Boolean(
+      selectedCustomer.isEmployee || 
+      selectedCustomer.isStaff || 
+      (selectedCustomer.computedMemberStatus && String(selectedCustomer.computedMemberStatus).includes('พนักงาน'))
+    );
+    return isEmp || orderChannel === 'shopee' || vipStats.isVip || Boolean(selectedCustomer.isApproved === true || selectedCustomer.hasMemberCard === true || selectedCustomer.isMemberDiscount === true);
   }, [selectedCustomer, orderChannel, vipStats]);
 
   const customerCreditBalance = useMemo(() => {

@@ -10,7 +10,7 @@ import PayslipModal from './PayslipModal';
 import EmployeePortal from './EmployeePortal';
 import JobApplicationModal from './JobApplicationModal';
 import EmploymentContractModal from './EmploymentContractModal';
-export default function EmployeeDashboard({ employees = [], attendance = [], histories = [], branches = [], leaves = [], advancePayments = [], dailySales = [], onGoToPOS, appSettings = {}, orders = [], serviceLogs = [], requisitions = [], jobApplications = [], bookings = [], masterCourses = [] }) {
+export default function EmployeeDashboard({ employees = [], attendance = [], histories = [], branches = [], leaves = [], advancePayments = [], dailySales = [], onGoToPOS, appSettings = {}, orders = [], serviceLogs = [], requisitions = [], jobApplications = [], bookings = [], masterCourses = [], courses = [] }) {
   const [activeTab, setActiveTab] = useState('attendance');
   const [branchFilter, setBranchFilter] = useState('ทั้งหมด');
   const [selectedPosReceipt, setSelectedPosReceipt] = useState(null);
@@ -457,10 +457,12 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
         advancePayments,
         attendance,
         leaves,
-        masterCourses
+        masterCourses,
+        courses,
+        orders
       })
     );
-  }, [filteredEmployees, payrollMonth, histories, serviceLogs, advancePayments, attendance, leaves, masterCourses]);
+  }, [filteredEmployees, payrollMonth, histories, serviceLogs, advancePayments, attendance, leaves, masterCourses, courses, orders]);
   const attendanceHistoryData = getAttendanceHistory();
 
   return (
@@ -1370,7 +1372,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
              </div>
 
              {/* Real-time Monthly Summary Banner */}
-             <div className="bg-slate-50/50 border-b border-slate-200 p-6 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+             <div className="bg-slate-50/50 border-b border-slate-200 p-6 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
                     <span className="text-slate-500 text-xs font-bold mb-1">รวมฐานเงินเดือน</span>
                     <span className="text-lg font-black text-slate-800">฿{payrollData.reduce((sum, emp) => sum + (emp.rawBaseSalary || emp.baseSalary || 0), 0).toLocaleString()}</span>
@@ -1395,6 +1397,10 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                     <span className="text-slate-500 text-xs font-bold mb-1">รวมค่าคอมมิชชั่น</span>
                     <span className="text-lg font-black text-indigo-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalCommission || 0), 0).toLocaleString()}</span>
                 </div>
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center text-center hover:shadow-md transition-shadow">
+                    <span className="text-slate-500 text-xs font-bold mb-1">รวมหักยอดค้างชำระ</span>
+                    <span className="text-lg font-black text-rose-600">-฿{payrollData.reduce((sum, emp) => sum + (emp.totalPendingDebt || 0), 0).toLocaleString()}</span>
+                </div>
                 <div className="bg-emerald-50 p-4 rounded-2xl shadow-sm border border-emerald-100 flex flex-col items-center justify-center text-center col-span-2 md:col-span-1 ring-1 ring-emerald-500/20 hover:shadow-md transition-shadow">
                     <span className="text-emerald-700 text-xs font-bold mb-1">ยอดรวมจ่ายสุทธิ</span>
                     <span className="text-xl font-black text-emerald-600">฿{payrollData.reduce((sum, emp) => sum + (emp.totalIncome || 0), 0).toLocaleString()}</span>
@@ -1416,6 +1422,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                      <th className="px-6 py-4 text-right">ค่ามือ</th>
                      <th className="px-6 py-4 text-right">ค่าคอมมิชชั่น</th>
                      <th className="px-6 py-4 text-right">เบิกเงินล่วงหน้า</th>
+                     <th className="px-6 py-4 text-right">ยอดค้างชำระ (หักหนี้)</th>
                      <th className="px-6 py-4 text-right">ให้บริการ (ครั้ง)</th>
                      <th className="px-6 py-4 text-right">รายได้รวมสุทธิ</th>
                      <th className="px-6 py-4 text-center">สลิป</th>
@@ -1447,6 +1454,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                        <td className="px-6 py-4 text-right font-medium text-pink-600">฿{(emp.totalServiceFees || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right font-medium text-indigo-600">฿{(emp.totalCommission || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right font-medium text-rose-600">฿{(emp.totalAdvances || 0).toLocaleString()}</td>
+                       <td className="px-6 py-4 text-right font-medium text-rose-600">฿{(emp.totalPendingDebt || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-right text-slate-500">{emp.serviceCount + (emp.serviceLogCount || 0)}</td>
                        <td className="px-6 py-4 text-right font-black text-emerald-600 text-base">฿{(emp.totalIncome || 0).toLocaleString()}</td>
                        <td className="px-6 py-4 text-center">
@@ -1461,7 +1469,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
                      </tr>
                    ))}
                    {payrollData.length === 0 && (
-                     <tr><td colSpan={14} className="px-6 py-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลพนักงาน</td></tr>
+                     <tr><td colSpan={15} className="px-6 py-8 text-center text-slate-400 font-bold">ไม่มีข้อมูลพนักงาน</td></tr>
                    )}
                  </tbody>
                </table>
@@ -1938,6 +1946,7 @@ export default function EmployeeDashboard({ employees = [], attendance = [], his
            serviceLogs={serviceLogs}
            bookings={bookings}
            masterCourses={masterCourses}
+           courses={courses}
            onClose={() => setSelectedEmployeeForPortal(null)}
            onClockIn={(emp) => handleClockIn(emp.id, emp.name)}
            onClockOut={(att) => handleClockOut(att.id, att.branch, selectedEmployeeForPortal.branch)}

@@ -1959,8 +1959,26 @@ export default function App() {
       const productAccumulatedAmount = Math.max(oldAmount + productEarned, courseCreditUsed);
       const totalAccumulated = Math.max(oldAmount + historyEarned - historySpent, productAccumulatedAmount);
       
+      // 🌟 ตรวจสอบสิทธิ์พนักงาน (Staff Privilege)
+      const cleanPhoneForEmp = String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone", "cleanPhone"]) || c.phone || '').replace(/\D/g, '');
+      const cleanNameForEmp = String(displayName || posName || getFuzzyKey(c, ["ชื่อ", "col_1"]) || '').trim().toLowerCase();
+      const isCustomerEmployee = Boolean(
+        c.isEmployee || 
+        c.isStaff || 
+        (c.status && String(c.status).includes('พนักงาน')) ||
+        (c['สถานะสมาชิก'] && String(c['สถานะสมาชิก']).includes('พนักงาน')) ||
+        (employees || []).some(emp => {
+          const empPhone = String(emp.phone || '').replace(/\D/g, '');
+          const empName = String(emp.name || '').trim().toLowerCase();
+          return (cleanPhoneForEmp && empPhone && cleanPhoneForEmp === empPhone) || 
+                 (cleanNameForEmp && empName && (cleanNameForEmp === empName || (cleanNameForEmp.includes(empName) && empName.length >= 3)));
+        })
+      );
+
       let memberStatus = String(getFuzzyKey(c, ["สถานะสมาชิก", "col_7"]) || '').trim() || 'ทั่วไป';
-      if (productAccumulatedAmount >= 5000) {
+      if (isCustomerEmployee) {
+        memberStatus = 'พนักงาน (สิทธิ์สมาชิก)';
+      } else if (productAccumulatedAmount >= 5000) {
         // เมื่อยอดสะสมครบ 5,000 ปรับเป็นสมาชิก VIP ได้ทันที
         if (['ยังไม่สะสมยอด', 'ทั่วไป', 'สะสมยอด', '', 'รอบัตร'].includes(memberStatus)) {
           memberStatus = 'สมาชิกระดับ VIP';
@@ -1984,9 +2002,9 @@ export default function App() {
       // 🌟 ดึงข้อมูลบัตรสะสมยอด / บัตรสมาชิก
       const rawCardNo = String(c.membershipCardNo || c.memberCardNo || getFuzzyKey(c, ["หมายเลขใบสะสม", "เลขที่ใบสะสม", "บัตรสมาชิก", "เลขบัตรสมาชิก", "col_11"]) || '').trim();
       const cardNo = (rawCardNo && rawCardNo !== '-' && rawCardNo !== '0') ? rawCardNo : '';
-      const hasMemberCard = Boolean(c.hasMemberCard || cardNo || c.memberCardPhotoUrl || c.memberCardPhotoPreview);
-      const isApprovedCustomer = !['ยังไม่สะสมยอด', 'ทั่วไป', 'สะสมยอด', 'รอบัตร'].includes(memberStatus) && memberStatus !== '';
-      const hasAccumCard = Boolean(cardNo || hasMemberCard || isApprovedCustomer || ['สะสมยอด', 'สมาชิกระดับ VIP', 'รอบัตร'].includes(memberStatus) || productAccumulatedAmount > 0 || totalAccumulated > 0);
+      const hasMemberCard = Boolean(isCustomerEmployee || c.hasMemberCard || cardNo || c.memberCardPhotoUrl || c.memberCardPhotoPreview);
+      const isApprovedCustomer = isCustomerEmployee || (!['ยังไม่สะสมยอด', 'ทั่วไป', 'สะสมยอด', 'รอบัตร'].includes(memberStatus) && memberStatus !== '');
+      const hasAccumCard = Boolean(isCustomerEmployee || cardNo || hasMemberCard || isApprovedCustomer || ['สะสมยอด', 'สมาชิกระดับ VIP', 'รอบัตร'].includes(memberStatus) || productAccumulatedAmount > 0 || totalAccumulated > 0);
       
       // 🌟 ดึงข้อมูลรูปภาพสำหรับ Customer
       const picData = getProfilePicData(c, null);
@@ -2000,6 +2018,9 @@ export default function App() {
         membershipCardNo: cardNo || c.membershipCardNo || '',
         hasMemberCard,
         hasAccumCard,
+        isEmployee: isCustomerEmployee,
+        isStaff: isCustomerEmployee,
+        isMemberDiscount: isCustomerEmployee || Boolean(c.isMemberDiscount),
         computedPhone: String(getFuzzyKey(c, ["เบอร์โทร", "col_3", "phone", "computedPhone"]) || ''), 
         computedMemberStatus: memberStatus, 
         computedIssue: String(getFuzzyKey(c, ["ปัญหาผิวหน้า", "col_8"]) || ''), 
@@ -2016,7 +2037,7 @@ export default function App() {
         createdAtTimestamp
       };
     });
-  }, [customersRaw, histories, courses]);
+  }, [customersRaw, histories, courses, employees]);
 
   // 🌟 Clean customer phone set for O(1) fast new vs returning customer lookup
   const customerPhoneSet = useMemo(() => {
@@ -5783,10 +5804,12 @@ const flexMessage = {
         zipcode: newCustomerForm.zipcode || '',
         "หมายเลขใบสะสม": `Irismember${Math.floor(1000 + Math.random()*9000)}`, 
         "ยอดสะสม": "0", 
-        "สถานะสมาชิก": isVip ? "สมาชิกระดับ VIP" : "ยังไม่สะสมยอด",
-        isApproved: isVip,
-        hasMemberCard: isVip,
-        isMemberDiscount: isVip,
+        isEmployee: Boolean(newCustomerForm.isEmployee),
+        isStaff: Boolean(newCustomerForm.isEmployee),
+        "สถานะสมาชิก": newCustomerForm.isEmployee ? "พนักงาน (สิทธิ์สมาชิก)" : (isVip ? "สมาชิกระดับ VIP" : "ยังไม่สะสมยอด"),
+        isApproved: Boolean(newCustomerForm.isEmployee || isVip),
+        hasMemberCard: Boolean(newCustomerForm.isEmployee || isVip),
+        isMemberDiscount: Boolean(newCustomerForm.isEmployee || isVip),
         membershipCardNo: newCustomerForm.memberCardNo || '',
         memberCardPhotoUrl: uploadedMemberCardUrl || '',
         createdAt: serverTimestamp(),
@@ -6162,6 +6185,16 @@ const flexMessage = {
               updateData.memberCardPhotoUrl = uploadedMemberCardUrl;
             }
           }
+          if (editCustomerData.isEmployee !== undefined) {
+            updateData.isEmployee = Boolean(editCustomerData.isEmployee);
+            updateData.isStaff = Boolean(editCustomerData.isEmployee);
+            if (editCustomerData.isEmployee) {
+              updateData["สถานะสมาชิก"] = "พนักงาน (สิทธิ์สมาชิก)";
+              updateData.isApproved = true;
+              updateData.hasMemberCard = true;
+              updateData.isMemberDiscount = true;
+            }
+          }
 
           await updateDoc(getDocRef('customers', editCustomerData.id), updateData);
           setIsEditCustomerOpen(false);
@@ -6174,15 +6207,59 @@ const flexMessage = {
                 computedName: computedName,
                 computedPhone: cleanPhone,
                 computedIssue: editCustomerData.issue,
-                computedMemberStatus: isVip ? "สมาชิกระดับ VIP" : prev.computedMemberStatus,
-                isApproved: isVip ? true : prev.isApproved,
-                hasMemberCard: isVip ? true : prev.hasMemberCard,
+                computedMemberStatus: editCustomerData.isEmployee ? "พนักงาน (สิทธิ์สมาชิก)" : (isVip ? "สมาชิกระดับ VIP" : prev.computedMemberStatus),
+                isApproved: editCustomerData.isEmployee || isVip ? true : prev.isApproved,
+                hasMemberCard: editCustomerData.isEmployee || isVip ? true : prev.hasMemberCard,
+                isEmployee: Boolean(editCustomerData.isEmployee),
+                isStaff: Boolean(editCustomerData.isEmployee),
+                isMemberDiscount: Boolean(editCustomerData.isEmployee || isVip || prev.isMemberDiscount),
                 membershipCardNo: editCustomerData.memberCardNo || prev.membershipCardNo
               }));
           }
       } catch (err) { 
         showToast(`ข้อผิดพลาด: ${err.message}`, 'error'); 
       }
+  };
+
+  const handleToggleCustomerEmployeeStatus = async (cust) => {
+    if (!cust || !cust.id) return;
+    const isEmp = Boolean(cust.isEmployee || cust.isStaff || (cust.computedMemberStatus && String(cust.computedMemberStatus).includes('พนักงาน')));
+    const nextStatus = !isEmp;
+    const custName = cust.computedName || cust.name || 'ลูกค้ารายนี้';
+    const confirmMsg = nextStatus 
+      ? `ต้องการมอบ "สิทธิ์พนักงาน (ส่วนลดสมาชิก)" ให้กับคุณ ${custName} ใช่หรือไม่?\n\n• รับราคาสมาชิกและส่วนลด VIP ในระบบ POS ทันที\n• หากมีคอร์ส/สินค้าที่ค้างชำระ ยอดจะนำไปแสดงและหักในแดชบอร์ดเงินเดือนเรียลไทม์`
+      : `ต้องการยกเลิก "สิทธิ์พนักงาน" ของคุณ ${custName} ใช่หรือไม่?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const updateData = {
+        isEmployee: nextStatus,
+        isStaff: nextStatus,
+        updatedAt: serverTimestamp()
+      };
+      if (nextStatus) {
+        updateData["สถานะสมาชิก"] = "พนักงาน (สิทธิ์สมาชิก)";
+        updateData.isApproved = true;
+        updateData.hasMemberCard = true;
+        updateData.isMemberDiscount = true;
+      }
+      await updateDoc(getDocRef('customers', cust.id), updateData);
+      showToast(nextStatus ? 'มอบสิทธิ์พนักงาน (ส่วนลดสมาชิก) สำเร็จ!' : 'ยกเลิกสิทธิ์พนักงานเรียบร้อย', 'success');
+
+      if (selectedCustomer && selectedCustomer.id === cust.id) {
+        setSelectedCustomer(prev => ({
+          ...prev,
+          ...updateData,
+          computedMemberStatus: nextStatus ? "พนักงาน (สิทธิ์สมาชิก)" : prev.computedMemberStatus,
+          isApproved: nextStatus ? true : prev.isApproved,
+          hasMemberCard: nextStatus ? true : prev.hasMemberCard,
+          isMemberDiscount: nextStatus ? true : prev.isMemberDiscount
+        }));
+      }
+    } catch (err) {
+      showToast('เกิดข้อผิดพลาด: ' + err.message, 'error');
+    }
   };
 
 
@@ -8878,7 +8955,7 @@ const flexMessage = {
             />
           )}
 
-          {activeTab === 'employees' && globalRole === 'owner' && <EmployeeDashboard employees={employees} requisitions={employeeRequisitions} jobApplications={jobApplications} attendance={employeeAttendance} histories={histories} branches={branches} leaves={employeeLeaves} advancePayments={advancePayments} dailySales={dailySales} appSettings={appSettings} orders={orders} serviceLogs={serviceLogs} bookings={bookings} masterCourses={masterCourses} onGoToPOS={handlePosAccess} />}
+          {activeTab === 'employees' && globalRole === 'owner' && <EmployeeDashboard employees={employees} requisitions={employeeRequisitions} jobApplications={jobApplications} attendance={employeeAttendance} histories={histories} branches={branches} leaves={employeeLeaves} advancePayments={advancePayments} dailySales={dailySales} appSettings={appSettings} orders={orders} serviceLogs={serviceLogs} bookings={bookings} masterCourses={masterCourses} courses={processedCourses || courses} onGoToPOS={handlePosAccess} />}
 
           {activeTab === 'courses' && (
             <div className="flex flex-col h-full space-y-4 max-w-7xl mx-auto">
@@ -9221,9 +9298,15 @@ const flexMessage = {
                                          ✨ สมาชิกใหม่
                                      </div>
                                  )}
-                                 <div className={`text-[10px] px-2 py-1 rounded-md font-bold ${customer.isApproved ? 'bg-orange-50 text-orange-600' : 'bg-gray-100 text-gray-600'}`}>
-                                    {customer.isApproved ? 'VIP Member' : customer.computedMemberStatus}
-                                 </div>
+                                 {customer.isEmployee ? (
+                                     <div className="text-[10px] px-2 py-0.5 rounded-md font-bold bg-purple-50 text-purple-700 border border-purple-200 flex items-center">
+                                         <UserCheck size={10} className="mr-1 text-purple-600" /> พนักงาน (VIP)
+                                     </div>
+                                 ) : (
+                                     <div className={`text-[10px] px-2 py-1 rounded-md font-bold ${customer.isApproved ? 'bg-orange-50 text-orange-600' : 'bg-gray-100 text-gray-600'}`}>
+                                        {customer.isApproved ? 'VIP Member' : customer.computedMemberStatus}
+                                     </div>
+                                 )}
                                  {customer.membershipCardNo && (
                                      <div className="text-[10px] px-2 py-0.5 rounded-md font-bold bg-amber-50 text-amber-700 border border-amber-200 flex items-center font-mono" title={`หมายเลขใบสะสม: ${customer.membershipCardNo}`}>
                                          <Award size={10} className="mr-1 text-amber-500" />
@@ -10592,7 +10675,22 @@ const flexMessage = {
                 
                 {/* แถบเครื่องมือ (ย้ายมาจัดเรียงด้านบนให้ไม่ทับข้อความ) */}
                 <div className="flex justify-end gap-2 mb-6 relative z-10 w-full flex-wrap">
-                    {(!selectedCustomer.isApproved || selectedCustomer.computedMemberStatus !== 'สมาชิกระดับ VIP') && (
+                    {/* ปุ่มจัดการสิทธิ์พนักงาน (ส่วนลดสมาชิกทันที) */}
+                    <button
+                      onClick={() => handleToggleCustomerEmployeeStatus(selectedCustomer)}
+                      className={`p-2.5 rounded-full transition-all text-white shadow-lg flex items-center gap-1.5 px-4 active:scale-95 cursor-pointer ${
+                        selectedCustomer.isEmployee
+                          ? 'bg-emerald-600 hover:bg-emerald-700 border border-emerald-400'
+                          : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 border border-purple-400/50'
+                      }`}
+                      title={selectedCustomer.isEmployee ? 'คลิกเพื่อยกเลิกสิทธิ์พนักงาน' : 'ให้สิทธิ์พนักงานเพื่อรับส่วนลดสมาชิกทันที'}
+                    >
+                      {selectedCustomer.isEmployee ? <CheckCircle size={16}/> : <UserCheck size={16}/>}
+                      <span className="text-[11px] font-bold tracking-wider">
+                        {selectedCustomer.isEmployee ? '✓ สิทธิ์พนักงาน (ส่วนลดสมาชิก)' : '⭐ ให้สิทธิ์พนักงาน (ส่วนลดสมาชิก)'}
+                      </span>
+                    </button>
+                    {(!selectedCustomer.isApproved || selectedCustomer.computedMemberStatus !== 'สมาชิกระดับ VIP') && !selectedCustomer.isEmployee && (
                         <button 
                           onClick={() => setIsVipFormOpen(true)} 
                           className="p-2.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full hover:from-amber-600 hover:to-orange-600 transition-all text-white shadow-lg flex items-center gap-1.5 px-4 active:scale-95 cursor-pointer animate-pulse" 
@@ -10635,6 +10733,7 @@ const flexMessage = {
                         province: selectedCustomer.province || '',
                         zipcode: selectedCustomer.zipcode || '',
                         isVipUpgrade: selectedCustomer.isApproved || selectedCustomer.computedMemberStatus === 'สมาชิกระดับ VIP',
+                        isEmployee: Boolean(selectedCustomer.isEmployee || selectedCustomer.isStaff || (selectedCustomer.computedMemberStatus && String(selectedCustomer.computedMemberStatus).includes('พนักงาน'))),
                         hasMemberCard: selectedCustomer.hasMemberCard || !!selectedCustomer.membershipCardNo,
                         memberCardNo: selectedCustomer.membershipCardNo || selectedCustomer.memberCardNo || '',
                         memberCardPhotoFile: null,
@@ -10670,6 +10769,11 @@ const flexMessage = {
                         <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 sm:gap-4 text-white/90 text-sm">
                             <p className="font-mono flex items-center bg-white/10 px-3 py-1.5 rounded-xl"><Phone size={16} className="mr-2 opacity-70"/>{selectedCustomer.computedPhone}</p>
                             <p className="flex items-center bg-white/10 px-3 py-1.5 rounded-xl"><Users size={16} className="mr-2 opacity-70"/> สถานะ: <span className="font-bold ml-1 text-white">{selectedCustomer.computedMemberStatus}</span></p>
+                            {selectedCustomer.isEmployee && (
+                              <p className="flex items-center bg-emerald-500/80 border border-emerald-300/40 px-3 py-1.5 rounded-xl text-emerald-100 font-bold shadow-sm">
+                                <UserCheck size={16} className="mr-1.5 text-white"/> พนักงาน (สิทธิ์สมาชิก)
+                              </p>
+                            )}
                             {selectedCustomer.membershipCardNo && (
                               <p className="flex items-center bg-amber-400/25 border border-amber-300/40 px-3 py-1.5 rounded-xl text-amber-100 font-bold">
                                 <Award size={16} className="mr-2 text-amber-300"/> บัตรสมาชิก: <span className="text-white ml-1 font-mono">{selectedCustomer.membershipCardNo}</span>
@@ -11682,6 +11786,47 @@ const flexMessage = {
             )}
           </div>
 
+          {/* 🌟 สิทธิ์พนักงาน (Staff Privilege) 🌟 */}
+          <div className="bg-gradient-to-r from-purple-50/90 via-indigo-50/70 to-blue-50/90 border-2 border-purple-200/90 rounded-2xl p-3 sm:p-3.5 shadow-2xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <UserCheck size={18} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-purple-950 flex items-center gap-1.5 flex-wrap">
+                    <span>สิทธิ์พนักงาน (Staff Member)</span>
+                    {editCustomerData.isEmployee && (
+                      <span className="bg-purple-200 text-purple-900 text-[9px] font-black px-1.5 py-0.2 rounded-full border border-purple-300">
+                        รับส่วนลดสมาชิกทันที ✨
+                      </span>
+                    )}
+                  </h4>
+                  <p className="text-[10px] text-purple-800/80 leading-tight">
+                    ให้สิทธิ์พนักงานเพื่อรับราคาสมาชิกทันที และหักยอดค้างชำระในแดชบอร์ดเงินเดือนเรียลไทม์
+                  </p>
+                </div>
+              </div>
+              
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input 
+                  type="checkbox"
+                  checked={Boolean(editCustomerData.isEmployee)}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setEditCustomerData(prev => ({
+                      ...prev,
+                      isEmployee: checked,
+                      ...(checked ? { isVipUpgrade: true, hasMemberCard: true } : {})
+                    }));
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+              </label>
+            </div>
+          </div>
+
           <button 
             type="submit" 
             className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-black py-3.5 rounded-xl shadow-lg shadow-indigo-500/20 active:scale-95 transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer"
@@ -12255,6 +12400,47 @@ const flexMessage = {
                 />
               </div>
             )}
+          </div>
+
+          {/* 🌟 สิทธิ์พนักงาน (Staff Privilege) 🌟 */}
+          <div className="bg-gradient-to-r from-purple-50/90 via-indigo-50/70 to-blue-50/90 border-2 border-purple-200/90 rounded-2xl p-3 sm:p-3.5 shadow-2xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <UserCheck size={18} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-purple-950 flex items-center gap-1.5 flex-wrap">
+                    <span>สิทธิ์พนักงาน (Staff Member)</span>
+                    {newCustomerForm.isEmployee && (
+                      <span className="bg-purple-200 text-purple-900 text-[9px] font-black px-1.5 py-0.2 rounded-full border border-purple-300">
+                        รับส่วนลดสมาชิกทันที ✨
+                      </span>
+                    )}
+                  </h4>
+                  <p className="text-[10px] text-purple-800/80 leading-tight">
+                    ให้สิทธิ์พนักงานเพื่อรับราคาสมาชิกทันที และหักยอดค้างชำระในแดชบอร์ดเงินเดือนเรียลไทม์
+                  </p>
+                </div>
+              </div>
+              
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input 
+                  type="checkbox"
+                  checked={Boolean(newCustomerForm.isEmployee)}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setNewCustomerForm(prev => ({
+                      ...prev,
+                      isEmployee: checked,
+                      ...(checked ? { isVipUpgrade: true, hasMemberCard: true } : {})
+                    }));
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+              </label>
+            </div>
           </div>
 
           {/* 📋 ใบบันทึกประวัติลูกค้า & แฟ้มเอกสาร (IrisPatient) 📋 */}
@@ -13738,6 +13924,7 @@ const flexMessage = {
           serviceLogs={serviceLogs}
           bookings={bookings}
           masterCourses={masterCourses}
+          courses={processedCourses || courses}
           globalBranch={globalBranch}
           globalRole={globalRole}
           initialEmployee={initialEmployeeForAttendance}
