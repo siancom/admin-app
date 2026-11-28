@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Clock, Calendar, CheckCircle, UserCheck, UserMinus, X, User, LogOut, Send, Check, XCircle, History, DollarSign, Wallet, ShoppingCart, Lock, Trash2, FileText, ShieldAlert, Gift, Percent, Edit3, RotateCcw, ArrowRight, Receipt, Printer, ExternalLink, ChevronRight, AlertCircle, Eye, Users, TrendingUp, Package, Sparkles, BarChart3, PieChart, ShoppingBag, Layers, Award, Coins, ArrowUpRight, Camera, Image as ImageIcon } from 'lucide-react';
 import { db, getCol, storage } from '../config/firebase';
-import { addDoc, updateDoc, doc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { addDoc, updateDoc, doc, deleteDoc, onSnapshot, deleteField } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import PayslipModal from './PayslipModal';
 import { parseNumber, getLocalYYYYMMDD, normalizeBranchName, parseThaiDate } from '../utils/parse';
@@ -314,7 +314,18 @@ export default function EmployeePortal({
   };
 
   const handleResetPayrollOverride = async () => {
-    if (!window.confirm('ต้องการรีเซ็ตตัวเลขกลับไปใช้ยอดที่ระบบคำนวณอัตโนมัติใช่หรือไม่?')) return;
+    if (!isAdmin && !isOwnerPayrollUnlocked) {
+      const pass = window.prompt('กรอกรหัสผ่านเจ้าของร้านเพื่อรีเซ็ตตัวเลขเงินเดือน:');
+      if (pass === null) return;
+      const masterPass = String(appSettings?.masterPasscode || '999999');
+      if (String(pass).trim() !== masterPass) {
+        alert('รหัสผ่านเจ้าของร้านไม่ถูกต้อง');
+        return;
+      }
+      setIsOwnerPayrollUnlocked(true);
+    }
+
+    if (!window.confirm('ต้องการรีเซ็ตตัวเลขเงินเดือนเดือนนี้กลับไปใช้ยอดที่ระบบคำนวณอัตโนมัติแบบเรียลไทม์ใช่หรือไม่?\n(ระบบจะคำนวณจากวันทำงาน ยอดขาย และค่าบริการจริง)')) return;
     setIsSavingPayroll(true);
     try {
       const updatedOverrides = {
@@ -323,10 +334,15 @@ export default function EmployeePortal({
       };
       delete updatedOverrides[payrollMonth];
       await updateDoc(doc(db, 'employees', employee.id), {
-        payrollOverrides: updatedOverrides
+        payrollOverrides: updatedOverrides,
+        [`payrollOverrides.${payrollMonth}`]: deleteField()
       });
       setLocalOverrides(updatedOverrides);
+      if (employee.payrollOverrides) {
+        delete employee.payrollOverrides[payrollMonth];
+      }
       setIsEditingPayroll(false);
+      alert('รีเซ็ตตัวเลขเงินเดือนกลับเป็นค่าตามระบบเรียลไทม์เรียบร้อยแล้ว');
     } catch (err) {
       alert('รีเซ็ตไม่สำเร็จ: ' + err.message);
     }
@@ -1076,21 +1092,44 @@ export default function EmployeePortal({
 
                   {/* Salary Breakdown */}
                   <div className="bg-white p-4 md:p-5 rounded-2xl border border-slate-200 shadow-sm relative">
-                     <div className="flex items-center justify-between mb-3 pr-7">
-                        <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                     <div className="flex items-center justify-between mb-3 pr-10 sm:pr-12 flex-wrap gap-2">
+                        <div className="text-sm font-bold text-slate-800 flex items-center gap-2 flex-wrap">
                            <DollarSign size={16} className="text-emerald-500"/> รายละเอียดการคำนวณเงินเดือน
                            {payrollEmployee.hasOverride && !isEditingPayroll && (
-                              <span className="text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">ปรับแก้โดยเจ้าของร้าน</span>
+                              <button
+                                 type="button"
+                                 onClick={handleResetPayrollOverride}
+                                 disabled={isSavingPayroll}
+                                 className="text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 hover:border-amber-300 px-2 py-0.5 rounded-full flex items-center gap-1 transition-all active:scale-95 cursor-pointer shadow-2xs"
+                                 title="คลิกเพื่อรีเซ็ตตัวเลขเงินเดือนกลับเป็นค่าตามระบบ"
+                              >
+                                 <span>ปรับแก้โดยเจ้าของร้าน</span>
+                                 <RotateCcw size={10} className={`text-amber-600 ${isSavingPayroll ? 'animate-spin' : ''}`} />
+                              </button>
                            )}
                         </div>
                         {!isEditingPayroll && (
-                           <button
-                              onClick={handleStartEditPayroll}
-                              className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors"
-                              title="แก้ไขตัวเลขเงินเดือน (เจ้าของร้าน)"
-                           >
-                              <Edit3 size={13} /> แก้ไขตัวเลข
-                           </button>
+                           <div className="flex items-center gap-2 flex-wrap">
+                              {payrollEmployee.hasOverride && (
+                                 <button
+                                    type="button"
+                                    onClick={handleResetPayrollOverride}
+                                    disabled={isSavingPayroll}
+                                    className="flex items-center gap-1.5 text-xs font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 px-2.5 py-1 rounded-lg transition-all shadow-xs active:scale-95 cursor-pointer"
+                                    title="รีเซ็ตตัวเลขเงินเดือนกลับไปใช้ยอดที่ระบบคำนวณอัตโนมัติ"
+                                 >
+                                    <RotateCcw size={13} className={isSavingPayroll ? 'animate-spin' : ''} />
+                                    <span>{isSavingPayroll ? 'กำลังรีเซ็ต...' : 'รีเซ็ตตามระบบ'}</span>
+                                 </button>
+                              )}
+                              <button
+                                 onClick={handleStartEditPayroll}
+                                 className="flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                                 title="แก้ไขตัวเลขเงินเดือน (เจ้าของร้าน)"
+                              >
+                                 <Edit3 size={13} /> แก้ไขตัวเลข
+                              </button>
+                           </div>
                         )}
                      </div>
                      <button onClick={() => setShowContract(true)} className="absolute top-4 right-4 text-slate-400 hover:text-indigo-600 transition-colors p-1" title="ดูหนังสือสัญญา">

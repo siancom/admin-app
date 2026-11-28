@@ -706,3 +706,4 @@ function SingleReceiptModal({ order, onClose, branch = 'เฉวง' }) {
     </div>
   );
 }
+
